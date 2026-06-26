@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: resto_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-resto_db}
+      POSTGRES_USER: ${DB_USER:-resto_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-resto_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-resto_user} -d ${DB_NAME:-resto_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    container_name: resto_web
+    restart: unless-stopped
+    environment:
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-True}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-django-insecure-change-me}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,0.0.0.0}
+      DB_NAME: ${DB_NAME:-resto_db}
+      DB_USER: ${DB_USER:-resto_user}
+      DB_PASSWORD: ${DB_PASSWORD:-resto_password}
+      DB_HOST: db
+      DB_PORT: 5432
+    volumes:
+      - .:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/mediafiles
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  static_volume:
+  media_volume:
