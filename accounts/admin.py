@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import User
+from .models import User, UserAllergy
 
 
 @admin.register(User)
@@ -80,4 +80,30 @@ class CustomUserAdmin(UserAdmin):
                 ),
             },
         ),
+    )
+
+@admin.register(UserAllergy)
+class UserAllergyAdmin(admin.ModelAdmin):
+    list_display = (
+        "user",
+        "allergen",
+        "status",
+        "source",
+        "created_at",
+    )
+
+    list_filter = (
+        "status",
+        "source",
+        "allergen",
+    )
+
+    search_fields = (
+        "allergen__name",
+        "user__email",
+    )
+
+    list_select_related = (
+        "user",
+        "allergen",
     )

@@ -60,6 +60,7 @@ INSTALLED_APPS = [
 
     "accounts.apps.AccountsConfig",
     "main",
+    "menu",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
