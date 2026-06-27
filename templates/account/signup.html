@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Create Account - RESTO AI{% endblock %}
+{% block meta_description %}Create a RESTO AI account with your email.{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'css/auth.css' %}">
+{% endblock %}
+
+{% block content %}
+  <section class="auth-page" aria-labelledby="signup-title">
+    <div class="auth-card">
+      <p class="auth-kicker">Registration</p>
+      <h1 id="signup-title">Create account</h1>
+      <p class="auth-copy">Register with email. We will send a confirmation link before login is complete.</p>
+
+      <form class="auth-form" method="post" action="{% url 'account_signup' %}">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+
+        {% for field in form %}
+          {% if field.is_hidden %}
+            {{ field }}
+          {% else %}
+            <label class="auth-field" for="{{ field.id_for_label }}">
+              <span>{{ field.label }}</span>
+              {{ field }}
+              {% if field.help_text %}
+                <small>{{ field.help_text }}</small>
+              {% endif %}
+              {{ field.errors }}
+            </label>
+          {% endif %}
+        {% endfor %}
+
+        {% if redirect_field_value %}
+          <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
+        {% endif %}
+
+        <button class="auth-submit" type="submit">Create account</button>
+      </form>
+
+      <div class="auth-links">
+        <a href="{% url 'account_login' %}">Already have an account?</a>
+      </div>
+    </div>
+  </section>
+{% endblock %}

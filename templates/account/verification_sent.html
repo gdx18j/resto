@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Confirm Email - RESTO AI{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'css/auth.css' %}">
+{% endblock %}
+
+{% block content %}
+  <section class="auth-page" aria-labelledby="verification-sent-title">
+    <div class="auth-card">
+      <p class="auth-kicker">Email confirmation</p>
+      <h1 id="verification-sent-title">Check your email</h1>
+      <p class="auth-copy">We sent a confirmation link. In local development, the link appears in the Docker console output.</p>
+
+      <div class="auth-links">
+        <a href="{% url 'account_login' %}">Back to login</a>
+      </div>
+    </div>
+  </section>
+{% endblock %}
