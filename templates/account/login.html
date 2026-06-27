@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% load socialaccount static %}
 
-{% block title %}Login - RESTO AI{% endblock %}
-{% block meta_description %}Login to your RESTO AI account.{% endblock %}
+{% block title %}Login | Caesar &amp; Company{% endblock %}
+{% block meta_description %}Login to your Caesar & Company account.{% endblock %}
 
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'css/auth.css' %}">
@@ -13,7 +13,7 @@
     <div class="auth-card">
       <p class="auth-kicker">Account</p>
       <h1 id="login-title">Login</h1>
-      <p class="auth-copy">Use your email and password to continue.</p>
+      <p class="auth-copy">Save allergies and food preferences for safer menu recommendations.</p>
 
       <form class="auth-form" method="post" action="{% url 'account_login' %}">
         {% csrf_token %}

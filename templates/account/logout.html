@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Logout - RESTO AI{% endblock %}
+{% block title %}Logout | Caesar &amp; Company{% endblock %}
 
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'css/auth.css' %}">
@@ -23,7 +23,7 @@
       </form>
 
       <div class="auth-links">
-        <a href="{% url 'home' %}">Back to menu</a>
+        <a href="{% url 'menu:dish_list' %}">Back to menu</a>
       </div>
     </div>
   </section>
