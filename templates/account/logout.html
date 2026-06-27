@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Logout - RESTO AI{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'css/auth.css' %}">
+{% endblock %}
+
+{% block content %}
+  <section class="auth-page" aria-labelledby="logout-title">
+    <div class="auth-card">
+      <p class="auth-kicker">Session</p>
+      <h1 id="logout-title">Logout</h1>
+      <p class="auth-copy">End the current session for this account.</p>
+
+      <form class="auth-form" method="post" action="{% url 'account_logout' %}">
+        {% csrf_token %}
+        {% if redirect_field_value %}
+          <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
+        {% endif %}
+        <button class="auth-submit" type="submit">Logout</button>
+      </form>
+
+      <div class="auth-links">
+        <a href="{% url 'home' %}">Back to menu</a>
+      </div>
+    </div>
+  </section>
+{% endblock %}

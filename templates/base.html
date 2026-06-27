@@ -1,4 +1,4 @@
-{% load static %}
+{% load socialaccount static %}
 <!doctype html>
 <html lang="ru">
 <head>
@@ -17,6 +17,9 @@
 <body>
   <input class="state-control" type="checkbox" id="theme-toggle">
   <input class="state-control" type="checkbox" id="waiter-toggle">
+  <input class="state-control" type="checkbox" id="assistant-toggle">
+  <input class="state-control" type="checkbox" id="cart-toggle">
+  <input class="state-control" type="checkbox" id="profile-toggle">
 
   <input class="state-control" type="radio" name="language" id="lang-ru" checked>
   <input class="state-control" type="radio" name="language" id="lang-en">
@@ -143,6 +146,109 @@
         </div>
       </div>
     </div>
+
+    <div class="profile-popover-layer" role="dialog" aria-modal="true">
+      <label class="profile-popover-backdrop" for="profile-toggle"></label>
+      <aside class="profile-popover" aria-label="Account menu">
+        <label class="close-button" for="profile-toggle" aria-label="Close"><svg><use href="#i-close"/></svg></label>
+
+        {% if request.user.is_authenticated %}
+          <p class="profile-popover__kicker">Account</p>
+          <h2>Profile</h2>
+          <p class="profile-popover__copy">{{ request.user.email }}</p>
+
+          <form method="post" action="{% url 'account_logout' %}">
+            {% csrf_token %}
+            <button class="profile-popover__primary" type="submit">Logout</button>
+          </form>
+        {% else %}
+          <p class="profile-popover__kicker">Account</p>
+          <h2>Login or register</h2>
+          <p class="profile-popover__copy">Use email and password, or continue with Google.</p>
+
+          <div class="profile-popover__actions">
+            <a class="profile-popover__primary" href="{% url 'account_login' %}">Login</a>
+            <a class="profile-popover__secondary" href="{% url 'account_signup' %}">Create account</a>
+          </div>
+
+          <div class="profile-popover__divider"><span>or</span></div>
+
+          <form method="post" action="{% provider_login_url 'google' process='login' %}">
+            {% csrf_token %}
+            <button class="profile-popover__google" type="submit">Continue with Google</button>
+          </form>
+        {% endif %}
+      </aside>
+    </div>
+
+    <section class="assistant-panel" role="dialog" aria-modal="true">
+      <label class="panel-backdrop" for="assistant-toggle"></label>
+      <div class="assistant-window">
+        <header class="panel-header">
+          <div class="panel-title-wrap">
+            <span class="panel-icon"><svg><use href="#i-sparkle"/></svg></span>
+            <div>
+              <h2><span class="lang lang--ru">Помощник по меню</span><span class="lang lang--en">Menu assistant</span><span class="lang lang--tr">Menü asistanı</span></h2>
+              <p><span class="lang lang--ru">Помогу выбрать блюдо</span><span class="lang lang--en">I will help you choose</span><span class="lang lang--tr">Seçmenize yardımcı olurum</span></p>
+            </div>
+          </div>
+          <label class="close-button" for="assistant-toggle" aria-label="Close"><svg><use href="#i-close"/></svg></label>
+        </header>
+        <div class="chat-body">
+          <div class="chat-message">
+            <p><span class="lang lang--ru">Что вам хочется сегодня? Напишите про вкус, ингредиенты или аллергию.</span><span class="lang lang--en">What would you like today? Tell me about taste, ingredients or allergies.</span><span class="lang lang--tr">Bugün ne istersiniz? Lezzet, malzemeler veya alerjiler hakkında yazın.</span></p>
+          </div>
+          <div class="quick-prompts">
+            <button type="button"><span class="lang lang--ru">Без орехов</span><span class="lang lang--en">No nuts</span><span class="lang lang--tr">Kuruyemişsiz</span></button>
+            <button type="button"><span class="lang lang--ru">Легкий ужин</span><span class="lang lang--en">Light dinner</span><span class="lang lang--tr">Hafif akşam</span></button>
+            <button type="button"><span class="lang lang--ru">Что популярно?</span><span class="lang lang--en">Popular picks</span><span class="lang lang--tr">Popülerler</span></button>
+          </div>
+        </div>
+        <form class="chat-form">
+          <input type="text" placeholder="Напишите сообщение" aria-label="Message">
+          <button type="button" aria-label="Send"><svg><use href="#i-send"/></svg></button>
+        </form>
+      </div>
+    </section>
+
+    <section class="cart-panel" role="dialog" aria-modal="true">
+      <label class="panel-backdrop" for="cart-toggle"></label>
+      <div class="cart-sheet">
+        <header class="panel-header">
+          <div class="panel-title-wrap">
+            <span class="panel-icon"><svg><use href="#i-bag"/></svg></span>
+            <div>
+              <h2><span class="lang lang--ru">Ваш заказ</span><span class="lang lang--en">Your order</span><span class="lang lang--tr">Siparişiniz</span></h2>
+              <p><span class="lang lang--ru">Стол №12</span><span class="lang lang--en">Table 12</span><span class="lang lang--tr">Masa 12</span></p>
+            </div>
+          </div>
+          <label class="close-button" for="cart-toggle" aria-label="Close"><svg><use href="#i-close"/></svg></label>
+        </header>
+        <div class="cart-list">
+          <div class="cart-item">
+            <img src="https://images.unsplash.com/photo-1550304943-4f24f54ddde9?auto=format&fit=crop&w=220&q=80" alt="Chicken Caesar">
+            <div class="cart-item-copy">
+              <h3><span class="lang lang--ru">Цезарь с курицей</span><span class="lang lang--en">Chicken Caesar</span><span class="lang lang--tr">Tavuklu Sezar</span></h3>
+              <strong>590 ₽</strong>
+            </div>
+            <div class="quantity-control">
+              <button type="button" aria-label="Decrease"><svg><use href="#i-minus"/></svg></button>
+              <span>2</span>
+              <button type="button" aria-label="Increase"><svg><use href="#i-plus"/></svg></button>
+            </div>
+          </div>
+        </div>
+        <label class="order-comment">
+          <span><span class="lang lang--ru">Комментарий к заказу</span><span class="lang lang--en">Order note</span><span class="lang lang--tr">Sipariş notu</span></span>
+          <textarea rows="3"></textarea>
+        </label>
+        <div class="cart-summary">
+          <span><span class="lang lang--ru">Итого</span><span class="lang lang--en">Total</span><span class="lang lang--tr">Toplam</span></span>
+          <strong>1 870 ₽</strong>
+        </div>
+        <button class="checkout-button" type="button"><span class="lang lang--ru">Оформить заказ</span><span class="lang lang--en">Place order</span><span class="lang lang--tr">Sipariş ver</span></button>
+      </div>
+    </section>
   </div>
   <script src="{% static 'js/theme.js' %}" defer></script>
   {% block extra_scripts %}{% endblock %}

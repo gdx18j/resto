@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% load socialaccount static %}
+
+{% block title %}Login - RESTO AI{% endblock %}
+{% block meta_description %}Login to your RESTO AI account.{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'css/auth.css' %}">
+{% endblock %}
+
+{% block content %}
+  <section class="auth-page" aria-labelledby="login-title">
+    <div class="auth-card">
+      <p class="auth-kicker">Account</p>
+      <h1 id="login-title">Login</h1>
+      <p class="auth-copy">Use your email and password to continue.</p>
+
+      <form class="auth-form" method="post" action="{% url 'account_login' %}">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+
+        {% for field in form %}
+          {% if field.is_hidden %}
+            {{ field }}
+          {% elif field.name == "remember" %}
+            <label class="auth-check" for="{{ field.id_for_label }}">
+              {{ field }}
+              <span>{{ field.label }}</span>
+            </label>
+          {% else %}
+            <label class="auth-field" for="{{ field.id_for_label }}">
+              <span>{{ field.label }}</span>
+              {{ field }}
+              {{ field.errors }}
+            </label>
+          {% endif %}
+        {% endfor %}
+
+        {% if redirect_field_value %}
+          <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
+        {% endif %}
+
+        <button class="auth-submit" type="submit">Login</button>
+      </form>
+
+      <div class="auth-divider"><span>or</span></div>
+
+      <form class="auth-form" method="post" action="{% provider_login_url 'google' process='login' %}">
+        {% csrf_token %}
+        <button class="auth-google" type="submit">Continue with Google</button>
+      </form>
+
+      <div class="auth-links">
+        <a href="{% url 'account_signup' %}">Create account</a>
+        <a href="{% url 'account_reset_password' %}">Forgot password?</a>
+      </div>
+    </div>
+  </section>
+{% endblock %}

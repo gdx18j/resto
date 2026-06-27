@@ -1,3 +1,182 @@
-from django.test import TestCase
+from allauth.account.models import EmailAddress
+from allauth.socialaccount.adapter import get_adapter
+from allauth.socialaccount.models import SocialAccount, SocialLogin
+from django.contrib.auth import get_user_model
+from django.core.exceptions import FieldDoesNotExist
+from django.db import IntegrityError
+from django.test import RequestFactory, TestCase
+from django.urls import reverse
 
-# Create your tests here.
+
+User = get_user_model()
+
+
+class UserModelTests(TestCase):
+    def test_create_user_uses_email_as_identifier(self):
+        user = User.objects.create_user(
+            email="Guest@Example.COM",
+            password="strong-pass-123",
+        )
+
+        self.assertEqual(user.email, "Guest@example.com")
+        self.assertNotEqual(user.password, "strong-pass-123")
+        self.assertTrue(user.check_password("strong-pass-123"))
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
+        self.assertEqual(str(user), "Guest@example.com")
+
+    def test_email_is_required(self):
+        with self.assertRaises(ValueError):
+            User.objects.create_user(email="", password="strong-pass-123")
+
+    def test_email_is_unique(self):
+        User.objects.create_user(email="guest@example.com", password="strong-pass-123")
+
+        with self.assertRaises(IntegrityError):
+            User.objects.create_user(email="guest@example.com", password="strong-pass-123")
+
+    def test_username_field_does_not_exist(self):
+        with self.assertRaises(FieldDoesNotExist):
+            User._meta.get_field("username")
+
+    def test_create_superuser_sets_admin_flags(self):
+        user = User.objects.create_superuser(
+            email="admin@example.com",
+            password="strong-pass-123",
+        )
+
+        self.assertTrue(user.is_staff)
+        self.assertTrue(user.is_superuser)
+        self.assertTrue(user.is_active)
+
+
+class AccountViewTests(TestCase):
+    def test_auth_pages_are_available(self):
+        url_names = [
+            "account_login",
+            "account_signup",
+            "account_reset_password",
+        ]
+
+        for url_name in url_names:
+            with self.subTest(url_name=url_name):
+                response = self.client.get(reverse(url_name))
+                self.assertEqual(response.status_code, 200)
+
+    def test_signup_creates_user_and_unverified_email_address(self):
+        response = self.client.post(
+            reverse("account_signup"),
+            {
+                "email": "new@example.com",
+                "password1": "StrongPass123!",
+                "password2": "StrongPass123!",
+            },
+        )
+
+        self.assertRedirects(response, reverse("account_email_verification_sent"))
+        user = User.objects.get(email="new@example.com")
+        email_address = EmailAddress.objects.get(user=user, email="new@example.com")
+
+        self.assertFalse(email_address.verified)
+        self.assertTrue(email_address.primary)
+
+    def test_invalid_password_does_not_login_user(self):
+        user = User.objects.create_user(
+            email="guest@example.com",
+            password="StrongPass123!",
+        )
+        EmailAddress.objects.create(
+            user=user,
+            email=user.email,
+            verified=True,
+            primary=True,
+        )
+
+        self.client.post(
+            reverse("account_login"),
+            {
+                "login": user.email,
+                "password": "wrong-password",
+            },
+        )
+
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_verified_user_can_login_with_email(self):
+        user = User.objects.create_user(
+            email="guest@example.com",
+            password="StrongPass123!",
+        )
+        EmailAddress.objects.create(
+            user=user,
+            email=user.email,
+            verified=True,
+            primary=True,
+        )
+
+        self.client.post(
+            reverse("account_login"),
+            {
+                "login": user.email,
+                "password": "StrongPass123!",
+            },
+        )
+
+        self.assertEqual(int(self.client.session["_auth_user_id"]), user.pk)
+
+    def test_logout_ends_session(self):
+        user = User.objects.create_user(
+            email="guest@example.com",
+            password="StrongPass123!",
+        )
+        self.client.force_login(user)
+
+        self.client.post(reverse("account_logout"))
+
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+
+class GoogleAuthTests(TestCase):
+    def test_login_page_contains_google_post_form(self):
+        response = self.client.get(reverse("account_login"))
+
+        self.assertContains(response, "Continue with Google")
+        self.assertContains(response, reverse("google_login"))
+        self.assertContains(response, "csrfmiddlewaretoken")
+
+    def test_google_login_get_does_not_start_oauth_redirect(self):
+        response = self.client.get(reverse("google_login"))
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_verified_google_email_matches_existing_user(self):
+        user = User.objects.create_user(
+            email="guest@example.com",
+            password="StrongPass123!",
+        )
+        EmailAddress.objects.create(
+            user=user,
+            email=user.email,
+            verified=True,
+            primary=True,
+        )
+
+        request = RequestFactory().get(reverse("account_login"))
+        provider = get_adapter(request).get_provider(request, "google")
+        sociallogin = SocialLogin(
+            account=SocialAccount(provider="google", uid="google-user-id"),
+            email_addresses=[
+                EmailAddress(
+                    email="guest@example.com",
+                    verified=True,
+                    primary=True,
+                )
+            ],
+            provider=provider,
+        )
+
+        matched_user, matched_email = get_adapter().authenticate_by_email(sociallogin)
+
+        self.assertEqual(matched_user, user)
+        self.assertEqual(matched_email, user.email)
+        self.assertEqual(User.objects.filter(email=user.email).count(), 1)

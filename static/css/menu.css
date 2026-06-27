@@ -592,76 +592,167 @@ textarea:focus-visible {
   font-size: 16px;
 }
 
-.dish-time {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.menu-empty {
-  min-height: 48vh;
+.add-button {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
   display: grid;
-  align-content: center;
-  gap: 12px;
+  place-items: center;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  cursor: pointer;
 }
 
-.menu-empty h1 {
-  margin: 0;
-  font-size: clamp(38px, 10vw, 64px);
-  line-height: 0.95;
+.add-button:hover {
+  background: var(--accent-hover);
 }
 
-.menu-empty p {
-  max-width: 520px;
-  margin: 0;
-  color: var(--text-soft);
-  line-height: 1.6;
+.add-button svg {
+  width: 19px;
+  height: 19px;
 }
 
-.site-footer {
-  border-top: 1px solid var(--line);
-  background: var(--surface-soft);
+.simple-placeholder {
+  min-height: 110px;
+  border-bottom: 1px solid var(--line);
 }
 
-.footer__grid {
-  padding-block: 26px;
+/* =========================================================
+   6. ПЛАВАЮЩАЯ КНОПКА ИИ
+========================================================= */
+
+.ai-fab {
+  position: fixed;
+  right: max(18px, calc((100vw - var(--content-width)) / 2 + 18px));
+  bottom: calc(92px + env(safe-area-inset-bottom));
+  z-index: 80;
+  width: 58px;
+  height: 58px;
   display: grid;
-  gap: 18px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 70%, var(--line));
+  border-radius: 50%;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+  transition: transform 180ms ease, background-color 180ms ease;
 }
 
-.footer__brand strong {
-  font-family: "Forum", Georgia, serif;
-  font-size: 24px;
-  font-weight: 400;
-  letter-spacing: 0.08em;
+.ai-fab:hover {
+  transform: translateY(-2px);
+  background: var(--accent-hover);
 }
 
-.footer__brand p {
-  margin: 8px 0 0;
-  color: var(--muted);
-  font-size: 12px;
+.ai-fab svg {
+  width: 25px;
+  height: 25px;
 }
 
-.footer__links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  color: var(--text-soft);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.footer__links a:hover {
-  color: var(--accent);
-}
-
-.footer__bottom {
-  padding: 0 0 22px;
-  color: var(--muted);
+.ai-fab-tooltip {
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 50%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--text);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
   font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(5px, -50%);
+  transition: opacity 150ms ease, transform 150ms ease;
 }
 
-.modal-layer {
+.ai-fab:hover .ai-fab-tooltip {
+  opacity: 1;
+  transform: translate(0, -50%);
+}
+
+/* =========================================================
+   7. НИЖНЯЯ ПЛАШКА КОРЗИНЫ
+========================================================= */
+
+.cart-bar {
+  position: fixed;
+  left: 14px;
+  right: 14px;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  z-index: 75;
+  min-height: 64px;
+  max-width: 620px;
+  margin-inline: auto;
+  padding: 10px 13px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line));
+  border-radius: 17px;
+  color: var(--text);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+
+.cart-bar-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cart-bar-icon {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--accent-contrast);
+  background: var(--accent);
+}
+
+.cart-bar-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.cart-bar-copy strong {
+  font-size: 13px;
+}
+
+.cart-bar-copy small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.cart-bar-total {
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.cart-bar-chevron {
+  width: 17px;
+  height: 17px;
+  color: var(--muted);
+}
+
+/* =========================================================
+   8. ОБЩИЕ ОКНА И ПАНЕЛИ
+========================================================= */
+
+.modal-layer,
+.assistant-panel,
+.cart-panel {
   position: fixed;
   inset: 0;
   z-index: 100;
@@ -671,7 +762,132 @@ textarea:focus-visible {
   transition: opacity 180ms ease, visibility 180ms ease;
 }
 
-#waiter-toggle:checked ~ .app-shell .waiter-modal {
+.profile-popover-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+#profile-toggle:checked ~ .app-shell .profile-popover-layer {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.profile-popover-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.18);
+  cursor: default;
+}
+
+.profile-popover {
+  position: absolute;
+  top: 82px;
+  right: max(18px, calc((100vw - var(--content-width)) / 2));
+  width: min(360px, calc(100vw - 32px));
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 96%, #111 4%);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  padding: 22px;
+  transform: translateY(-8px);
+  transition: transform 180ms ease;
+}
+
+#profile-toggle:checked ~ .app-shell .profile-popover {
+  transform: translateY(0);
+}
+
+.profile-popover__kicker {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.profile-popover h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.15;
+}
+
+.profile-popover__copy {
+  margin: 10px 30px 18px 0;
+  color: var(--muted);
+  font-size: 0.94rem;
+  line-height: 1.5;
+}
+
+.profile-popover__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.profile-popover__primary,
+.profile-popover__secondary,
+.profile-popover__google {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 800;
+  padding: 0 14px;
+  text-align: center;
+  text-decoration: none;
+}
+
+.profile-popover__primary {
+  border: 0;
+  background: var(--accent);
+  color: #1c160a;
+}
+
+.profile-popover__secondary {
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  background: transparent;
+  color: var(--text);
+}
+
+.profile-popover__divider {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 10px;
+  align-items: center;
+  margin: 18px 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.profile-popover__divider::before,
+.profile-popover__divider::after {
+  height: 1px;
+  background: color-mix(in srgb, var(--line) 78%, transparent);
+  content: "";
+}
+
+.profile-popover__google {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  background: #fff;
+  color: #1f1f1f;
+}
+
+#waiter-toggle:checked ~ .app-shell .waiter-modal,
+#assistant-toggle:checked ~ .app-shell .assistant-panel,
+#cart-toggle:checked ~ .app-shell .cart-panel {
   visibility: visible;
   opacity: 1;
   pointer-events: auto;

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Confirm Email - RESTO AI{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'css/auth.css' %}">
+{% endblock %}
+
+{% block content %}
+  <section class="auth-page" aria-labelledby="email-confirm-title">
+    <div class="auth-card">
+      <p class="auth-kicker">Email confirmation</p>
+      <h1 id="email-confirm-title">Confirm email</h1>
+
+      {% if confirmation %}
+        <p class="auth-copy">Confirm this email address to activate account login.</p>
+        <form class="auth-form" method="post" action="{% url 'account_confirm_email' confirmation.key %}">
+          {% csrf_token %}
+          <button class="auth-submit" type="submit">Confirm email</button>
+        </form>
+      {% else %}
+        <p class="auth-copy">This confirmation link is invalid or has expired.</p>
+      {% endif %}
+
+      <div class="auth-links">
+        <a href="{% url 'account_login' %}">Back to login</a>
+      </div>
+    </div>
+  </section>
+{% endblock %}
