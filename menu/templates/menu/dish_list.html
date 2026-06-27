@@ -4,27 +4,31 @@
 {% block meta_description %}Цифровое меню ресторана Caesar & Company.{% endblock %}
 
 {% block content %}
-  <section class="search-section" aria-label="Поиск по меню">
-    <label class="search-box">
-      <svg><use href="#i-search"/></svg>
-      <input class="lang-input lang-input--ru" type="search" placeholder="Найти блюдо или ингредиент" aria-label="Поиск по меню">
-      <input class="lang-input lang-input--en" type="search" placeholder="Find a dish or ingredient" aria-label="Search menu">
-      <input class="lang-input lang-input--tr" type="search" placeholder="Yemek veya malzeme ara" aria-label="Menüde ara">
-    </label>
-  </section>
+  <div class="menu-controls">
+    <section class="search-section" aria-label="Поиск по меню">
+      <label class="search-box">
+        <svg><use href="#i-search"/></svg>
+        <input class="lang-input lang-input--ru" type="search" placeholder="Найти блюдо или ингредиент" aria-label="Поиск по меню">
+        <input class="lang-input lang-input--en" type="search" placeholder="Find a dish or ingredient" aria-label="Search menu">
+        <input class="lang-input lang-input--tr" type="search" placeholder="Yemek veya malzeme ara" aria-label="Menüde ara">
+      </label>
+    </section>
+
+    {% if menu_sections %}
+      <nav class="category-strip" aria-label="Категории меню">
+        {% for section in menu_sections %}
+          <a
+            class="category-chip{% if forloop.first %} is-active{% endif %}"
+            href="#{{ section.anchor }}"
+          >
+            {{ section.title }}
+          </a>
+        {% endfor %}
+      </nav>
+    {% endif %}
+  </div>
 
   {% if menu_sections %}
-    <nav class="category-strip" aria-label="Категории меню">
-      {% for section in menu_sections %}
-        <a
-          class="category-chip{% if forloop.first %} is-active{% endif %}"
-          href="#{{ section.anchor }}"
-        >
-          {{ section.title }}
-        </a>
-      {% endfor %}
-    </nav>
-
     <aside class="preference-note">
       <svg><use href="#i-shield"/></svg>
       <p>

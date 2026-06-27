@@ -26,12 +26,12 @@ class UserAllergy(models.Model):
     Аллерген, указанный пользователем.
 
     Запись может быть добавлена вручную
-    или получена из разговора с ИИ.
+    или получена из диалога с гостем.
     """
 
     class Source(models.TextChoices):
         MANUAL = "manual", "Добавлено пользователем"
-        AI_CHAT = "ai_chat", "Получено из чата с ИИ"
+        DIALOG = "ai_chat", "Получено из диалога"
         ADMIN = "admin", "Добавлено администратором"
 
     class Status(models.TextChoices):
