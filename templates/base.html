@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111210">
-  <meta name="description" content="{% block meta_description %}Restaurant menu and guest service.{% endblock %}">
+  <meta name="description" content="{% block meta_description %}Цифровое меню ресторана Caesar & Company.{% endblock %}">
   <title>{% block title %}Caesar &amp; Company{% endblock %}</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -17,8 +17,6 @@
 <body>
   <input class="state-control" type="checkbox" id="theme-toggle">
   <input class="state-control" type="checkbox" id="waiter-toggle">
-  <input class="state-control" type="checkbox" id="assistant-toggle">
-  <input class="state-control" type="checkbox" id="cart-toggle">
 
   <input class="state-control" type="radio" name="language" id="lang-ru" checked>
   <input class="state-control" type="radio" name="language" id="lang-en">
@@ -31,20 +29,14 @@
     <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
     <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.5 15.5A8.5 8.5 0 0 1 8.5 3.5a8.5 8.5 0 1 0 12 12Z"/></symbol>
     <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
-    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
-    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
-    <symbol id="i-bag" viewBox="0 0 24 24"><path d="M5 8h14l1 13H4L5 8Zm4 0V6a3 3 0 0 1 6 0v2"/></symbol>
-    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
-    <symbol id="i-close" viewBox="0 0 24 24"><path d="m5 5 14 14M19 5 5 19"/></symbol>
     <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2 5 5v6c0 5 3 8.5 7 10.5 4-2 7-5.5 7-10.5V5l-7-3Z"/><path d="m8.5 11.5 2.2 2.2 4.8-5"/></symbol>
-    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3 13.5 8.5 19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5L12 3Zm7 13 .6 2.4L22 19l-2.4.6L19 22l-.6-2.4L16 19l2.4-.6L19 16Z"/></symbol>
-    <symbol id="i-send" viewBox="0 0 24 24"><path d="m3 11 18-8-8 18-2-8-8-2Zm8 2 4-4"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m5 5 14 14M19 5 5 19"/></symbol>
   </svg>
 
   <div class="app-shell">
     <header class="site-header">
       <div class="header-inner page-width">
-        <a class="brand" href="{% url 'home' %}#menu" aria-label="Caesar & Company">
+        <a class="brand" href="{% url 'menu:dish_list' %}" aria-label="Caesar & Company">
           <span class="brand-mark">C</span>
           <span class="brand-copy">
             <strong>CAESAR</strong>
@@ -53,7 +45,7 @@
         </a>
 
         <div class="header-actions">
-          <label class="waiter-button" for="waiter-toggle" aria-label="Call waiter">
+          <label class="nav-button waiter-button" for="waiter-toggle" aria-label="Позвать официанта">
             <svg><use href="#i-bell"/></svg>
             <span class="lang lang--ru">Официант</span>
             <span class="lang lang--en">Waiter</span>
@@ -61,7 +53,7 @@
           </label>
 
           <details class="language-menu">
-            <summary class="icon-button language-summary" aria-label="Choose language">
+            <summary class="icon-button language-summary" aria-label="Выбрать язык">
               <svg><use href="#i-globe"/></svg>
               <span class="current-language">
                 <span class="lang lang--ru">RU</span>
@@ -76,14 +68,14 @@
             </div>
           </details>
 
-          <label class="icon-button" for="theme-toggle" aria-label="Toggle theme">
+          <label class="icon-button" for="theme-toggle" aria-label="Переключить тему">
             <svg class="theme-icon theme-icon--light"><use href="#i-sun"/></svg>
             <svg class="theme-icon theme-icon--dark"><use href="#i-moon"/></svg>
           </label>
 
-          <button class="icon-button profile-button" type="button" aria-label="Account">
+          <a class="icon-button profile-button" href="{% url 'accounts:profile' %}" aria-label="Аккаунт">
             <svg><use href="#i-user"/></svg>
-          </button>
+          </a>
         </div>
       </div>
     </header>
@@ -97,125 +89,62 @@
         <div class="footer__brand">
           <strong>CAESAR &amp; COMPANY</strong>
           <p>
-            <span class="lang lang--ru">Ресторанное меню и сервис для гостей.</span>
-            <span class="lang lang--en">Restaurant menu and guest service.</span>
-            <span class="lang lang--tr">Restoran menüsü ve misafir hizmeti.</span>
+            <span class="lang lang--ru">Цифровое меню ресторана.</span>
+            <span class="lang lang--en">Digital restaurant menu.</span>
+            <span class="lang lang--tr">Dijital restoran menüsü.</span>
           </p>
         </div>
-        <nav class="footer__links" aria-label="Footer links">
-          <a href="#"><span class="lang lang--ru">О ресторане</span><span class="lang lang--en">About</span><span class="lang lang--tr">Hakkımızda</span></a>
-          <a href="#"><span class="lang lang--ru">Контакты</span><span class="lang lang--en">Contacts</span><span class="lang lang--tr">İletişim</span></a>
-          <a href="#">Instagram</a>
-          <a href="#">Telegram</a>
+        <nav class="footer__links" aria-label="Навигация">
+          <a href="{% url 'menu:dish_list' %}">
+            <span class="lang lang--ru">Меню</span>
+            <span class="lang lang--en">Menu</span>
+            <span class="lang lang--tr">Menü</span>
+          </a>
+          {% if request.user.is_authenticated %}
+            <a href="{% url 'accounts:profile' %}">
+              <span class="lang lang--ru">Профиль</span>
+              <span class="lang lang--en">Account</span>
+              <span class="lang lang--tr">Hesap</span>
+            </a>
+          {% endif %}
         </nav>
       </div>
       <div class="footer__bottom page-width">© 2026 Caesar &amp; Company</div>
     </footer>
 
-    <label class="ai-fab" for="assistant-toggle" aria-label="Open menu assistant">
-      <svg><use href="#i-sparkle"/></svg>
-      <span class="ai-fab-tooltip">
-        <span class="lang lang--ru">Помощник</span>
-        <span class="lang lang--en">Assistant</span>
-        <span class="lang lang--tr">Asistan</span>
-      </span>
-    </label>
-
-    <label class="cart-bar" for="cart-toggle">
-      <span class="cart-bar-main">
-        <span class="cart-bar-icon"><svg><use href="#i-bag"/></svg></span>
-        <span class="cart-bar-copy">
-          <strong><span class="lang lang--ru">Корзина</span><span class="lang lang--en">Cart</span><span class="lang lang--tr">Sepet</span></strong>
-          <small><span class="lang lang--ru">3 позиции</span><span class="lang lang--en">3 items</span><span class="lang lang--tr">3 ürün</span></small>
-        </span>
-      </span>
-      <strong class="cart-bar-total">1 870 ₽</strong>
-      <svg class="cart-bar-chevron"><use href="#i-chevron"/></svg>
-    </label>
-
-    <div class="modal-layer waiter-modal" role="dialog" aria-modal="true">
-      <label class="modal-backdrop" for="waiter-toggle"></label>
+    <div class="modal-layer waiter-modal" role="dialog" aria-modal="true" aria-labelledby="waiter-title">
+      <label class="modal-backdrop" for="waiter-toggle" aria-label="Закрыть"></label>
       <div class="dialog-card compact-dialog">
-        <label class="close-button" for="waiter-toggle" aria-label="Close"><svg><use href="#i-close"/></svg></label>
+        <label class="close-button" for="waiter-toggle" aria-label="Закрыть">
+          <svg><use href="#i-close"/></svg>
+        </label>
         <div class="dialog-icon"><svg><use href="#i-bell"/></svg></div>
-        <h2><span class="lang lang--ru">Вызвать официанта?</span><span class="lang lang--en">Call a waiter?</span><span class="lang lang--tr">Garson çağrılsın mı?</span></h2>
-        <p><span class="lang lang--ru">Официант получит уведомление и подойдет к вашему столу.</span><span class="lang lang--en">A waiter will be notified and come to your table.</span><span class="lang lang--tr">Garsona bildirim gönderilecek ve masanıza gelecektir.</span></p>
+        <h2 id="waiter-title">
+          <span class="lang lang--ru">Позвать официанта?</span>
+          <span class="lang lang--en">Call a waiter?</span>
+          <span class="lang lang--tr">Garson çağırılsın mı?</span>
+        </h2>
+        <p>
+          <span class="lang lang--ru">Пока это интерфейсная кнопка. Позже подключим отправку уведомления персоналу.</span>
+          <span class="lang lang--en">This is an interface button for now. Later we will connect staff notifications.</span>
+          <span class="lang lang--tr">Şimdilik arayüz düğmesi. Daha sonra personele bildirim bağlanacak.</span>
+        </p>
         <div class="dialog-actions">
-          <label class="secondary-button" for="waiter-toggle"><span class="lang lang--ru">Отмена</span><span class="lang lang--en">Cancel</span><span class="lang lang--tr">İptal</span></label>
-          <label class="primary-button" for="waiter-toggle"><span class="lang lang--ru">Вызвать</span><span class="lang lang--en">Call</span><span class="lang lang--tr">Çağır</span></label>
+          <label class="secondary-button" for="waiter-toggle">
+            <span class="lang lang--ru">Отмена</span>
+            <span class="lang lang--en">Cancel</span>
+            <span class="lang lang--tr">İptal</span>
+          </label>
+          <label class="primary-button" for="waiter-toggle">
+            <span class="lang lang--ru">Понятно</span>
+            <span class="lang lang--en">OK</span>
+            <span class="lang lang--tr">Tamam</span>
+          </label>
         </div>
       </div>
     </div>
-
-    <section class="assistant-panel" role="dialog" aria-modal="true">
-      <label class="panel-backdrop" for="assistant-toggle"></label>
-      <div class="assistant-window">
-        <header class="panel-header">
-          <div class="panel-title-wrap">
-            <span class="panel-icon"><svg><use href="#i-sparkle"/></svg></span>
-            <div>
-              <h2><span class="lang lang--ru">Помощник по меню</span><span class="lang lang--en">Menu assistant</span><span class="lang lang--tr">Menü asistanı</span></h2>
-              <p><span class="lang lang--ru">Помогу выбрать блюдо</span><span class="lang lang--en">I will help you choose</span><span class="lang lang--tr">Seçmenize yardımcı olurum</span></p>
-            </div>
-          </div>
-          <label class="close-button" for="assistant-toggle" aria-label="Close"><svg><use href="#i-close"/></svg></label>
-        </header>
-        <div class="chat-body">
-          <div class="chat-message">
-            <p><span class="lang lang--ru">Что вам хочется сегодня? Напишите про вкус, ингредиенты или аллергию.</span><span class="lang lang--en">What would you like today? Tell me about taste, ingredients or allergies.</span><span class="lang lang--tr">Bugün ne istersiniz? Lezzet, malzemeler veya alerjiler hakkında yazın.</span></p>
-          </div>
-          <div class="quick-prompts">
-            <button type="button"><span class="lang lang--ru">Без орехов</span><span class="lang lang--en">No nuts</span><span class="lang lang--tr">Kuruyemişsiz</span></button>
-            <button type="button"><span class="lang lang--ru">Легкий ужин</span><span class="lang lang--en">Light dinner</span><span class="lang lang--tr">Hafif akşam</span></button>
-            <button type="button"><span class="lang lang--ru">Что популярно?</span><span class="lang lang--en">Popular picks</span><span class="lang lang--tr">Popülerler</span></button>
-          </div>
-        </div>
-        <form class="chat-form">
-          <input type="text" placeholder="Напишите сообщение" aria-label="Message">
-          <button type="button" aria-label="Send"><svg><use href="#i-send"/></svg></button>
-        </form>
-      </div>
-    </section>
-
-    <section class="cart-panel" role="dialog" aria-modal="true">
-      <label class="panel-backdrop" for="cart-toggle"></label>
-      <div class="cart-sheet">
-        <header class="panel-header">
-          <div class="panel-title-wrap">
-            <span class="panel-icon"><svg><use href="#i-bag"/></svg></span>
-            <div>
-              <h2><span class="lang lang--ru">Ваш заказ</span><span class="lang lang--en">Your order</span><span class="lang lang--tr">Siparişiniz</span></h2>
-              <p><span class="lang lang--ru">Стол №12</span><span class="lang lang--en">Table 12</span><span class="lang lang--tr">Masa 12</span></p>
-            </div>
-          </div>
-          <label class="close-button" for="cart-toggle" aria-label="Close"><svg><use href="#i-close"/></svg></label>
-        </header>
-        <div class="cart-list">
-          <div class="cart-item">
-            <img src="https://images.unsplash.com/photo-1550304943-4f24f54ddde9?auto=format&fit=crop&w=220&q=80" alt="Chicken Caesar">
-            <div class="cart-item-copy">
-              <h3><span class="lang lang--ru">Цезарь с курицей</span><span class="lang lang--en">Chicken Caesar</span><span class="lang lang--tr">Tavuklu Sezar</span></h3>
-              <strong>590 ₽</strong>
-            </div>
-            <div class="quantity-control">
-              <button type="button" aria-label="Decrease"><svg><use href="#i-minus"/></svg></button>
-              <span>2</span>
-              <button type="button" aria-label="Increase"><svg><use href="#i-plus"/></svg></button>
-            </div>
-          </div>
-        </div>
-        <label class="order-comment">
-          <span><span class="lang lang--ru">Комментарий к заказу</span><span class="lang lang--en">Order note</span><span class="lang lang--tr">Sipariş notu</span></span>
-          <textarea rows="3"></textarea>
-        </label>
-        <div class="cart-summary">
-          <span><span class="lang lang--ru">Итого</span><span class="lang lang--en">Total</span><span class="lang lang--tr">Toplam</span></span>
-          <strong>1 870 ₽</strong>
-        </div>
-        <button class="checkout-button" type="button"><span class="lang lang--ru">Оформить заказ</span><span class="lang lang--en">Place order</span><span class="lang lang--tr">Sipariş ver</span></button>
-      </div>
-    </section>
   </div>
+  <script src="{% static 'js/theme.js' %}" defer></script>
   {% block extra_scripts %}{% endblock %}
 </body>
 </html>

@@ -59,11 +59,11 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
 
     "accounts.apps.AccountsConfig",
-    "main",
-    "menu",
+    "menu.apps.MenuConfig",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
+LOGIN_URL = "/"
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
