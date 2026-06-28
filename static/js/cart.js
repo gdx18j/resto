@@ -30,7 +30,10 @@
   }
 
   function fmt(n) {
-    return Math.round(n).toLocaleString('ru-RU') + ' ₽';
+    var rounded = Math.round(n * 100) / 100;
+    return rounded % 1 === 0
+      ? rounded.toLocaleString('ru-RU') + ' ₽'
+      : rounded.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽';
   }
 
   /* ─── Persist to sessionStorage ──────────────────────────────── */
@@ -97,27 +100,63 @@
     if (!container) return;
 
     var items = Object.entries(cart.items);
+
+    // Всегда удаляем кнопку очистки — пересоздадим ниже если нужно
+    var existingClear = document.querySelector('.cart-clear-btn');
+    if (existingClear) existingClear.remove();
+
     if (items.length === 0) {
-      container.innerHTML = '<p class="cart-empty-msg">Корзина пуста — добавьте блюда из меню.</p>';
+      // Удаляем все строки товаров
+      qsa('.cart-line', container).forEach(function (row) { row.remove(); });
+      // Показываем сообщение если его ещё нет
+      if (!container.querySelector('.cart-empty-msg')) {
+        container.innerHTML = '<p class="cart-empty-msg">Корзина пуста — добавьте блюда из меню.</p>';
+      }
       if (els.extras) els.extras.hidden = true;
       return;
     }
 
-    container.innerHTML = items.map(function (entry) {
-      var id = entry[0], item = entry[1];
-      return [
-        '<div class="cart-line" data-id="' + id + '">',
-        '  <span class="cart-line__name">' + escHtml(item.name) + '</span>',
-        '  <span class="cart-line__price">' + fmt(item.price * item.qty) + '</span>',
-        '  <div class="cart-qty">',
-        '    <button class="cart-qty__btn" data-action="dec" data-id="' + id + '" aria-label="Убрать одну порцию">−</button>',
-        '    <span class="cart-qty__num">' + item.qty + '</span>',
-        '    <button class="cart-qty__btn" data-action="inc" data-id="' + id + '" aria-label="Добавить ещё одну порцию">+</button>',
-        '  </div>',
-        '</div>',
-      ].join('\n');
-    }).join('\n');
+    // Есть товары — убираем сообщение о пустой корзине
+    var emptyMsg = container.querySelector('.cart-empty-msg');
+    if (emptyMsg) emptyMsg.remove();
+
     if (els.extras) els.extras.hidden = false;
+
+    // Удаляем строки которых больше нет
+    qsa('.cart-line', container).forEach(function (row) {
+      if (!cart.items[row.dataset.id]) row.remove();
+    });
+
+    // Обновляем существующие / добавляем новые
+    items.forEach(function (entry) {
+      var id = entry[0], item = entry[1];
+      var existing = container.querySelector('.cart-line[data-id="' + id + '"]');
+      if (existing) {
+        existing.querySelector('.cart-line__price').textContent = fmt(item.price * item.qty);
+        existing.querySelector('.cart-qty__num').textContent = item.qty;
+      } else {
+        var div = document.createElement('div');
+        div.className = 'cart-line';
+        div.dataset.id = id;
+        div.innerHTML = [
+          '  <span class="cart-line__name">' + escHtml(item.name) + '</span>',
+          '  <span class="cart-line__price">' + fmt(item.price * item.qty) + '</span>',
+          '  <div class="cart-qty">',
+          '    <button class="cart-qty__btn" data-action="dec" data-id="' + id + '" aria-label="Убрать одну порцию">−</button>',
+          '    <span class="cart-qty__num">' + item.qty + '</span>',
+          '    <button class="cart-qty__btn" data-action="inc" data-id="' + id + '" aria-label="Добавить ещё одну порцию">+</button>',
+          '  </div>',
+        ].join('\n');
+        container.appendChild(div);
+      }
+    });
+
+    // Кнопка очистки — только когда есть товары
+    var clearBtn = document.createElement('button');
+    clearBtn.className = 'cart-clear-btn';
+    clearBtn.setAttribute('data-cart-clear', '');
+    clearBtn.textContent = 'Очистить корзину';
+    container.parentNode.appendChild(clearBtn);
   }
 
   function renderSummary() {
@@ -375,6 +414,16 @@
     if (target.closest('[data-cart-open]')) {
       var isOpen = els.panel && els.panel.classList.contains('cart-panel--open');
       if (isOpen) closePanel(); else openPanel();
+      return;
+    }
+
+    // Очистить корзину
+    if (target.closest('[data-cart-clear]')) {
+      cart.items = {};
+      save();
+      var clearBtn = document.querySelector('.cart-clear-btn');
+      if (clearBtn) clearBtn.remove();
+      renderAll();
       return;
     }
 

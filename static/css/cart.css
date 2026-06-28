@@ -689,3 +689,25 @@
     background: color-mix(in srgb, var(--line) 60%, transparent);
   }
 }
+
+/* ── Кнопка очистки корзины ────────────────────────────────────── */
+.cart-clear-btn {
+  display: block;
+  width: calc(100% - 40px);
+  margin: 0 20px 16px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+.cart-clear-btn:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
