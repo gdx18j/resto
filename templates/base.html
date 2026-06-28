@@ -13,6 +13,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Forum&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'css/menu.css' %}">
   <link rel="stylesheet" href="{% static 'css/ai-assistant.css' %}">
+  <link rel="stylesheet" href="{% static 'css/cart.css' %}">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -37,7 +38,7 @@
     <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M22 2 11 13"/></symbol>
   </svg>
 
-  <div class="app-shell">
+  <div class="app-shell" onclick="">
     <header class="site-header">
       <div class="header-inner page-width">
         <a class="brand" href="{% url 'menu:dish_list' %}" aria-label="Caesar & Company">
@@ -204,6 +205,7 @@
   <script src="{% static 'js/menu-ui.js' %}" defer></script>
   <script src="{% static 'js/language-menu.js' %}" defer></script>
   <script src="{% static 'js/ai-assistant.js' %}" defer></script>
+  <script src="{% static 'js/cart.js' %}" defer></script>
   {% block extra_scripts %}{% endblock %}
 </body>
 </html>
