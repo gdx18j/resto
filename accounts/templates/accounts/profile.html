@@ -13,7 +13,13 @@
 
     <header class="account-hero">
       <h1>Профиль</h1>
-      <p class="account-muted">{{ request.user.email }}</p>
+      <div class="account-identity">
+        <span class="account-identity__avatar">{{ account_display_initial }}</span>
+        <span>
+          <strong>{{ account_display_name }}</strong>
+          <small>{{ account_display_email }}</small>
+        </span>
+      </div>
     </header>
 
     <section class="account-section">

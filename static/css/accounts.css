@@ -33,6 +33,52 @@
   line-height: 1.55;
 }
 
+.account-identity {
+  margin-top: 14px;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.account-identity__avatar {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  font-weight: 900;
+}
+
+.account-identity span:last-child {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+
+.account-identity strong,
+.account-identity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-identity strong {
+  color: var(--text);
+  font-size: 16px;
+}
+
+.account-identity small {
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
 .account-section {
   padding: 22px 0;
   border-top: 1px solid var(--line);
@@ -67,6 +113,11 @@
   display: flex;
   flex-wrap: wrap;
   gap: 9px;
+}
+
+.allergen-chip[hidden],
+.allergen-empty[hidden] {
+  display: none !important;
 }
 
 .allergy-chip {
@@ -116,6 +167,36 @@
 .account-form {
   display: grid;
   gap: 28px;
+}
+
+.account-search {
+  display: grid;
+  gap: 8px;
+}
+
+.account-search span {
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.account-search input {
+  min-height: 48px;
+  width: 100%;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.account-search input:focus {
+  border-color: var(--accent);
+}
+
+.allergen-empty {
+  margin: -12px 0 0;
+  color: var(--text-soft);
 }
 
 .account-primary-button {

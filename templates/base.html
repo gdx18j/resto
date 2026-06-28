@@ -78,8 +78,9 @@
             <svg class="theme-icon theme-icon--dark"><use href="#i-moon"/></svg>
           </label>
 
-          <label class="icon-button profile-button" for="profile-toggle" aria-label="Аккаунт">
+          <label class="icon-button profile-button" for="profile-toggle" aria-label="Личный кабинет">
             <svg><use href="#i-user"/></svg>
+            <span class="profile-button__label">Кабинет</span>
           </label>
         </div>
       </div>
@@ -155,7 +156,7 @@
       </div>
     </div>
 
-    <div class="profile-popover-layer" role="dialog" aria-modal="true" aria-labelledby="profile-popover-title">
+    <div class="profile-popover-layer" role="dialog" aria-modal="false" aria-labelledby="profile-popover-title">
       <label class="profile-popover-backdrop" for="profile-toggle" aria-label="Закрыть"></label>
       <aside class="profile-popover" aria-label="Аккаунт">
         <label class="close-button" for="profile-toggle" aria-label="Закрыть">
@@ -164,8 +165,22 @@
 
         {% if request.user.is_authenticated %}
           <p class="profile-popover__kicker">Аккаунт</p>
-          <h2 id="profile-popover-title">Ваш профиль</h2>
-          <p class="profile-popover__copy">{{ request.user.email }}</p>
+          <h2 id="profile-popover-title">Личный кабинет</h2>
+          <div class="profile-popover__identity">
+            <span class="profile-popover__avatar">{{ account_display_initial }}</span>
+            <span class="profile-popover__identity-copy">
+              <strong>{{ account_display_name }}</strong>
+              <small>{{ account_display_email }}</small>
+              {% if account_is_google %}
+                <em>Google</em>
+              {% endif %}
+            </span>
+          </div>
+
+          <div class="profile-popover__actions profile-popover__actions--stacked">
+            <a class="profile-popover__primary" href="{% url 'accounts:profile' %}">Открыть профиль</a>
+            <a class="profile-popover__secondary" href="{% url 'accounts:edit_allergies' %}">Аллергии</a>
+          </div>
 
           <div class="profile-popover__actions profile-popover__actions--stacked">
             <a class="profile-popover__primary" href="{% url 'accounts:profile' %}">Открыть профиль</a>
@@ -178,7 +193,7 @@
           </form>
         {% else %}
           <p class="profile-popover__kicker">Аккаунт</p>
-          <h2 id="profile-popover-title">Войти или создать аккаунт</h2>
+          <h2 id="profile-popover-title">Личный кабинет</h2>
           <p class="profile-popover__copy">Сохраните аллергии и пищевые ограничения, чтобы меню подсвечивало риски.</p>
 
           <div class="profile-popover__actions">

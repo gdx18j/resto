@@ -32,7 +32,6 @@ def edit_allergies(request):
         user=request.user,
         status=UserAllergy.Status.CONFIRMED,
     )
-
     current_allergen_ids = confirmed_records.values_list(
         "allergen_id",
         flat=True,
@@ -43,13 +42,10 @@ def edit_allergies(request):
 
         if form.is_valid():
             selected_allergens = form.cleaned_data["allergens"]
-
             selected_ids = set(
                 selected_allergens.values_list("id", flat=True)
             )
 
-            # Удаляем подтверждённые аллергии,
-            # которые пользователь больше не выбрал.
             if selected_ids:
                 confirmed_records.exclude(
                     allergen_id__in=selected_ids
@@ -57,7 +53,6 @@ def edit_allergies(request):
             else:
                 confirmed_records.delete()
 
-            # Создаём новые записи или обновляем существующие.
             for allergen in selected_allergens:
                 UserAllergy.objects.update_or_create(
                     user=request.user,

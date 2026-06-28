@@ -22,10 +22,19 @@ class AllergenAdmin(admin.ModelAdmin):
 
 @admin.register(Ingredient)
 class IngredientAdmin(admin.ModelAdmin):
-    list_display = ("name", "is_active")
+    list_display = ("name", "allergen_names", "is_active")
     list_filter = ("is_active",)
     search_fields = ("name",)
     filter_horizontal = ("allergens",)
+
+    @admin.display(description="Аллергены")
+    def allergen_names(self, obj):
+        return ", ".join(
+            obj.allergens.order_by("name").values_list(
+                "name",
+                flat=True,
+            )
+        )
 
 
 class DishIngredientInline(admin.TabularInline):

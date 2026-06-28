@@ -21,16 +21,27 @@
     <form class="account-form" method="post">
       {% csrf_token %}
 
+      <label class="account-search">
+        <span>Поиск аллергена</span>
+        <input class="allergen-search-input" type="search" placeholder="Например: молоко, глютен, орехи">
+      </label>
+
       <div class="allergen-grid">
         {% for checkbox in form.allergens %}
-          <label class="allergen-chip">
+          <label class="allergen-chip" data-allergen-name="{{ checkbox.choice_label|lower|escape }}">
             {{ checkbox.tag }}
             <span>{{ checkbox.choice_label }}</span>
           </label>
         {% endfor %}
       </div>
 
+      <p class="allergen-empty" hidden>Ничего не найдено.</p>
+
       <button type="submit" class="account-primary-button">Сохранить</button>
     </form>
   </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'js/allergy-search.js' %}" defer></script>
 {% endblock %}

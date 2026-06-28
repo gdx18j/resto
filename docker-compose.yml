@@ -1,7 +1,7 @@
 services:
   db:
     image: postgres:15-alpine
-    container_name: resto_db
+    container_name: resto_or_tests_db
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:-resto_db}
@@ -19,7 +19,7 @@ services:
 
   web:
     build: .
-    container_name: resto_web
+    container_name: resto_or_tests_web
     restart: unless-stopped
     environment:
       DJANGO_DEBUG: ${DJANGO_DEBUG:-True}

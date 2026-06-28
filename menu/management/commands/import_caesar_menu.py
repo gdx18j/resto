@@ -5,6 +5,10 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from menu.allergen_rules import (
+    ALLERGEN_NAME_TO_CODE,
+    get_allergen_codes_for_ingredient,
+)
 from menu.models import (
     Allergen,
     Category,
@@ -12,19 +16,6 @@ from menu.models import (
     DishIngredient,
     Ingredient,
 )
-
-
-ALLERGEN_CODES = {
-    "молоко": "milk",
-    "глютен": "gluten",
-    "яйца": "eggs",
-    "горчица": "mustard",
-    "орехи": "nuts",
-    "соя": "soy",
-    "сульфиты": "sulphites",
-    "арахис": "peanut",
-    "рыба": "fish",
-}
 
 
 def parse_decimal(value):
@@ -46,7 +37,7 @@ def get_or_create_allergen(name):
     """
 
     normalized_name = name.strip().lower()
-    code = ALLERGEN_CODES.get(normalized_name)
+    code = ALLERGEN_NAME_TO_CODE.get(normalized_name)
 
     if not code:
         return None
@@ -69,6 +60,22 @@ def get_or_create_allergen(name):
         name=display_name,
         code=code,
     )
+
+
+def assign_detected_allergens_to_ingredient(ingredient):
+    allergen_codes = get_allergen_codes_for_ingredient(
+        ingredient.name,
+    )
+
+    if not allergen_codes:
+        return
+
+    allergens = Allergen.objects.filter(
+        code__in=allergen_codes,
+    )
+
+    if allergens:
+        ingredient.allergens.add(*allergens)
 
 
 class Command(BaseCommand):
@@ -125,16 +132,10 @@ class Command(BaseCommand):
             )
 
         if options["clear"]:
-            # Сначала удаляем блюда.
-            # Связанные DishIngredient удалятся автоматически.
             Dish.objects.all().delete()
-
-            # После этого ингредиенты уже не защищены PROTECT.
             Ingredient.objects.all().delete()
             Category.objects.all().delete()
 
-            # Аллергены специально не удаляем:
-            # с ними могут быть связаны UserAllergy.
             self.stdout.write(
                 self.style.WARNING(
                     "Старые блюда, ингредиенты и категории удалены."
@@ -149,14 +150,12 @@ class Command(BaseCommand):
             category_name = str(
                 item.get("category", "")
             ).strip()
-
             dish_name = str(
                 item.get("name", "")
             ).strip()
 
             if not category_name or not dish_name:
                 skipped_dishes += 1
-
                 self.stdout.write(
                     self.style.WARNING(
                         f"Пропущена некорректная позиция: {item}"
@@ -167,7 +166,6 @@ class Command(BaseCommand):
             category, _ = Category.objects.get_or_create(
                 name=category_name,
             )
-
             dish, created = Dish.objects.update_or_create(
                 category=category,
                 name=dish_name,
@@ -216,13 +214,11 @@ class Command(BaseCommand):
             else:
                 updated_dishes += 1
 
-            # Чтобы повторный импорт не дублировал состав.
             dish.dish_ingredients.all().delete()
 
             ingredients_text = str(
                 item.get("ingredients_text_ru", "")
             )
-
             ingredient_names = []
 
             for raw_name in ingredients_text.split(";"):
@@ -241,6 +237,7 @@ class Command(BaseCommand):
                         "is_active": True,
                     },
                 )
+                assign_detected_allergens_to_ingredient(ingredient)
 
                 DishIngredient.objects.create(
                     dish=dish,
@@ -251,7 +248,6 @@ class Command(BaseCommand):
                     notes="Количество не указано в источнике",
                 )
 
-            # Не оставляем старые связи при повторном импорте.
             dish.may_contain_allergens.clear()
 
             if options["with_allergens"]:
