@@ -1,7 +1,10 @@
 from django.shortcuts import render
 
 from .models import Category, Dish
-from .services import add_allergy_conflicts_to_dishes
+from .services import (
+    add_allergy_conflicts_to_dishes,
+    get_confirmed_user_allergens,
+)
 
 
 def dish_list(request):
@@ -62,6 +65,7 @@ def dish_list(request):
     context = {
         "dishes": dishes,
         "menu_sections": menu_sections,
+        "user_allergens": get_confirmed_user_allergens(request.user),
     }
 
     return render(

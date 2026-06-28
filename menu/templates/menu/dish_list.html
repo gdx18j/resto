@@ -4,28 +4,31 @@
 {% block meta_description %}Цифровое меню ресторана Caesar & Company.{% endblock %}
 
 {% block content %}
+  <div class="menu-controls-space" aria-hidden="true"></div>
   <div class="menu-controls">
-    <section class="search-section" aria-label="Поиск по меню">
-      <label class="search-box">
-        <svg><use href="#i-search"/></svg>
-        <input class="lang-input lang-input--ru" type="search" placeholder="Найти блюдо или ингредиент" aria-label="Поиск по меню">
-        <input class="lang-input lang-input--en" type="search" placeholder="Find a dish or ingredient" aria-label="Search menu">
-        <input class="lang-input lang-input--tr" type="search" placeholder="Yemek veya malzeme ara" aria-label="Menüde ara">
-      </label>
-    </section>
+    <div class="menu-controls__inner">
+      <section class="search-section" aria-label="Поиск по меню">
+        <label class="search-box">
+          <svg><use href="#i-search"/></svg>
+          <input class="lang-input lang-input--ru" type="search" placeholder="Найти блюдо или ингредиент" aria-label="Поиск по меню">
+          <input class="lang-input lang-input--en" type="search" placeholder="Find a dish or ingredient" aria-label="Search menu">
+          <input class="lang-input lang-input--tr" type="search" placeholder="Yemek veya malzeme ara" aria-label="Menüde ara">
+        </label>
+      </section>
 
-    {% if menu_sections %}
-      <nav class="category-strip" aria-label="Категории меню">
-        {% for section in menu_sections %}
-          <a
-            class="category-chip{% if forloop.first %} is-active{% endif %}"
-            href="#{{ section.anchor }}"
-          >
-            {{ section.title }}
-          </a>
-        {% endfor %}
-      </nav>
-    {% endif %}
+      {% if menu_sections %}
+        <nav class="category-strip" aria-label="Категории меню">
+          {% for section in menu_sections %}
+            <a
+              class="category-chip{% if forloop.first %} is-active{% endif %}"
+              href="#{{ section.anchor }}"
+            >
+              {{ section.title }}
+            </a>
+          {% endfor %}
+        </nav>
+      {% endif %}
+    </div>
   </div>
 
   {% if menu_sections %}
@@ -34,12 +37,22 @@
       <p>
         {% if request.user.is_authenticated %}
           Учитываем пищевые ограничения из вашего профиля и подсвечиваем блюда с возможными аллергенами.
+          {% if user_allergens %}
+            <span class="preference-allergens">
+              Ваши аллергии:
+              {% for record in user_allergens %}
+                {{ record.allergen.name }}{% if not forloop.last %}, {% endif %}
+              {% endfor %}
+            </span>
+          {% else %}
+            <span class="preference-allergens">Аллергии пока не выбраны.</span>
+          {% endif %}
         {% else %}
           После авторизации здесь будут учитываться ваши пищевые ограничения и аллергии.
         {% endif %}
       </p>
       {% if request.user.is_authenticated %}
-        <a href="{% url 'accounts:profile' %}">Профиль</a>
+        <a href="{% url 'accounts:edit_allergies' %}">Аллергии</a>
       {% endif %}
     </aside>
 
@@ -59,7 +72,10 @@
 
         <div class="dish-grid">
           {% for dish in section.dishes %}
-            <article class="dish-card{% if not dish.image %} dish-card--no-image{% endif %}">
+            <article
+              class="dish-card{% if not dish.image %} dish-card--no-image{% endif %}"
+              id="dish-{{ dish.id }}"
+            >
               <div class="dish-image-button" aria-hidden="true">
                 {% if dish.image %}
                   <img src="{{ dish.image.url }}" alt="">

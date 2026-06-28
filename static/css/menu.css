@@ -106,6 +106,7 @@ h3 {
   --content-width: 1180px;
 
   min-height: 100vh;
+  padding-top: var(--header-height);
   color: var(--text);
   background:
     linear-gradient(180deg, rgba(202, 163, 92, 0.08), transparent 340px),
@@ -190,13 +191,14 @@ textarea:focus-visible {
 }
 
 .site-header {
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 50;
   height: var(--header-height);
   border-bottom: 1px solid var(--line);
   background: var(--header);
-  backdrop-filter: blur(16px);
   transition: border-color 260ms ease, background-color 260ms ease;
 }
 
@@ -410,38 +412,56 @@ label[for="theme-toggle"] {
   padding-bottom: 54px;
 }
 
-.menu-controls {
-  position: sticky;
-  top: calc(var(--header-height) - 1px);
-  z-index: 42;
+.menu-controls-space {
+  height: 124px;
   margin-bottom: 14px;
+}
+
+.menu-controls {
+  position: fixed;
+  top: var(--header-height);
+  left: 50%;
+  z-index: 42;
+  width: min(calc(100% - 28px), var(--content-width));
+  height: 124px;
   padding: 10px 12px 12px;
+  overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
   border-radius: 18px;
-  background: color-mix(in srgb, var(--page) 94%, transparent);
-  backdrop-filter: blur(14px);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.14);
-  animation: riseIn 520ms ease both;
-  animation-delay: 80ms;
+  background: var(--page);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.1);
+  transform: translateX(-50%);
+  transition: height 240ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms ease, box-shadow 180ms ease, background-color 260ms ease;
+  will-change: height;
+}
+
+.app-shell.search-hidden .menu-controls {
+  height: 68px;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.09);
+}
+
+.menu-controls__inner {
+  height: 100px;
+  position: relative;
 }
 
 .search-section {
-  display: grid;
-  grid-template-rows: 1fr;
+  height: 50px;
   opacity: 1;
   overflow: hidden;
-  transition: grid-template-rows 240ms ease, opacity 180ms ease, margin 240ms ease, transform 240ms ease;
+  transform: translateY(0);
+  transition: opacity 180ms ease, transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
   will-change: opacity, transform;
 }
 
 .app-shell.search-hidden .search-section {
-  grid-template-rows: 0fr;
-  margin-bottom: 0;
   opacity: 0;
-  transform: translateY(-6px);
+  transform: translateY(-14px);
+  pointer-events: none;
 }
 
 .search-box {
+  height: 50px;
   min-height: 50px;
   padding: 0 15px;
   display: flex;
@@ -452,14 +472,7 @@ label[for="theme-toggle"] {
   color: var(--muted);
   background: var(--surface);
   overflow: hidden;
-  transition: min-height 220ms ease, padding 220ms ease, border-color 180ms ease, background-color 260ms ease;
-}
-
-.app-shell.search-hidden .search-box {
-  height: 0;
-  min-height: 0;
-  padding-block: 0;
-  border-color: transparent;
+  transition: border-color 180ms ease, background-color 260ms ease;
 }
 
 .search-box:focus-within {
@@ -489,13 +502,20 @@ label[for="theme-toggle"] {
 
 .category-strip {
   margin: 10px 0 0;
-  padding: 0;
+  padding: 1px 0 3px;
   display: flex;
   gap: 8px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   scroll-padding-inline: 12px;
+  transform: translateY(0);
+  transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.app-shell.search-hidden .category-strip {
+  transform: translateY(-60px);
 }
 
 .category-strip::before,
@@ -522,7 +542,7 @@ label[for="theme-toggle"] {
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
-  transition: color 180ms ease, border-color 180ms ease, background-color 260ms ease, transform 180ms ease;
+  transition: color 180ms ease, border-color 180ms ease, background-color 260ms ease;
 }
 
 .category-chip:first-child {
@@ -534,7 +554,6 @@ label[for="theme-toggle"] {
   color: var(--accent-contrast);
   border-color: var(--accent);
   background: var(--accent);
-  transform: translateY(-1px);
 }
 
 .preference-note {
@@ -561,6 +580,13 @@ label[for="theme-toggle"] {
   margin: 0;
   font-size: 12px;
   line-height: 1.45;
+}
+
+.preference-allergens {
+  margin-top: 5px;
+  display: block;
+  color: var(--text);
+  font-weight: 700;
 }
 
 .preference-note a {
@@ -616,11 +642,18 @@ label[for="theme-toggle"] {
 .dish-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  align-items: stretch;
   gap: 10px;
 }
 
 .dish-card {
   min-width: 0;
+  height: 100%;
+  min-height: 312px;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -667,7 +700,8 @@ label[for="theme-toggle"] {
 .dish-image-button {
   position: relative;
   width: 100%;
-  height: clamp(118px, 38vw, 210px);
+  height: 144px;
+  flex: 0 0 144px;
   overflow: hidden;
   background: var(--surface-soft);
 }
@@ -701,12 +735,13 @@ label[for="theme-toggle"] {
 }
 
 .dish-body {
-  min-height: 172px;
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 12px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  gap: 16px;
+  justify-content: flex-start;
+  gap: 10px;
 }
 
 .dish-copy h2 {
@@ -746,11 +781,20 @@ label[for="theme-toggle"] {
 }
 
 .dish-meta .danger-mark {
+  flex-basis: 100%;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--danger) 38%, transparent);
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 14%, var(--surface-soft));
+  line-height: 1.35;
+}
+
+.dish-card:has(.danger-mark) {
+  border-color: color-mix(in srgb, var(--danger) 52%, var(--line));
 }
 
 .dish-footer {
+  margin-top: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -763,6 +807,8 @@ label[for="theme-toggle"] {
   color: var(--accent-contrast);
   background: var(--accent);
   font-size: 15px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .dish-time {
@@ -1047,6 +1093,10 @@ label[for="theme-toggle"] {
 
 @media (min-width: 620px) {
   .page-width {
+    width: min(calc(100% - 40px), var(--content-width));
+  }
+
+  .menu-controls {
     width: min(calc(100% - 40px), var(--content-width));
   }
 

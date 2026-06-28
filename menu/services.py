@@ -22,6 +22,24 @@ def get_confirmed_user_allergen_ids(user):
     )
 
 
+def get_confirmed_user_allergens(user):
+    """
+    Возвращает подтверждённые аллергены пользователя для отображения в меню.
+    """
+
+    if not user.is_authenticated:
+        return []
+
+    return list(
+        UserAllergy.objects.filter(
+            user=user,
+            status=UserAllergy.Status.CONFIRMED,
+        )
+        .select_related("allergen")
+        .order_by("allergen__name")
+    )
+
+
 def add_allergy_conflicts_to_dishes(dishes, user):
     """
     Проверяет каждое блюдо и добавляет ему временные атрибуты:

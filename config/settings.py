@@ -60,6 +60,7 @@ INSTALLED_APPS = [
 
     "accounts.apps.AccountsConfig",
     "menu.apps.MenuConfig",
+    "ai_assistant",
 
     "allauth",
     "allauth.account",
@@ -218,3 +219,30 @@ MEDIA_ROOT = BASE_DIR / "mediafiles"
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# Gemini AI
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
+GEMINI_MODEL = os.getenv(
+    "GEMINI_MODEL",
+    "gemini-3.5-flash",
+)
+
+GEMINI_FALLBACK_MODEL = os.getenv(
+    "GEMINI_FALLBACK_MODEL",
+    "gemini-2.5-flash",
+)
+
+AI_MAX_OUTPUT_TOKENS = int(
+    os.getenv("AI_MAX_OUTPUT_TOKENS", "600")
+)
+
+AI_HISTORY_LIMIT = int(
+    os.getenv("AI_HISTORY_LIMIT", "12")
+)
+
+AI_MENU_CONTEXT_LIMIT = int(
+    os.getenv("AI_MENU_CONTEXT_LIMIT", "80")
+)

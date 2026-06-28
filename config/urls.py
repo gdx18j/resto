@@ -9,6 +9,7 @@ urlpatterns = [
     path("accounts/", include("allauth.urls")),
     path("", include("menu.urls")),
     path("account/", include("accounts.urls")),
+    path("ai/", include("ai_assistant.urls")),
 ]
 
 

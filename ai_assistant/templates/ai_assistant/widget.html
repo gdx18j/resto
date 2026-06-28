@@ -1,0 +1,77 @@
+<section
+  class="ai-assistant"
+  data-ai-assistant
+  data-endpoint="{% url 'ai_assistant:ask' %}"
+  data-storage-key="resto.aiAssistant.v3"
+  aria-label="ИИ-ассистент"
+>
+  <div class="ai-assistant__backdrop" data-ai-backdrop aria-hidden="true"></div>
+
+  <button
+    class="ai-assistant__launcher"
+    type="button"
+    data-ai-open
+    aria-expanded="false"
+    aria-controls="ai-assistant-panel"
+    title="Открыть ИИ-ассистента"
+  >
+    <svg aria-hidden="true"><use href="#i-sparkles"/></svg>
+    <span class="ai-assistant__launcher-text">AI</span>
+  </button>
+
+  <div
+    class="ai-assistant__panel"
+    id="ai-assistant-panel"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="ai-assistant-title"
+    data-ai-panel
+    hidden
+  >
+    <header class="ai-assistant__header">
+      <div>
+        <p class="ai-assistant__kicker">Gemini</p>
+        <h2 id="ai-assistant-title">ИИ-ассистент</h2>
+      </div>
+
+      <div class="ai-assistant__header-actions">
+        <button
+          class="ai-assistant__ghost-button"
+          type="button"
+          data-ai-reset
+        >
+          Новый чат
+        </button>
+        <button
+          class="ai-assistant__icon-button"
+          type="button"
+          data-ai-close
+          aria-label="Свернуть чат"
+        >
+          <svg aria-hidden="true"><use href="#i-close"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="ai-assistant__messages" data-ai-messages aria-live="polite"></div>
+
+    <form class="ai-assistant__form" data-ai-form>
+      {% csrf_token %}
+      <label class="ai-assistant__input-wrap" for="ai-assistant-input">
+        <span class="ai-assistant__sr-only">Ваш вопрос</span>
+        <textarea
+          id="ai-assistant-input"
+          name="prompt"
+          rows="2"
+          maxlength="4000"
+          data-ai-input
+          placeholder="Спросите про меню, аллергены или попросите подобрать блюдо"
+        ></textarea>
+      </label>
+
+      <button class="ai-assistant__send" type="submit" data-ai-send aria-label="Отправить">
+        <svg aria-hidden="true"><use href="#i-send"/></svg>
+      </button>
+    </form>
+  </div>
+</section>
