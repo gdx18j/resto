@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Пищевые ограничения | Caesar &amp; Company{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'css/accounts.css' %}">
+{% endblock %}
+
+{% block content %}
+  <section class="account-page">
+    <a href="{% url 'accounts:profile' %}" class="account-back-link">← Назад</a>
+
+    <header class="account-hero">
+      <h1>Пищевые ограничения</h1>
+      <p class="account-muted">
+        Выберите аллергены, о которых меню должно предупреждать. Это не блокирует блюда, а помогает заметить риск заранее.
+      </p>
+    </header>
+
+    <form class="account-form" method="post">
+      {% csrf_token %}
+
+      <label class="account-search">
+        <span>Поиск аллергена</span>
+        <input class="allergen-search-input" type="search" placeholder="Например: молоко, глютен, орехи">
+      </label>
+
+      <div class="allergen-grid">
+        {% for checkbox in form.allergens %}
+          <label class="allergen-chip" data-allergen-name="{{ checkbox.choice_label|lower|escape }}">
+            {{ checkbox.tag }}
+            <span>{{ checkbox.choice_label }}</span>
+          </label>
+        {% endfor %}
+      </div>
+
+      <p class="allergen-empty" hidden>Ничего не найдено.</p>
+
+      <button type="submit" class="account-primary-button">Сохранить</button>
+    </form>
+  </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'js/allergy-search.js' %}" defer></script>
+{% endblock %}

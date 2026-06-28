@@ -1,0 +1,221 @@
+.account-page {
+  width: min(100%, 760px);
+  margin-inline: auto;
+  padding: 22px 0 54px;
+}
+
+.account-back-link {
+  margin-bottom: 24px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-soft);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.account-back-link:hover {
+  color: var(--accent);
+}
+
+.account-hero {
+  margin-bottom: 28px;
+}
+
+.account-hero h1 {
+  margin-bottom: 8px;
+  font-size: clamp(34px, 9vw, 52px);
+  line-height: 0.98;
+}
+
+.account-muted {
+  margin: 0;
+  color: var(--text-soft);
+  line-height: 1.55;
+}
+
+.account-identity {
+  margin-top: 14px;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.account-identity__avatar {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  font-weight: 900;
+}
+
+.account-identity span:last-child {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+
+.account-identity strong,
+.account-identity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-identity strong {
+  color: var(--text);
+  font-size: 16px;
+}
+
+.account-identity small {
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.account-section {
+  padding: 22px 0;
+  border-top: 1px solid var(--line);
+}
+
+.account-section-header {
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.account-section-header h2 {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.account-link {
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.account-link:hover {
+  color: var(--accent-hover);
+}
+
+.allergy-list,
+.allergen-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.allergen-chip[hidden],
+.allergen-empty[hidden] {
+  display: none !important;
+}
+
+.allergy-chip {
+  padding: 9px 13px;
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--surface-soft);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.allergen-chip {
+  cursor: pointer;
+}
+
+.allergen-chip input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.allergen-chip span {
+  min-height: 42px;
+  padding: 0 15px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-soft);
+  background: var(--surface);
+  font-size: 14px;
+  font-weight: 600;
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.allergen-chip:hover span {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.allergen-chip input:checked + span {
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  background: var(--accent);
+}
+
+.account-form {
+  display: grid;
+  gap: 28px;
+}
+
+.account-search {
+  display: grid;
+  gap: 8px;
+}
+
+.account-search span {
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.account-search input {
+  min-height: 48px;
+  width: 100%;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.account-search input:focus {
+  border-color: var(--accent);
+}
+
+.allergen-empty {
+  margin: -12px 0 0;
+  color: var(--text-soft);
+}
+
+.account-primary-button {
+  min-height: 48px;
+  padding: 0 20px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.account-primary-button:hover {
+  background: var(--accent-hover);
+}
+
+@media (min-width: 760px) {
+  .account-page {
+    padding-top: 34px;
+  }
+}
