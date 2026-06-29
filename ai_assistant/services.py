@@ -27,9 +27,9 @@ RETRYABLE_ERROR_CODES = {
 }
 
 LANGUAGE_INSTRUCTIONS = {
-    "ru": "Interface language: Russian. Answer in Russian.",
-    "en": "Interface language: English. Answer in clear natural English.",
-    "tr": "Interface language: Turkish. Answer in clear natural Turkish.",
+    "ru": "Response language: Russian. Answer in Russian, matching the user's latest message.",
+    "en": "Response language: English. Answer in clear natural English, matching the user's latest message.",
+    "tr": "Response language: Turkish. Answer in clear natural Turkish, matching the user's latest message.",
 }
 
 
@@ -67,6 +67,78 @@ def _trim_text(value, max_length=240):
         return value
 
     return f"{value[: max_length - 1].rstrip()}..."
+
+
+def detect_response_language(text, fallback="ru"):
+    text = str(text or "").strip()
+
+    if not text:
+        return normalize_language(fallback)
+
+    lowered = text.casefold()
+    cyrillic_count = sum("а" <= char <= "я" or char == "ё" for char in lowered)
+    latin_count = sum("a" <= char <= "z" for char in lowered)
+    turkish_special_count = sum(char in "çğıöşü" for char in lowered)
+
+    if cyrillic_count >= 2:
+        return "ru"
+
+    turkish_words = {
+        "merhaba",
+        "selam",
+        "lutfen",
+        "lütfen",
+        "bana",
+        "ben",
+        "bir",
+        "yemek",
+        "icecek",
+        "içecek",
+        "kahve",
+        "alerji",
+        "sut",
+        "süt",
+        "tavsiye",
+        "oner",
+        "öner",
+        "istiyorum",
+        "var",
+        "yok",
+        "bira",
+        "pide",
+    }
+    english_words = {
+        "hello",
+        "hi",
+        "please",
+        "recommend",
+        "suggest",
+        "want",
+        "would",
+        "dish",
+        "food",
+        "drink",
+        "allergy",
+        "allergen",
+        "coffee",
+        "milk",
+        "pizza",
+        "beer",
+    }
+    normalized_words = {
+        word.strip(".,!?;:()[]{}\"'")
+        for word in lowered.replace("ı", "i").split()
+    }
+    turkish_score = turkish_special_count + len(normalized_words & turkish_words)
+    english_score = len(normalized_words & english_words)
+
+    if latin_count:
+        if turkish_score > english_score:
+            return "tr"
+
+        return "en"
+
+    return normalize_language(fallback)
 
 
 def build_menu_context() -> str:
@@ -254,7 +326,13 @@ def build_request_context(session: ChatSession) -> str:
 
 
 def build_system_instruction(session: ChatSession) -> str:
-    language = normalize_language(getattr(session, "interface_language", "ru"))
+    language = normalize_language(
+        getattr(
+            session,
+            "response_language",
+            getattr(session, "interface_language", "ru"),
+        )
+    )
 
     return "\n\n".join(
         [

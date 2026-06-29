@@ -242,6 +242,7 @@
     });
 
     window.addEventListener("cc:languagechange", function () {
+      syncInitialGreetingLanguage();
       resizeInput();
 
       if (root.classList.contains("is-open")) {
@@ -252,14 +253,45 @@
     function createInitialState() {
       return {
         sessionId: null,
+        greetingLanguage: getCurrentLanguage(),
         messages: [
           {
             role: "assistant",
             text: t("greeting"),
+            isGreeting: true,
             dishes: [],
           },
         ],
       };
+    }
+
+    function isInitialGreetingState() {
+      return (
+        state &&
+        !state.sessionId &&
+        Array.isArray(state.messages) &&
+        state.messages.length === 1 &&
+        state.messages[0].role === "assistant" &&
+        (!state.messages[0].dishes || !state.messages[0].dishes.length)
+      );
+    }
+
+    function syncInitialGreetingLanguage() {
+      var language = getCurrentLanguage();
+
+      if (!isInitialGreetingState()) {
+        return;
+      }
+
+      if (state.greetingLanguage === language) {
+        return;
+      }
+
+      state.greetingLanguage = language;
+      state.messages[0].text = t("greeting");
+      state.messages[0].isGreeting = true;
+      writeState();
+      renderMessages();
     }
 
     function normalizeDishes(dishes) {
@@ -328,6 +360,7 @@
 
         return {
           sessionId: parsed.sessionId || null,
+          greetingLanguage: parsed.greetingLanguage || null,
           messages: messages,
         };
       } catch (error) {
@@ -353,6 +386,7 @@
       document.body.classList.toggle(LOCK_CLASS, isOpen);
 
       if (isOpen) {
+        syncInitialGreetingLanguage();
         panel.hidden = false;
         root.classList.add("is-mounted");
 

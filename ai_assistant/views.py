@@ -17,7 +17,12 @@ from menu.translations import (
 )
 
 from .models import ChatMessage, ChatSession
-from .services import AIServiceError, generate_ai_answer, generate_ai_answer_stream
+from .services import (
+    AIServiceError,
+    detect_response_language,
+    generate_ai_answer,
+    generate_ai_answer_stream,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -487,6 +492,8 @@ def ask(request):
     session_id = payload.get("session_id")
     language_value = payload.get("language")
     language = normalize_language(language_value) if language_value else ""
+    response_language = detect_response_language(prompt, fallback=language or "ru")
+    card_language = response_language if language_value else ""
 
     if not prompt:
         return _error_response(
@@ -512,6 +519,7 @@ def ask(request):
         session = _create_session(request, prompt)
 
     session.interface_language = language or "ru"
+    session.response_language = response_language
 
     ChatMessage.objects.create(
         session=session,
@@ -557,7 +565,7 @@ def ask(request):
                         prompt,
                         request,
                         session,
-                        language=language,
+                        language=card_language,
                     )
                     assistant_message = ChatMessage.objects.create(
                         session=session,
@@ -620,7 +628,7 @@ def ask(request):
                         prompt,
                         current_message_id=assistant_message.id,
                     ),
-                    language=language,
+                    language=card_language,
                 ),
                 session_id=str(session.id),
                 model=model_name,
@@ -667,7 +675,7 @@ def ask(request):
                     prompt,
                     current_message_id=assistant_message.id,
                 ),
-                language=language,
+                language=card_language,
             ),
             "session_id": str(session.id),
             "model": result.model_name,

@@ -13,6 +13,7 @@ from .services import (
     AIResult,
     AIServiceError,
     build_menu_context,
+    detect_response_language,
     get_configured_model_names,
     get_gemini_client,
 )
@@ -54,15 +55,36 @@ class GeminiServiceTests(TestCase):
     def test_configured_models_skip_empty_values(self):
         self.assertEqual(get_configured_model_names(), [])
 
+    def test_detect_response_language_from_latest_message(self):
+        self.assertEqual(
+            detect_response_language("Can you recommend a sandwich?", fallback="ru"),
+            "en",
+        )
+        self.assertEqual(
+            detect_response_language("Bana tatlı önerir misin?", fallback="ru"),
+            "tr",
+        )
+        self.assertEqual(
+            detect_response_language("Посоветуй десерт", fallback="en"),
+            "ru",
+        )
+        self.assertEqual(
+            detect_response_language("Хочу Focaccia", fallback="en"),
+            "ru",
+        )
+
 
 class AskViewTests(TestCase):
-    def post_prompt(self, prompt, session_id=None):
+    def post_prompt(self, prompt, session_id=None, language=None):
         payload = {
             "prompt": prompt,
         }
 
         if session_id:
             payload["session_id"] = session_id
+
+        if language:
+            payload["language"] = language
 
         return self.client.post(
             reverse("ai_assistant:ask"),
@@ -121,6 +143,25 @@ class AskViewTests(TestCase):
         self.assertTrue(session.session_key)
         self.assertEqual(session.messages.count(), 2)
         generate_ai_answer_mock.assert_called_once_with(session)
+
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        return_value=AIResult(
+            text="I recommend Focaccia.",
+            model_name="gemini-test",
+        ),
+    )
+    def test_response_language_follows_prompt_language(self, generate_ai_answer_mock):
+        response = self.post_prompt(
+            "Can you recommend something savory?",
+            language="ru",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        session = generate_ai_answer_mock.call_args.args[0]
+        self.assertEqual(session.interface_language, "ru")
+        self.assertEqual(session.response_language, "en")
 
     @patch(
         "ai_assistant.views.generate_ai_answer",
