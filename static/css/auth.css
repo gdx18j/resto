@@ -67,6 +67,56 @@
   border-color: var(--accent);
 }
 
+.auth-password-control {
+  position: relative;
+  display: block;
+}
+
+.auth-password-control input {
+  padding-right: 48px;
+}
+
+.password-toggle-button {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.password-toggle-button:hover,
+.password-toggle-button:focus-visible {
+  color: var(--text);
+  border-color: var(--line);
+  background: var(--surface-soft);
+}
+
+.password-toggle-button {
+  transform: translateY(-50%);
+}
+
+.password-toggle-button__icon {
+  width: 18px;
+  height: 18px;
+}
+
+.password-toggle-button__icon--hide,
+.password-toggle-button.is-visible .password-toggle-button__icon--show {
+  display: none;
+}
+
+.password-toggle-button.is-visible .password-toggle-button__icon--hide {
+  display: block;
+}
+
 .auth-check {
   width: fit-content;
   display: inline-flex;
@@ -141,6 +191,10 @@
 
 .auth-google {
   border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   color: #1f1f1f;
   background: #ffffff;
 }

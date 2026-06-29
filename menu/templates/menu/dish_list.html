@@ -96,9 +96,14 @@
             <article
               class="dish-card{% if not dish.image %} dish-card--no-image{% endif %}{% if dish.has_allergy_conflict %} dish-card--allergy-match{% endif %}"
               id="dish-{{ dish.id }}"
+              role="button"
+              tabindex="0"
+              data-dish-card
+              data-dish-template="dish-detail-template-{{ dish.id }}"
               data-search-text="{{ dish.search_text|lower|escape }}"
               data-search-name="{{ dish.search_name|lower|escape }}"
               data-search-ingredients="{{ dish.search_ingredients|lower|escape }}"
+              aria-label="Открыть описание: {{ dish.name }}"
             >
               <div class="dish-image-button" aria-hidden="true">
                 {% if dish.image %}
@@ -112,7 +117,7 @@
                 <div class="dish-copy">
                   <h2>{{ dish.localized_name_html }}</h2>
 
-                  {% if dish.description %}
+                  {% if dish.has_description %}
                     <p>{{ dish.localized_description_html }}</p>
                   {% endif %}
 
@@ -164,20 +169,37 @@
                 </div>
 
                 <div class="dish-footer">
-                  <button
-                    class="dish-price-button"
-                    type="button"
-                    data-add-btn
+                  <div
+                    class="dish-cart-control"
                     data-id="dish-{{ dish.id }}"
                     data-name="{{ dish.name|escape }}"
                     data-name-ru="{{ dish.name_translations.ru|escape }}"
                     data-name-en="{{ dish.name_translations.en|escape }}"
                     data-name-tr="{{ dish.name_translations.tr|escape }}"
                     data-price="{{ dish.price }}"
-                    aria-label="Add to cart: {{ dish.name }}"
+                    data-dish-cart-control
                   >
-                    <strong>{{ dish.price }} ₽</strong>
-                  </button>
+                    <button
+                      class="dish-price-button"
+                      type="button"
+                      data-add-btn
+                      data-id="dish-{{ dish.id }}"
+                      data-name="{{ dish.name|escape }}"
+                      data-name-ru="{{ dish.name_translations.ru|escape }}"
+                      data-name-en="{{ dish.name_translations.en|escape }}"
+                      data-name-tr="{{ dish.name_translations.tr|escape }}"
+                      data-price="{{ dish.price }}"
+                      aria-label="Add to cart: {{ dish.name }}"
+                    >
+                      <strong>{{ dish.price }} ₽</strong>
+                    </button>
+
+                    <div class="dish-qty-stepper" data-dish-qty-stepper hidden>
+                      <button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="dec" data-id="dish-{{ dish.id }}" aria-label="Уменьшить количество">−</button>
+                      <span class="dish-qty-stepper__count" data-dish-qty-count aria-live="polite">0</span>
+                      <button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="inc" data-id="dish-{{ dish.id }}" aria-label="Увеличить количество">+</button>
+                    </div>
+                  </div>
 
                   {% if dish.preparation_time_minutes %}
                     <span class="dish-time">
@@ -190,10 +212,220 @@
                 </div>
               </div>
             </article>
+
+            <template id="dish-detail-template-{{ dish.id }}">
+              <article class="dish-detail">
+                <div class="dish-detail__media{% if not dish.image %} dish-detail__media--placeholder{% endif %}">
+                  {% if dish.image %}
+                    <img src="{{ dish.image.url }}" alt="">
+                  {% else %}
+                    <span class="dish-placeholder">{{ dish.name|first }}</span>
+                  {% endif %}
+                </div>
+
+                <div class="dish-detail__body">
+                  <p class="dish-detail__kicker">
+                    <span class="lang lang--ru">Описание блюда</span>
+                    <span class="lang lang--en">Dish details</span>
+                    <span class="lang lang--tr">Yemek detayı</span>
+                  </p>
+
+                  <h2 id="dish-detail-title-{{ dish.id }}">{{ dish.localized_name_html }}</h2>
+
+                  {% if dish.has_description %}
+                    <p class="dish-detail__description">{{ dish.localized_description_html }}</p>
+                  {% endif %}
+
+                  {% if dish.nutrition.serving_weight_g or dish.preparation_time_minutes %}
+                    <div class="dish-detail__facts">
+                      {% if dish.serving_weight_g %}
+                        <span>
+                          <small>
+                            <span class="lang lang--ru">Вес</span>
+                            <span class="lang lang--en">Weight</span>
+                            <span class="lang lang--tr">Ağırlık</span>
+                          </small>
+                          <strong>
+                            {{ dish.serving_weight_g }}
+                            <span class="lang lang--ru">г</span>
+                            <span class="lang lang--en">g</span>
+                            <span class="lang lang--tr">g</span>
+                          </strong>
+                        </span>
+                      {% endif %}
+
+                      {% if dish.preparation_time_minutes %}
+                        <span>
+                          <small>
+                            <span class="lang lang--ru">Время</span>
+                            <span class="lang lang--en">Time</span>
+                            <span class="lang lang--tr">Süre</span>
+                          </small>
+                          <strong>
+                            {{ dish.preparation_time_minutes }}
+                            <span class="lang lang--ru">мин</span>
+                            <span class="lang lang--en">min</span>
+                            <span class="lang lang--tr">dk</span>
+                          </strong>
+                        </span>
+                      {% endif %}
+                    </div>
+                  {% endif %}
+
+                  {% if dish.has_nutrition_details %}
+                    <section class="dish-detail__section">
+                      <h3>
+                        <span class="lang lang--ru">КБЖУ на порцию</span>
+                        <span class="lang lang--en">Nutrition per serving</span>
+                        <span class="lang lang--tr">Porsiyon besin değeri</span>
+                      </h3>
+                      <div class="dish-detail__nutrition">
+                        {% if dish.calories_kcal_per_serving %}
+                          <span>
+                            <small>
+                              <span class="lang lang--ru">Калории</span>
+                              <span class="lang lang--en">Calories</span>
+                              <span class="lang lang--tr">Kalori</span>
+                            </small>
+                            <strong>
+                              {{ dish.calories_kcal_per_serving }}
+                              <span class="lang lang--ru">ккал</span>
+                              <span class="lang lang--en">kcal</span>
+                              <span class="lang lang--tr">kcal</span>
+                            </strong>
+                          </span>
+                        {% endif %}
+
+                        {% if dish.nutrition.proteins_g != None %}
+                          <span>
+                            <small>
+                              <span class="lang lang--ru">Белки</span>
+                              <span class="lang lang--en">Protein</span>
+                              <span class="lang lang--tr">Protein</span>
+                            </small>
+                            <strong>{{ dish.nutrition.proteins_g|floatformat:"-1" }} г</strong>
+                          </span>
+                        {% endif %}
+
+                        {% if dish.nutrition.fats_g != None %}
+                          <span>
+                            <small>
+                              <span class="lang lang--ru">Жиры</span>
+                              <span class="lang lang--en">Fat</span>
+                              <span class="lang lang--tr">Yağ</span>
+                            </small>
+                            <strong>{{ dish.nutrition.fats_g|floatformat:"-1" }} г</strong>
+                          </span>
+                        {% endif %}
+
+                        {% if dish.nutrition.carbohydrates_g != None %}
+                          <span>
+                            <small>
+                              <span class="lang lang--ru">Углеводы</span>
+                              <span class="lang lang--en">Carbs</span>
+                              <span class="lang lang--tr">Karbonhidrat</span>
+                            </small>
+                            <strong>{{ dish.nutrition.carbohydrates_g|floatformat:"-1" }} г</strong>
+                          </span>
+                        {% endif %}
+                      </div>
+                      {% if dish.nutrition.is_estimated %}
+                        <p class="dish-detail__note">
+                          <span class="lang lang--ru">КБЖУ указано ориентировочно. Точные значения можно уточнить у ресторана.</span>
+                          <span class="lang lang--en">Nutrition values are approximate. Exact values can be confirmed with the restaurant.</span>
+                          <span class="lang lang--tr">Besin değerleri yaklaşık verilmiştir. Kesin değerler restoranla teyit edilebilir.</span>
+                        </p>
+                      {% endif %}
+                    </section>
+                  {% endif %}
+
+                  {% if dish.display_ingredients %}
+                    <section class="dish-detail__section">
+                      <h3>
+                        <span class="lang lang--ru">Состав</span>
+                        <span class="lang lang--en">Ingredients</span>
+                        <span class="lang lang--tr">İçindekiler</span>
+                      </h3>
+                      <p class="dish-detail__composition">
+                        {% for ingredient in dish.display_ingredients %}
+                          <span>{{ ingredient }}</span>{% if not forloop.last %}<span class="dish-detail__comma">, </span>{% endif %}
+                        {% endfor %}
+                        {% if dish.has_more_ingredients %}
+                          <span class="dish-detail__comma">, </span>
+                          <span class="lang lang--ru">и другое</span>
+                          <span class="lang lang--en">and more</span>
+                          <span class="lang lang--tr">ve fazlası</span>
+                        {% endif %}
+                      </p>
+                    </section>
+                  {% endif %}
+
+                  {% if dish.display_allergens %}
+                    <section class="dish-detail__section">
+                      <h3>
+                        <span class="lang lang--ru">Аллергены</span>
+                        <span class="lang lang--en">Allergens</span>
+                        <span class="lang lang--tr">Alerjenler</span>
+                      </h3>
+                      <div class="dish-detail__allergens">
+                        {% for allergen in dish.display_allergens %}
+                          <span>{{ allergen.localized_name_html }}</span>
+                        {% endfor %}
+                      </div>
+                    </section>
+                  {% endif %}
+
+                  <div
+                    class="dish-cart-control dish-cart-control--detail"
+                    data-id="dish-{{ dish.id }}"
+                    data-name="{{ dish.name|escape }}"
+                    data-name-ru="{{ dish.name_translations.ru|escape }}"
+                    data-name-en="{{ dish.name_translations.en|escape }}"
+                    data-name-tr="{{ dish.name_translations.tr|escape }}"
+                    data-price="{{ dish.price }}"
+                    data-dish-cart-control
+                  >
+                    <button
+                      class="dish-detail__add"
+                      type="button"
+                      data-add-btn
+                      data-id="dish-{{ dish.id }}"
+                      data-name="{{ dish.name|escape }}"
+                      data-name-ru="{{ dish.name_translations.ru|escape }}"
+                      data-name-en="{{ dish.name_translations.en|escape }}"
+                      data-name-tr="{{ dish.name_translations.tr|escape }}"
+                      data-price="{{ dish.price }}"
+                      aria-label="Add to cart: {{ dish.name }}"
+                    >
+                      <span class="lang lang--ru">Добавить</span>
+                      <span class="lang lang--en">Add</span>
+                      <span class="lang lang--tr">Ekle</span>
+                      <strong>{{ dish.price }} ₽</strong>
+                    </button>
+
+                    <div class="dish-qty-stepper dish-qty-stepper--detail" data-dish-qty-stepper hidden>
+                      <button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="dec" data-id="dish-{{ dish.id }}" aria-label="Уменьшить количество">−</button>
+                      <span class="dish-qty-stepper__count" data-dish-qty-count aria-live="polite">0</span>
+                      <button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="inc" data-id="dish-{{ dish.id }}" aria-label="Увеличить количество">+</button>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            </template>
           {% endfor %}
         </div>
       </section>
     {% endfor %}
+
+    <div class="dish-detail-layer" data-dish-modal hidden>
+      <button class="dish-detail-backdrop" type="button" data-dish-close aria-label="Закрыть"></button>
+      <div class="dish-detail-shell" role="dialog" aria-modal="true" aria-labelledby="dish-detail-title">
+        <button class="close-button dish-detail-close" type="button" data-dish-close aria-label="Закрыть">
+          <svg><use href="#i-close"/></svg>
+        </button>
+        <div data-dish-modal-content></div>
+      </div>
+    </div>
 
     <section class="menu-search-empty" hidden>
       <h2>

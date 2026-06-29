@@ -17,6 +17,14 @@
   var categoryLinks = Array.prototype.slice.call(
     document.querySelectorAll(".category-chip")
   );
+  var dishModal = document.querySelector("[data-dish-modal]");
+  var dishModalContent = dishModal
+    ? dishModal.querySelector("[data-dish-modal-content]")
+    : null;
+  var dishModalShell = dishModal
+    ? dishModal.querySelector(".dish-detail-shell")
+    : null;
+  var lastDishTrigger = null;
 
   if (!shell || !search) {
     return;
@@ -61,6 +69,101 @@
   function t(key) {
     var language = currentLanguage();
     return translations[language][key] || translations.ru[key] || "";
+  }
+
+  function isInteractiveElement(target) {
+    return Boolean(
+      target.closest(
+        "a, button, input, select, textarea, label, summary, details, [data-add-btn]"
+      )
+    );
+  }
+
+  function openDishDetails(card) {
+    if (!dishModal || !dishModalContent || !card) {
+      return;
+    }
+
+    var templateId = card.dataset.dishTemplate;
+    var template = templateId ? document.getElementById(templateId) : null;
+
+    if (!template) {
+      return;
+    }
+
+    lastDishTrigger = card;
+    dishModalContent.innerHTML = "";
+    dishModalContent.appendChild(template.content.cloneNode(true));
+    document.dispatchEvent(new CustomEvent("cc:dishdetailopen"));
+    dishModal.hidden = false;
+    document.body.classList.add("dish-detail-open");
+
+    var title = dishModalContent.querySelector("h2[id]");
+    var closeButton = dishModal.querySelector("[data-dish-close]");
+
+    if (dishModalShell && title) {
+      dishModalShell.setAttribute("aria-labelledby", title.id);
+    }
+
+    window.requestAnimationFrame(function () {
+      dishModal.classList.add("is-open");
+
+      if (closeButton) {
+        closeButton.focus();
+      }
+    });
+  }
+
+  function closeDishDetails() {
+    if (!dishModal || dishModal.hidden) {
+      return;
+    }
+
+    dishModal.classList.remove("is-open");
+    document.body.classList.remove("dish-detail-open");
+    dishModal.hidden = true;
+    dishModalContent.innerHTML = "";
+
+    if (lastDishTrigger) {
+      lastDishTrigger.focus();
+      lastDishTrigger = null;
+    }
+  }
+
+  function handleDishClick(event) {
+    var closeButton = event.target.closest("[data-dish-close]");
+
+    if (closeButton) {
+      closeDishDetails();
+      return;
+    }
+
+    var card = event.target.closest("[data-dish-card]");
+
+    if (
+      !card
+      || isInteractiveElement(event.target)
+      || !event.target.closest(".dish-image-button, .dish-copy")
+    ) {
+      return;
+    }
+
+    openDishDetails(card);
+  }
+
+  function handleDishKeydown(event) {
+    if (event.key === "Escape") {
+      closeDishDetails();
+      return;
+    }
+
+    if (
+      (event.key === "Enter" || event.key === " ")
+      && event.target.matches("[data-dish-card]")
+    ) {
+      event.preventDefault();
+      openDishDetails(event.target);
+    }
   }
 
   function updateSearchVisibility() {
@@ -281,6 +384,9 @@
   window.addEventListener("cc:languagechange", function () {
     filterMenu(activeQuery);
   });
+
+  document.addEventListener("click", handleDishClick);
+  document.addEventListener("keydown", handleDishKeydown);
 
   updateSearchStatus("", totalDishes);
 })();

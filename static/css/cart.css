@@ -9,6 +9,7 @@
 .app-shell a,
 .app-shell label,
 .app-shell [data-add-btn],
+.app-shell [data-dish-qty-action],
 .app-shell [data-cart-open],
 .app-shell [data-cart-close] { cursor: pointer; }
 
@@ -56,6 +57,12 @@
   100% { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
 }
 .dish-price-button.cart-add--flash {
+  animation: priceAddFlash 460ms ease forwards;
+}
+.dish-cart-control.cart-add--flash {
+  animation: none;
+}
+.dish-cart-control.cart-add--flash .dish-qty-stepper {
   animation: priceAddFlash 460ms ease forwards;
 }
 

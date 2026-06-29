@@ -17,6 +17,7 @@ def dish_list(request):
         .select_related("category")
         .prefetch_related(
             "ingredients__allergens",
+            "dish_ingredients__ingredient",
             "may_contain_allergens",
         )
         .order_by("category__name", "name")

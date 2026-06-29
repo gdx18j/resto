@@ -58,7 +58,24 @@
                   {{ field.label }}
                 {% endif %}
               </span>
-              {{ field }}
+              {% if field.name == "password" %}
+                <span class="auth-password-control">
+                  {{ field }}
+                  <button
+                    class="password-toggle-button"
+                    type="button"
+                    data-password-toggle
+                    aria-label="Показать пароль"
+                    data-show-label="Показать пароль"
+                    data-hide-label="Скрыть пароль"
+                  >
+                    <svg class="password-toggle-button__icon password-toggle-button__icon--show" aria-hidden="true"><use href="#i-eye"/></svg>
+                    <svg class="password-toggle-button__icon password-toggle-button__icon--hide" aria-hidden="true"><use href="#i-eye-off"/></svg>
+                  </button>
+                </span>
+              {% else %}
+                {{ field }}
+              {% endif %}
               {{ field.errors }}
             </label>
           {% endif %}
@@ -84,6 +101,7 @@
       <form class="auth-form" method="post" action="{% provider_login_url 'google' process='login' %}">
         {% csrf_token %}
         <button class="auth-google" type="submit">
+          <svg class="google-mark" aria-hidden="true"><use href="#i-google"/></svg>
           <span class="lang lang--ru">Продолжить с Google</span>
           <span class="lang lang--en">Continue with Google</span>
           <span class="lang lang--tr">Google ile devam et</span>

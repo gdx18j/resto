@@ -53,7 +53,24 @@
                   {{ field.label }}
                 {% endif %}
               </span>
-              {{ field }}
+              {% if field.name == "password1" or field.name == "password2" %}
+                <span class="auth-password-control">
+                  {{ field }}
+                  <button
+                    class="password-toggle-button"
+                    type="button"
+                    data-password-toggle
+                    aria-label="Показать пароль"
+                    data-show-label="Показать пароль"
+                    data-hide-label="Скрыть пароль"
+                  >
+                    <svg class="password-toggle-button__icon password-toggle-button__icon--show" aria-hidden="true"><use href="#i-eye"/></svg>
+                    <svg class="password-toggle-button__icon password-toggle-button__icon--hide" aria-hidden="true"><use href="#i-eye-off"/></svg>
+                  </button>
+                </span>
+              {% else %}
+                {{ field }}
+              {% endif %}
               {% if field.help_text %}
                 <small>{{ field.help_text }}</small>
               {% endif %}

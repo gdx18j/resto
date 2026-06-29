@@ -30,6 +30,8 @@
       added: 'Добавлено в корзину',
       open: 'Открыть',
       addToCart: 'Добавить в корзину: ',
+      increaseItem: 'Добавить еще: ',
+      decreaseItem: 'Убрать одно: ',
       commentPlaceholder: 'Аллергии, пожелания к сервировке, особые просьбы…',
     },
     en: {
@@ -41,6 +43,8 @@
       added: 'Added to cart',
       open: 'Open',
       addToCart: 'Add to cart: ',
+      increaseItem: 'Add one more: ',
+      decreaseItem: 'Remove one: ',
       commentPlaceholder: 'Allergies, serving wishes, special requests…',
     },
     tr: {
@@ -52,6 +56,8 @@
       added: 'Sepete eklendi',
       open: 'Aç',
       addToCart: 'Sepete ekle: ',
+      increaseItem: 'Bir tane daha ekle: ',
+      decreaseItem: 'Bir tane çıkar: ',
       commentPlaceholder: 'Alerjiler, servis istekleri, özel notlar…',
     },
   };
@@ -235,10 +241,44 @@
     });
   }
 
+  function syncDishControls() {
+    qsa('[data-dish-cart-control]').forEach(function (control) {
+      var id = control.dataset.id;
+      var item = id ? cart.items[id] : null;
+      var qty = item ? item.qty : 0;
+      var addBtn = control.querySelector('[data-add-btn]');
+      var stepper = control.querySelector('[data-dish-qty-stepper]');
+      var count = control.querySelector('[data-dish-qty-count]');
+      var name = localizedDatasetName(control);
+      var isActive = qty > 0;
+
+      control.classList.toggle('dish-cart-control--active', isActive);
+
+      if (addBtn) {
+        addBtn.hidden = isActive;
+        addBtn.setAttribute('aria-label', t('addToCart') + name);
+      }
+
+      if (stepper) {
+        stepper.hidden = !isActive;
+      }
+
+      if (count) {
+        count.textContent = qty;
+      }
+
+      qsa('[data-dish-qty-action]', control).forEach(function (btn) {
+        var key = btn.dataset.dishQtyAction === 'inc' ? 'increaseItem' : 'decreaseItem';
+        btn.setAttribute('aria-label', t(key) + name);
+      });
+    });
+  }
+
   function renderAll() {
     renderBadges();
     renderLines();
     renderSummary();
+    syncDishControls();
     syncPersonsUI();
     syncPaymentUI();
     syncCommentUI();
@@ -286,6 +326,12 @@
       var name = localizedDatasetName(btn);
       btn.setAttribute('aria-label', t('addToCart') + name);
     });
+    qsa('[data-dish-qty-action]').forEach(function (btn) {
+      var control = btn.closest('[data-dish-cart-control]');
+      var name = control ? localizedDatasetName(control) : '';
+      var key = btn.dataset.dishQtyAction === 'inc' ? 'increaseItem' : 'decreaseItem';
+      btn.setAttribute('aria-label', t(key) + name);
+    });
   }
 
   /* ─── Public API (used by dish cards) ────────────────────────── */
@@ -320,6 +366,18 @@
   }
 
   function animateAdd(id) {
+    var controls = qsa('[data-dish-cart-control]').filter(function (control) {
+      return control.dataset.id === id;
+    });
+
+    if (controls.length > 0) {
+      controls.forEach(function (control) {
+        control.classList.add('cart-add--flash');
+        setTimeout(function () { control.classList.remove('cart-add--flash'); }, 460);
+      });
+      return;
+    }
+
     var btn = qs('[data-add-btn][data-id="' + id + '"]');
     if (!btn) return;
     btn.classList.add('cart-add--flash');
@@ -483,6 +541,13 @@
         // Это системный лейбл — не трогаем корзину
         return;
       }
+    }
+
+    // Dish card quantity +/-
+    var dishQtyBtn = target.closest('[data-dish-qty-action][data-id]');
+    if (dishQtyBtn) {
+      changeQty(dishQtyBtn.dataset.id, dishQtyBtn.dataset.dishQtyAction === 'inc' ? 1 : -1);
+      return;
     }
 
     // Add to cart (dish cards)
@@ -796,9 +861,11 @@
     setCartTop();
     window.addEventListener('resize', setCartTop);
     window.addEventListener('cc:languagechange', renderAll);
-    var mo = new MutationObserver(function () { attachDishButtons(); });
-    var main = qs('.main-content');
-    if (main) mo.observe(main, { childList: true, subtree: true });
+    document.addEventListener('cc:dishdetailopen', function () {
+      attachDishButtons();
+      syncDishControls();
+      syncLocalizedText();
+    });
   }
 
   if (document.readyState === 'loading') {
