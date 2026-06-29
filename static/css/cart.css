@@ -137,6 +137,16 @@
 
 @media (min-width: 768px) { .cart-bar { display: none; } }
 
+/* AI кнопка поднимается над плашкой корзины на мобиле */
+@media (max-width: 767px) {
+  .cart-bar-visible .ai-assistant__launcher {
+    bottom: calc(54px + max(env(safe-area-inset-bottom, 0px), 12px) + 24px) !important;
+    transition: bottom 340ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                transform 180ms ease,
+                box-shadow 180ms ease !important;
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════
    CART PANEL
    ═══════════════════════════════════════════════════════════════ */
@@ -247,7 +257,7 @@
     padding-right: 380px;
   }
 
-  /* Header stays fixed; app-shell already reserves its height. */
+  /* Хедер всегда на всю ширину */
   .site-header {
     position: fixed;
     top: 0;
@@ -256,12 +266,12 @@
     width: 100%;
     z-index: 210;
     box-sizing: border-box;
-    transition: border-color 260ms ease,
+    transition: right 500ms cubic-bezier(0.22,1,0.36,1),
+                border-color 260ms ease,
                 background-color 260ms ease;
   }
   .app-shell.cart-is-open .site-header {
-    margin-right: 0;
-    width: 100%;
+    right: 380px;
   }
 }
 
@@ -708,4 +718,22 @@
   color: var(--danger);
   border-color: var(--danger);
   background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+/* ── AI кнопка сдвигается когда открыта корзина (десктоп) ─────── */
+@media (min-width: 768px) {
+  .app-shell.cart-is-open .ai-assistant__launcher {
+    right: calc(380px + 16px);
+    transition: right 500ms cubic-bezier(0.22,1,0.36,1),
+                transform 180ms ease,
+                box-shadow 180ms ease,
+                background-color 220ms ease,
+                opacity 180ms ease;
+  }
+  .app-shell.cart-is-open .ai-assistant__panel {
+    right: calc(380px + 18px);
+    transition: right 500ms cubic-bezier(0.22,1,0.36,1),
+                opacity 210ms ease,
+                transform 260ms cubic-bezier(0.22,1,0.36,1);
+  }
 }

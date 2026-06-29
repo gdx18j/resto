@@ -1367,7 +1367,10 @@ label[for="theme-toggle"] {
   }
 
   .menu-controls {
-    width: min(calc(100% - 40px), var(--content-width));
+    width: 100%;
+    max-width: var(--content-width);
+    margin-inline: auto;
+    padding-inline: 0;
   }
 
   .dish-grid {
@@ -1411,7 +1414,7 @@ label[for="theme-toggle"] {
   }
 
   .search-section {
-    max-width: 720px;
+    max-width: 100%;
   }
 
   .category-strip {

@@ -76,8 +76,10 @@
     if (bar) {
       if (n > 0) {
         bar.classList.add('cart-bar--visible');
+        document.body.classList.add('cart-bar-visible');
       } else {
         bar.classList.remove('cart-bar--visible');
+        document.body.classList.remove('cart-bar-visible');
       }
     }
 
