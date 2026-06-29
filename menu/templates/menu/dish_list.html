@@ -25,7 +25,7 @@
               class="category-chip{% if forloop.first %} is-active{% endif %}"
               href="#{{ section.anchor }}"
             >
-              {{ section.title }}
+              {{ section.title_html }}
             </a>
           {% endfor %}
         </nav>
@@ -39,23 +39,37 @@
       <svg><use href="#i-shield"/></svg>
       <p>
         {% if request.user.is_authenticated %}
-          Учитываем пищевые ограничения из вашего профиля и подсвечиваем блюда с возможными аллергенами.
+          <span class="lang lang--ru">Учитываем пищевые ограничения из вашего профиля и подсвечиваем блюда с возможными аллергенами.</span>
+          <span class="lang lang--en">We use dietary restrictions from your profile and highlight dishes with possible allergens.</span>
+          <span class="lang lang--tr">Profilinizdeki beslenme kısıtlamalarını dikkate alır ve olası alerjenleri olan yemekleri vurgularız.</span>
           {% if user_allergens %}
             <span class="preference-allergens">
-              Ваши аллергии:
+              <span class="lang lang--ru">Ваши аллергии:</span>
+              <span class="lang lang--en">Your allergies:</span>
+              <span class="lang lang--tr">Alerjileriniz:</span>
               {% for record in user_allergens %}
-                {{ record.allergen.name }}{% if not forloop.last %}, {% endif %}
+                {{ record.allergen.localized_name_html }}{% if not forloop.last %}, {% endif %}
               {% endfor %}
             </span>
           {% else %}
-            <span class="preference-allergens">Аллергии пока не выбраны.</span>
+            <span class="preference-allergens">
+              <span class="lang lang--ru">Аллергии пока не выбраны.</span>
+              <span class="lang lang--en">No allergies selected yet.</span>
+              <span class="lang lang--tr">Henüz alerji seçilmedi.</span>
+            </span>
           {% endif %}
         {% else %}
-          После авторизации здесь будут учитываться ваши пищевые ограничения и аллергии.
+          <span class="lang lang--ru">После авторизации здесь будут учитываться ваши пищевые ограничения и аллергии.</span>
+          <span class="lang lang--en">After logging in, your dietary restrictions and allergies will be considered here.</span>
+          <span class="lang lang--tr">Giriş yaptıktan sonra beslenme kısıtlamalarınız ve alerjileriniz burada dikkate alınır.</span>
         {% endif %}
       </p>
       {% if request.user.is_authenticated %}
-        <a href="{% url 'accounts:edit_allergies' %}">Аллергии</a>
+        <a href="{% url 'accounts:edit_allergies' %}">
+          <span class="lang lang--ru">Аллергии</span>
+          <span class="lang lang--en">Allergies</span>
+          <span class="lang lang--tr">Alerjiler</span>
+        </a>
       {% endif %}
     </aside>
 
@@ -64,10 +78,14 @@
         <header class="section-heading">
           <div>
             {% if forloop.first %}
-              <div class="section-kicker">Меню ресторана</div>
-              <h1>{{ section.title }}</h1>
+              <div class="section-kicker">
+                <span class="lang lang--ru">Меню ресторана</span>
+                <span class="lang lang--en">Restaurant menu</span>
+                <span class="lang lang--tr">Restoran menüsü</span>
+              </div>
+              <h1>{{ section.title_html }}</h1>
             {% else %}
-              <h2>{{ section.title }}</h2>
+              <h2>{{ section.title_html }}</h2>
             {% endif %}
           </div>
           <span class="section-count">{{ section.dishes|length }}</span>
@@ -92,20 +110,24 @@
 
               <div class="dish-body">
                 <div class="dish-copy">
-                  <h2>{{ dish.name }}</h2>
+                  <h2>{{ dish.localized_name_html }}</h2>
 
                   {% if dish.description %}
-                    <p>{{ dish.description }}</p>
+                    <p>{{ dish.localized_description_html }}</p>
                   {% endif %}
 
                   {% if dish.has_allergy_conflict %}
                     <div class="dish-allergens dish-allergens--conflict" aria-label="Совпадения с вашими аллергиями">
                       <svg class="dish-allergens__icon"><use href="#i-shield"/></svg>
                       <span class="dish-allergens__copy">
-                        <span class="dish-allergens__label">Есть совпадение с профилем</span>
+                        <span class="dish-allergens__label">
+                          <span class="lang lang--ru">Возможный аллерген</span>
+                          <span class="lang lang--en">Possible allergen</span>
+                          <span class="lang lang--tr">Olası alerjen</span>
+                        </span>
                         <span class="dish-allergens__list">
                           {% for allergen in dish.conflicting_allergens %}
-                            <span>{{ allergen.name }}</span>{% if not forloop.last %}<span class="dish-allergens__comma">, </span>{% endif %}
+                            <span>{{ allergen.localized_name_html }}</span>{% if not forloop.last %}<span class="dish-allergens__comma">, </span>{% endif %}
                           {% endfor %}
                         </span>
                       </span>
@@ -114,24 +136,56 @@
 
                   <div class="dish-meta">
                     {% if dish.serving_weight_g %}
-                      <span>{{ dish.serving_weight_g }} г</span>
+                      <span>
+                        {{ dish.serving_weight_g }}
+                        <span class="lang lang--ru">г</span>
+                        <span class="lang lang--en">g</span>
+                        <span class="lang lang--tr">g</span>
+                      </span>
                     {% endif %}
 
                     {% if dish.calories_kcal_per_serving %}
-                      <span>{{ dish.calories_kcal_per_serving }} ккал</span>
+                      <span>
+                        {{ dish.calories_kcal_per_serving }}
+                        <span class="lang lang--ru">ккал</span>
+                        <span class="lang lang--en">kcal</span>
+                        <span class="lang lang--tr">kcal</span>
+                      </span>
                     {% endif %}
 
                     {% if request.user.is_authenticated and not dish.has_allergy_conflict %}
-                      <span class="safe-mark">Без совпадений с вашими аллергиями</span>
+                      <span class="safe-mark">
+                        <span class="lang lang--ru">Без совпадений с вашими аллергиями</span>
+                        <span class="lang lang--en">No matches with your allergies</span>
+                        <span class="lang lang--tr">Alerjilerinizle eşleşme yok</span>
+                      </span>
                     {% endif %}
                   </div>
                 </div>
 
                 <div class="dish-footer">
-                  <strong>{{ dish.price }} ₽</strong>
+                  <button
+                    class="dish-price-button"
+                    type="button"
+                    data-add-btn
+                    data-id="dish-{{ dish.id }}"
+                    data-name="{{ dish.name|escape }}"
+                    data-name-ru="{{ dish.name_translations.ru|escape }}"
+                    data-name-en="{{ dish.name_translations.en|escape }}"
+                    data-name-tr="{{ dish.name_translations.tr|escape }}"
+                    data-price="{{ dish.price }}"
+                    aria-label="Add to cart: {{ dish.name }}"
+                  >
+                    <strong>{{ dish.price }} ₽</strong>
+                  </button>
 
                   {% if dish.preparation_time_minutes %}
-                    <span class="dish-time">{{ dish.preparation_time_minutes }} мин</span>
+                    <span class="dish-time">
+                      {{ dish.preparation_time_minutes }}
+                      <span class="lang lang--ru">мин</span>
+                      <span class="lang lang--en">min</span>
+                      <span class="lang lang--tr">dk</span>
+                    </span>
                   {% endif %}
                 </div>
               </div>
@@ -142,13 +196,29 @@
     {% endfor %}
 
     <section class="menu-search-empty" hidden>
-      <h2>Ничего не найдено</h2>
-      <p>Попробуйте название блюда или основной ингредиент.</p>
+      <h2>
+        <span class="lang lang--ru">Ничего не найдено</span>
+        <span class="lang lang--en">Nothing found</span>
+        <span class="lang lang--tr">Sonuç bulunamadı</span>
+      </h2>
+      <p>
+        <span class="lang lang--ru">Попробуйте название блюда или основной ингредиент.</span>
+        <span class="lang lang--en">Try a dish name or main ingredient.</span>
+        <span class="lang lang--tr">Bir yemek adı veya ana malzeme deneyin.</span>
+      </p>
     </section>
   {% else %}
     <section class="menu-empty">
-      <h1>Меню скоро появится</h1>
-      <p>Пока в меню нет активных блюд. Добавьте категории и блюда через админку.</p>
+      <h1>
+        <span class="lang lang--ru">Меню скоро появится</span>
+        <span class="lang lang--en">The menu will appear soon</span>
+        <span class="lang lang--tr">Menü yakında görünecek</span>
+      </h1>
+      <p>
+        <span class="lang lang--ru">Пока в меню нет активных блюд. Добавьте категории и блюда через админку.</span>
+        <span class="lang lang--en">There are no active dishes yet. Add categories and dishes through the admin panel.</span>
+        <span class="lang lang--tr">Henüz aktif yemek yok. Yönetim panelinden kategori ve yemek ekleyin.</span>
+      </p>
     </section>
   {% endif %}
 {% endblock %}

@@ -31,7 +31,11 @@
     <header class="ai-assistant__header">
       <div>
         <p class="ai-assistant__kicker">Gemini</p>
-        <h2 id="ai-assistant-title">ИИ-ассистент</h2>
+        <h2 id="ai-assistant-title">
+          <span class="lang lang--ru">ИИ-ассистент</span>
+          <span class="lang lang--en">AI assistant</span>
+          <span class="lang lang--tr">AI asistanı</span>
+        </h2>
       </div>
 
       <div class="ai-assistant__header-actions">
@@ -40,7 +44,9 @@
           type="button"
           data-ai-reset
         >
-          Новый чат
+          <span class="lang lang--ru">Новый чат</span>
+          <span class="lang lang--en">New chat</span>
+          <span class="lang lang--tr">Yeni sohbet</span>
         </button>
         <button
           class="ai-assistant__icon-button"
@@ -57,15 +63,38 @@
 
     <form class="ai-assistant__form" data-ai-form>
       {% csrf_token %}
-      <label class="ai-assistant__input-wrap" for="ai-assistant-input">
-        <span class="ai-assistant__sr-only">Ваш вопрос</span>
+      <label class="ai-assistant__input-wrap">
+        <span class="ai-assistant__sr-only">
+          <span class="lang lang--ru">Ваш вопрос</span>
+          <span class="lang lang--en">Your question</span>
+          <span class="lang lang--tr">Sorunuz</span>
+        </span>
         <textarea
-          id="ai-assistant-input"
+          class="lang-input lang-input--ru"
+          id="ai-assistant-input-ru"
           name="prompt"
           rows="2"
           maxlength="4000"
           data-ai-input
           placeholder="Спросите про меню, аллергены или попросите подобрать блюдо"
+        ></textarea>
+        <textarea
+          class="lang-input lang-input--en"
+          id="ai-assistant-input-en"
+          name="prompt"
+          rows="2"
+          maxlength="4000"
+          data-ai-input
+          placeholder="Ask about the menu, allergens, or request a dish recommendation"
+        ></textarea>
+        <textarea
+          class="lang-input lang-input--tr"
+          id="ai-assistant-input-tr"
+          name="prompt"
+          rows="2"
+          maxlength="4000"
+          data-ai-input
+          placeholder="Menü, alerjenler hakkında sorun veya yemek önerisi isteyin"
         ></textarea>
       </label>
 

@@ -1,11 +1,13 @@
 (function () {
-  var input = document.querySelector(".allergen-search-input");
+  var inputs = Array.prototype.slice.call(
+    document.querySelectorAll(".allergen-search-input")
+  );
   var chips = Array.prototype.slice.call(
     document.querySelectorAll(".allergen-chip")
   );
   var emptyState = document.querySelector(".allergen-empty");
 
-  if (!input || chips.length === 0) {
+  if (!inputs.length || chips.length === 0) {
     return;
   }
 
@@ -17,8 +19,16 @@
       .trim();
   }
 
-  input.addEventListener("input", function () {
-    var query = normalize(input.value);
+  function syncInputs(value, sourceInput) {
+    inputs.forEach(function (input) {
+      if (input !== sourceInput) {
+        input.value = value;
+      }
+    });
+  }
+
+  function filterAllergens(value) {
+    var query = normalize(value);
     var visibleCount = 0;
 
     chips.forEach(function (chip) {
@@ -35,5 +45,12 @@
     if (emptyState) {
       emptyState.hidden = visibleCount > 0 || query.length === 0;
     }
+  }
+
+  inputs.forEach(function (input) {
+    input.addEventListener("input", function () {
+      syncInputs(input.value, input);
+      filterAllergens(input.value);
+    });
   });
 })();

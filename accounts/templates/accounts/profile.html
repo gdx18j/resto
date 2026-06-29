@@ -9,10 +9,18 @@
 
 {% block content %}
   <section class="account-page">
-    <a href="{% url 'menu:dish_list' %}" class="account-back-link">← В меню</a>
+    <a href="{% url 'menu:dish_list' %}" class="account-back-link">
+      <span class="lang lang--ru">← В меню</span>
+      <span class="lang lang--en">← To menu</span>
+      <span class="lang lang--tr">← Menüye dön</span>
+    </a>
 
     <header class="account-hero">
-      <h1>Профиль</h1>
+      <h1>
+        <span class="lang lang--ru">Профиль</span>
+        <span class="lang lang--en">Profile</span>
+        <span class="lang lang--tr">Profil</span>
+      </h1>
       <div class="account-identity">
         <span class="account-identity__avatar">{{ account_display_initial }}</span>
         <span>
@@ -24,18 +32,30 @@
 
     <section class="account-section">
       <div class="account-section-header">
-        <h2>Пищевые ограничения</h2>
-        <a href="{% url 'accounts:edit_allergies' %}" class="account-link">Изменить</a>
+        <h2>
+          <span class="lang lang--ru">Пищевые ограничения</span>
+          <span class="lang lang--en">Dietary restrictions</span>
+          <span class="lang lang--tr">Beslenme kısıtlamaları</span>
+        </h2>
+        <a href="{% url 'accounts:edit_allergies' %}" class="account-link">
+          <span class="lang lang--ru">Изменить</span>
+          <span class="lang lang--en">Edit</span>
+          <span class="lang lang--tr">Düzenle</span>
+        </a>
       </div>
 
       {% if allergy_records %}
         <div class="allergy-list">
           {% for record in allergy_records %}
-            <span class="allergy-chip">{{ record.allergen.name }}</span>
+            <span class="allergy-chip">{{ record.allergen.localized_name_html }}</span>
           {% endfor %}
         </div>
       {% else %}
-        <p class="account-muted">Ограничения пока не указаны.</p>
+        <p class="account-muted">
+          <span class="lang lang--ru">Ограничения пока не указаны.</span>
+          <span class="lang lang--en">No restrictions have been added yet.</span>
+          <span class="lang lang--tr">Henüz kısıtlama eklenmedi.</span>
+        </p>
       {% endif %}
     </section>
   </section>

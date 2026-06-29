@@ -29,8 +29,39 @@
   var lastScrollY = window.scrollY;
   var ticking = false;
   var threshold = 8;
+  var revealThreshold = 8;
   var activeQuery = "";
   var totalDishes = dishCards.length;
+  var translations = {
+    ru: {
+      found: "Найдено",
+      dishOne: "блюдо",
+      dishFew: "блюда",
+      dishMany: "блюд",
+    },
+    en: {
+      found: "Found",
+      dishOne: "dish",
+      dishFew: "dishes",
+      dishMany: "dishes",
+    },
+    tr: {
+      found: "Bulundu",
+      dishOne: "yemek",
+      dishFew: "yemek",
+      dishMany: "yemek",
+    },
+  };
+
+  function currentLanguage() {
+    var language = document.documentElement.dataset.language || document.documentElement.lang || "ru";
+    return translations[language] ? language : "ru";
+  }
+
+  function t(key) {
+    var language = currentLanguage();
+    return translations[language][key] || translations.ru[key] || "";
+  }
 
   function updateSearchVisibility() {
     var currentScrollY = window.scrollY;
@@ -43,7 +74,7 @@
       shell.classList.remove("search-hidden");
     } else if (delta > threshold) {
       shell.classList.add("search-hidden");
-    } else if (delta < -1) {
+    } else if (delta < -revealThreshold) {
       shell.classList.remove("search-hidden");
     }
 
@@ -133,23 +164,27 @@
   }
 
   function dishWord(count) {
+    if (currentLanguage() !== "ru") {
+      return count === 1 ? t("dishOne") : t("dishMany");
+    }
+
     var absCount = Math.abs(count);
     var mod100 = absCount % 100;
     var mod10 = absCount % 10;
 
     if (mod100 >= 11 && mod100 <= 14) {
-      return "блюд";
+      return t("dishMany");
     }
 
     if (mod10 === 1) {
-      return "блюдо";
+      return t("dishOne");
     }
 
     if (mod10 >= 2 && mod10 <= 4) {
-      return "блюда";
+      return t("dishFew");
     }
 
-    return "блюд";
+    return t("dishMany");
   }
 
   function updateSearchStatus(query, visibleTotal) {
@@ -157,7 +192,7 @@
       if (!query) {
         searchStatus.textContent = "";
       } else {
-        searchStatus.textContent = "Найдено " + visibleTotal + " " + dishWord(visibleTotal);
+        searchStatus.textContent = t("found") + " " + visibleTotal + " " + dishWord(visibleTotal);
       }
     }
 
@@ -242,6 +277,10 @@
       }
     });
   }
+
+  window.addEventListener("cc:languagechange", function () {
+    filterMenu(activeQuery);
+  });
 
   updateSearchStatus("", totalDishes);
 })();

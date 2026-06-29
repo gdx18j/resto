@@ -237,7 +237,7 @@ GEMINI_FALLBACK_MODEL = os.getenv(
 )
 
 AI_MAX_OUTPUT_TOKENS = int(
-    os.getenv("AI_MAX_OUTPUT_TOKENS", "600")
+    os.getenv("AI_MAX_OUTPUT_TOKENS", "1000")
 )
 
 AI_HISTORY_LIMIT = int(

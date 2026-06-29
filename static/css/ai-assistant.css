@@ -185,6 +185,7 @@ body.ai-assistant-lock {
   flex-direction: column;
   gap: 10px;
   overflow-y: auto;
+  overflow-anchor: none;
   overscroll-behavior: contain;
   scrollbar-width: thin;
 }
@@ -205,6 +206,7 @@ body.ai-assistant-lock {
 }
 
 .ai-assistant__message--assistant {
+  max-width: min(94%, 390px);
   align-self: flex-start;
   color: var(--text);
   background: var(--surface);
@@ -225,19 +227,25 @@ body.ai-assistant-lock {
 }
 
 .ai-assistant__dish-list {
-  margin-top: 10px;
+  margin-top: 12px;
   display: grid;
-  gap: 8px;
+  gap: 12px;
+}
+
+.ai-assistant__dish-card-wrap {
+  display: grid;
+  gap: 7px;
 }
 
 .ai-assistant__dish-card {
   min-width: 0;
   display: grid;
-  grid-template-columns: 72px 1fr;
-  gap: 10px;
+  grid-template-columns: 112px minmax(0, 1fr);
+  min-height: 112px;
+  gap: 12px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
-  border-radius: 12px;
+  border-radius: 14px;
   color: var(--text);
   background: color-mix(in srgb, var(--surface-raised) 82%, var(--surface-soft));
   transition: border-color 170ms ease, background-color 220ms ease, transform 170ms ease;
@@ -249,8 +257,37 @@ body.ai-assistant-lock {
   transform: translateY(-1px);
 }
 
+.ai-assistant__cart-button {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--line));
+  border-radius: 13px;
+  color: var(--accent-contrast);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-hover) 72%, var(--accent)), var(--accent));
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 20%, transparent);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease, transform 160ms ease, box-shadow 180ms ease;
+}
+
+.ai-assistant__cart-button:hover {
+  color: var(--accent-contrast);
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--accent) 26%, transparent);
+  transform: translateY(-1px);
+}
+
+.ai-assistant__cart-button.is-added {
+  border-color: var(--safe);
+  color: var(--text);
+  background: var(--safe-soft);
+}
+
 .ai-assistant__dish-media {
-  height: 82px;
+  min-height: 112px;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -267,10 +304,10 @@ body.ai-assistant-lock {
 
 .ai-assistant__dish-body {
   min-width: 0;
-  padding: 9px 9px 9px 0;
+  padding: 12px 12px 12px 0;
   display: grid;
   align-content: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .ai-assistant__dish-body strong {
@@ -278,8 +315,8 @@ body.ai-assistant-lock {
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--text);
-  font-size: 13px;
-  line-height: 1.2;
+  font-size: 14px;
+  line-height: 1.22;
   white-space: nowrap;
 }
 
@@ -290,7 +327,7 @@ body.ai-assistant-lock {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 11.5px;
   line-height: 1.35;
 }
 
@@ -421,6 +458,32 @@ body.ai-assistant-lock {
 
   .ai-assistant__message {
     max-width: 92%;
+  }
+
+  .ai-assistant__message--assistant {
+    max-width: 96%;
+  }
+
+  .ai-assistant__dish-card {
+    grid-template-columns: 94px minmax(0, 1fr);
+    min-height: 98px;
+    gap: 10px;
+  }
+
+  .ai-assistant__dish-media {
+    min-height: 98px;
+  }
+
+  .ai-assistant__dish-body {
+    padding: 10px 10px 10px 0;
+  }
+
+  .ai-assistant__dish-body strong {
+    font-size: 13px;
+  }
+
+  .ai-assistant__cart-button {
+    min-height: 40px;
   }
 }
 

@@ -2,6 +2,8 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 
+from menu.translations import localized_allergen_html
+
 from .forms import AllergyPreferencesForm
 from .models import UserAllergy
 
@@ -14,6 +16,12 @@ def profile(request):
         .select_related("allergen")
         .order_by("allergen__name")
     )
+    allergy_records = list(allergy_records)
+
+    for record in allergy_records:
+        record.allergen.localized_name_html = localized_allergen_html(
+            record.allergen
+        )
 
     context = {
         "allergy_records": allergy_records,

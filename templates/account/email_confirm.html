@@ -10,21 +10,45 @@
 {% block content %}
   <section class="auth-page" aria-labelledby="email-confirm-title">
     <div class="auth-card">
-      <p class="auth-kicker">Email confirmation</p>
-      <h1 id="email-confirm-title">Confirm email</h1>
+      <p class="auth-kicker">
+        <span class="lang lang--ru">Подтверждение email</span>
+        <span class="lang lang--en">Email confirmation</span>
+        <span class="lang lang--tr">E-posta onayı</span>
+      </p>
+      <h1 id="email-confirm-title">
+        <span class="lang lang--ru">Подтвердите email</span>
+        <span class="lang lang--en">Confirm email</span>
+        <span class="lang lang--tr">E-postayı onayla</span>
+      </h1>
 
       {% if confirmation %}
-        <p class="auth-copy">Confirm this email address to activate account login.</p>
+        <p class="auth-copy">
+          <span class="lang lang--ru">Подтвердите этот email, чтобы активировать вход в аккаунт.</span>
+          <span class="lang lang--en">Confirm this email address to activate account login.</span>
+          <span class="lang lang--tr">Hesap girişini etkinleştirmek için bu e-postayı onaylayın.</span>
+        </p>
         <form class="auth-form" method="post" action="{% url 'account_confirm_email' confirmation.key %}">
           {% csrf_token %}
-          <button class="auth-submit" type="submit">Confirm email</button>
+          <button class="auth-submit" type="submit">
+            <span class="lang lang--ru">Подтвердить email</span>
+            <span class="lang lang--en">Confirm email</span>
+            <span class="lang lang--tr">E-postayı onayla</span>
+          </button>
         </form>
       {% else %}
-        <p class="auth-copy">This confirmation link is invalid or has expired.</p>
+        <p class="auth-copy">
+          <span class="lang lang--ru">Эта ссылка подтверждения недействительна или истекла.</span>
+          <span class="lang lang--en">This confirmation link is invalid or has expired.</span>
+          <span class="lang lang--tr">Bu onay bağlantısı geçersiz veya süresi dolmuş.</span>
+        </p>
       {% endif %}
 
       <div class="auth-links">
-        <a href="{% url 'account_login' %}">Back to login</a>
+        <a href="{% url 'account_login' %}">
+          <span class="lang lang--ru">Вернуться ко входу</span>
+          <span class="lang lang--en">Back to login</span>
+          <span class="lang lang--tr">Girişe dön</span>
+        </a>
       </div>
     </div>
   </section>

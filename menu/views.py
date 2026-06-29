@@ -5,6 +5,7 @@ from .services import (
     add_allergy_conflicts_to_dishes,
     get_confirmed_user_allergens,
 )
+from .translations import localized_category_html
 
 
 def dish_list(request):
@@ -48,6 +49,7 @@ def dish_list(request):
         {
             "anchor": f"category-{category.id}",
             "title": category.name,
+            "title_html": localized_category_html(category.name),
             "dishes": dishes_by_category[category.id],
         }
         for category in categories
@@ -58,6 +60,7 @@ def dish_list(request):
             {
                 "anchor": "other",
                 "title": "Другое",
+                "title_html": localized_category_html("Другое"),
                 "dishes": uncategorized_dishes,
             }
         )

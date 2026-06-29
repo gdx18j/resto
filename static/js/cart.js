@@ -20,6 +20,59 @@
   function qs(sel, root) { return (root || document).querySelector(sel); }
   function qsa(sel, root) { return Array.from((root || document).querySelectorAll(sel)); }
 
+  var translations = {
+    ru: {
+      itemOne: 'товар',
+      itemFew: 'товара',
+      itemMany: 'товаров',
+      empty: 'Корзина пуста — добавьте блюда из меню.',
+      clear: 'Очистить корзину',
+      added: 'Добавлено в корзину',
+      open: 'Открыть',
+      addToCart: 'Добавить в корзину: ',
+      commentPlaceholder: 'Аллергии, пожелания к сервировке, особые просьбы…',
+    },
+    en: {
+      itemOne: 'item',
+      itemFew: 'items',
+      itemMany: 'items',
+      empty: 'Your cart is empty — add dishes from the menu.',
+      clear: 'Clear cart',
+      added: 'Added to cart',
+      open: 'Open',
+      addToCart: 'Add to cart: ',
+      commentPlaceholder: 'Allergies, serving wishes, special requests…',
+    },
+    tr: {
+      itemOne: 'ürün',
+      itemFew: 'ürün',
+      itemMany: 'ürün',
+      empty: 'Sepet boş — menüden yemek ekleyin.',
+      clear: 'Sepeti temizle',
+      added: 'Sepete eklendi',
+      open: 'Aç',
+      addToCart: 'Sepete ekle: ',
+      commentPlaceholder: 'Alerjiler, servis istekleri, özel notlar…',
+    },
+  };
+
+  function currentLanguage() {
+    var language = document.documentElement.dataset.language || document.documentElement.lang || 'ru';
+    return translations[language] ? language : 'ru';
+  }
+
+  function t(key) {
+    var language = currentLanguage();
+    return translations[language][key] || translations.ru[key] || '';
+  }
+
+  function localizedDatasetName(element) {
+    var language = currentLanguage();
+    var key = 'name' + language.charAt(0).toUpperCase() + language.slice(1);
+
+    return element.dataset[key] || element.dataset.name || '';
+  }
+
   /* ─── Cart math ───────────────────────────────────────────────── */
   function totalItems() {
     return Object.values(cart.items).reduce(function (s, i) { return s + i.qty; }, 0);
@@ -65,7 +118,7 @@
     });
     // Шапка панели — счётчик и сумма
     qsa('[data-cart-header-count]').forEach(function (el) {
-      el.textContent = n === 1 ? '1 товар' : n + ' ' + pluralItems(n);
+      el.textContent = n + ' ' + pluralItems(n);
     });
     qsa('[data-cart-header-total]').forEach(function (el) {
       el.textContent = fmt(p);
@@ -91,10 +144,14 @@
   }
 
   function pluralItems(n) {
+    if (currentLanguage() !== 'ru') {
+      return n === 1 ? t('itemOne') : t('itemMany');
+    }
+
     var mod10 = n % 10, mod100 = n % 100;
-    if (mod10 === 1 && mod100 !== 11) return 'товар';
-    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'товара';
-    return 'товаров';
+    if (mod10 === 1 && mod100 !== 11) return t('itemOne');
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return t('itemFew');
+    return t('itemMany');
   }
 
   function renderLines() {
@@ -111,8 +168,11 @@
       // Удаляем все строки товаров
       qsa('.cart-line', container).forEach(function (row) { row.remove(); });
       // Показываем сообщение если его ещё нет
-      if (!container.querySelector('.cart-empty-msg')) {
-        container.innerHTML = '<p class="cart-empty-msg">Корзина пуста — добавьте блюда из меню.</p>';
+      var emptyMessage = container.querySelector('.cart-empty-msg');
+      if (!emptyMessage) {
+        container.innerHTML = '<p class="cart-empty-msg">' + escHtml(t('empty')) + '</p>';
+      } else {
+        emptyMessage.textContent = t('empty');
       }
       if (els.extras) els.extras.hidden = true;
       return;
@@ -144,9 +204,9 @@
           '  <span class="cart-line__name">' + escHtml(item.name) + '</span>',
           '  <span class="cart-line__price">' + fmt(item.price * item.qty) + '</span>',
           '  <div class="cart-qty">',
-          '    <button class="cart-qty__btn" data-action="dec" data-id="' + id + '" aria-label="Убрать одну порцию">−</button>',
+          '    <button class="cart-qty__btn" data-action="dec" data-id="' + id + '" aria-label="Remove one portion">−</button>',
           '    <span class="cart-qty__num">' + item.qty + '</span>',
-          '    <button class="cart-qty__btn" data-action="inc" data-id="' + id + '" aria-label="Добавить ещё одну порцию">+</button>',
+          '    <button class="cart-qty__btn" data-action="inc" data-id="' + id + '" aria-label="Add one more portion">+</button>',
           '  </div>',
         ].join('\n');
         container.appendChild(div);
@@ -157,7 +217,7 @@
     var clearBtn = document.createElement('button');
     clearBtn.className = 'cart-clear-btn';
     clearBtn.setAttribute('data-cart-clear', '');
-    clearBtn.textContent = 'Очистить корзину';
+    clearBtn.textContent = t('clear');
     container.parentNode.appendChild(clearBtn);
   }
 
@@ -182,6 +242,7 @@
     syncPersonsUI();
     syncPaymentUI();
     syncCommentUI();
+    syncLocalizedText();
   }
 
   function escHtml(s) {
@@ -211,6 +272,22 @@
     });
   }
 
+  function syncLocalizedText() {
+    qsa('[data-cart-comment]').forEach(function (el) {
+      el.setAttribute('placeholder', t('commentPlaceholder'));
+    });
+    qsa('[data-cart-toast-hint]').forEach(function (el) {
+      el.textContent = t('added');
+    });
+    qsa('[data-cart-toast-open]').forEach(function (el) {
+      el.textContent = t('open');
+    });
+    qsa('[data-add-btn]').forEach(function (btn) {
+      var name = localizedDatasetName(btn);
+      btn.setAttribute('aria-label', t('addToCart') + name);
+    });
+  }
+
   /* ─── Public API (used by dish cards) ────────────────────────── */
   function addItem(id, name, price) {
     if (cart.items[id]) {
@@ -223,6 +300,16 @@
     animateAdd(id);
     showToast(name);
   }
+
+  window.CaesarCart = window.CaesarCart || {};
+  window.CaesarCart.addItem = function (item) {
+    if (!item || !item.id || !item.name || item.price === undefined) {
+      return false;
+    }
+
+    addItem(String(item.id), String(item.name), Number(item.price));
+    return true;
+  };
 
   function changeQty(id, delta) {
     if (!cart.items[id]) return;
@@ -255,9 +342,9 @@
       '</div>',
       '<div class="cart-toast__body">',
       '  <span class="cart-toast__name" data-toast-name></span>',
-      '  <span class="cart-toast__hint">Добавлено в корзину</span>',
+      '  <span class="cart-toast__hint" data-cart-toast-hint>' + escHtml(t('added')) + '</span>',
       '</div>',
-      '<button class="cart-toast__open" data-cart-open>Открыть</button>',
+      '<button class="cart-toast__open" data-cart-open data-cart-toast-open>' + escHtml(t('open')) + '</button>',
       '<button class="cart-toast__close" data-toast-close aria-label="Закрыть">✕</button>',
     ].join('\n');
     shell.appendChild(toast);
@@ -401,7 +488,7 @@
     // Add to cart (dish cards)
     var addBtn = target.closest('[data-add-btn]');
     if (addBtn) {
-      addItem(addBtn.dataset.id, addBtn.dataset.name, addBtn.dataset.price);
+      addItem(addBtn.dataset.id, localizedDatasetName(addBtn), addBtn.dataset.price);
       return;
     }
 
@@ -481,37 +568,31 @@
     if (e.key === 'Escape') closePanel();
   }
 
-  /* ─── Build "Add to cart" button on each dish card ────────────── */
+  /* ─── Prepare price buttons on dish cards ─────────────────────── */
   function attachDishButtons() {
-    qsa('.dish-footer').forEach(function (footer) {
-      var card = footer.closest('.dish-card');
-      if (!card || footer.querySelector('[data-add-btn]')) return;
-
+    qsa('.dish-card').forEach(function (card) {
+      var btn = card.querySelector('[data-add-btn]');
       var nameEl = card.querySelector('.dish-copy h2');
       var priceEl = card.querySelector('.dish-footer strong');
-      if (!nameEl || !priceEl) return;
 
-      var name = nameEl.textContent.trim();
+      if (!btn || !nameEl || !priceEl || btn.dataset.cartReady === '1') return;
+
+      var name = localizedDatasetName(btn) || nameEl.textContent.trim();
       var priceRaw = priceEl.textContent
         .replace(/[^\d.,]/g, '')
         .replace(',', '.');
       if (!priceRaw) return;
       var price = parseFloat(priceRaw);
-      var id = 'dish-' + btoa(encodeURIComponent(name)).replace(/[^a-z0-9]/gi, '').slice(0, 16);
+      var id = card.id || 'dish-' + btoa(encodeURIComponent(name)).replace(/[^a-z0-9]/gi, '').slice(0, 16);
 
-      var btn = document.createElement('button');
-      btn.className = 'cart-add-btn';
       btn.setAttribute('data-add-btn', '');
       btn.setAttribute('data-id', id);
-      btn.setAttribute('data-name', name);
+      if (!btn.dataset.name) {
+        btn.setAttribute('data-name', name);
+      }
       btn.setAttribute('data-price', price);
-      btn.setAttribute('aria-label', 'Добавить в корзину: ' + name);
-      btn.innerHTML = [
-        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4ZM3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>',
-        '<span class="cart-add-btn__label">В корзину</span>',
-      ].join('');
-
-      footer.appendChild(btn);
+      btn.setAttribute('aria-label', t('addToCart') + name);
+      btn.dataset.cartReady = '1';
     });
   }
 
@@ -553,7 +634,11 @@
       '  </span>',
       '  <span class="cart-bar__sep"></span>',
       '  <span class="cart-bar__price" data-cart-total-mini>0 ₽</span>',
-      '  <span class="cart-bar__action">Перейти в корзину</span>',
+      '  <span class="cart-bar__action">',
+      '    <span class="lang lang--ru">Перейти в корзину</span>',
+      '    <span class="lang lang--en">Open cart</span>',
+      '    <span class="lang lang--tr">Sepeti aç</span>',
+      '  </span>',
       '  <span class="cart-bar__arrow">›</span>',
       '</button>',
     ].join('');
@@ -579,7 +664,11 @@
       // ── Шапка в стиле Lovin: счётчик + итог + кнопка закрытия
       '<div class="cart-panel__header">',
       '  <div class="cart-panel__header-meta">',
-      '    <h2 class="cart-panel__title">Корзина</h2>',
+      '    <h2 class="cart-panel__title">',
+      '      <span class="lang lang--ru">Корзина</span>',
+      '      <span class="lang lang--en">Cart</span>',
+      '      <span class="lang lang--tr">Sepet</span>',
+      '    </h2>',
       '    <span class="cart-panel__header-count" data-cart-header-count></span>',
       '  </div>',
       '  <div class="cart-panel__header-right">',
@@ -597,7 +686,11 @@
       '  <div class="cart-extras" data-cart-extras hidden>',
 
       '  <div class="cart-section">',
-      '    <p class="cart-section__label">Количество персон</p>',
+      '    <p class="cart-section__label">',
+      '      <span class="lang lang--ru">Количество персон</span>',
+      '      <span class="lang lang--en">Number of guests</span>',
+      '      <span class="lang lang--tr">Kişi sayısı</span>',
+      '    </p>',
       '    <div class="cart-stepper">',
       '      <button class="cart-stepper__btn" data-persons-dec aria-label="Меньше гостей">−</button>',
       '      <span class="cart-stepper__val" data-persons-count>1</span>',
@@ -606,23 +699,35 @@
       '  </div>',
 
       '  <div class="cart-section">',
-      '    <p class="cart-section__label">Способ оплаты</p>',
+      '    <p class="cart-section__label">',
+      '      <span class="lang lang--ru">Способ оплаты</span>',
+      '      <span class="lang lang--en">Payment method</span>',
+      '      <span class="lang lang--tr">Ödeme yöntemi</span>',
+      '    </p>',
       '    <div class="cart-pay-row">',
       '      <button class="cart-pay-btn" data-pay="card">',
       '        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>',
-      '        Картой',
+      '        <span class="lang lang--ru">Картой</span>',
+      '        <span class="lang lang--en">Card</span>',
+      '        <span class="lang lang--tr">Kart</span>',
       '      </button>',
       '      <button class="cart-pay-btn" data-pay="cash">',
       '        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M6 7V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"/></svg>',
-      '        Наличными',
+      '        <span class="lang lang--ru">Наличными</span>',
+      '        <span class="lang lang--en">Cash</span>',
+      '        <span class="lang lang--tr">Nakit</span>',
       '      </button>',
       '    </div>',
       '  </div>',
 
       '  <div class="cart-section">',
-      '    <label class="cart-section__label" for="cart-comment">Комментарий к заказу</label>',
+      '    <label class="cart-section__label" for="cart-comment">',
+      '      <span class="lang lang--ru">Комментарий к заказу</span>',
+      '      <span class="lang lang--en">Order comment</span>',
+      '      <span class="lang lang--tr">Sipariş notu</span>',
+      '    </label>',
       '    <textarea class="cart-comment" id="cart-comment" data-cart-comment',
-      '      placeholder="Аллергии, пожелания к сервировке, особые просьбы…"',
+      '      placeholder="' + escHtml(t('commentPlaceholder')) + '"',
       '      rows="3"></textarea>',
       '  </div>',
 
@@ -632,15 +737,23 @@
 
       '<div class="cart-panel__footer">',
       '  <div class="cart-total-row">',
-      '    <span data-cart-items-label>0 товаров</span>',
+      '    <span data-cart-items-label>0 ' + escHtml(pluralItems(0)) + '</span>',
       '    <strong data-cart-grand-total>0 ₽</strong>',
       '  </div>',
       '  <div class="cart-checkout-row">',
       '    <div class="cart-checkout-label">',
-      '      <span class="cart-checkout-label__hint">К оплате</span>',
+      '      <span class="cart-checkout-label__hint">',
+      '        <span class="lang lang--ru">К оплате</span>',
+      '        <span class="lang lang--en">Total</span>',
+      '        <span class="lang lang--tr">Toplam</span>',
+      '      </span>',
       '      <span class="cart-checkout-label__price" data-cart-checkout-total>0 ₽</span>',
       '    </div>',
-      '    <button class="primary-button cart-submit-btn" disabled>Оформить заказ</button>',
+      '    <button class="primary-button cart-submit-btn" disabled>',
+      '      <span class="lang lang--ru">Оформить заказ</span>',
+      '      <span class="lang lang--en">Place order</span>',
+      '      <span class="lang lang--tr">Sipariş ver</span>',
+      '    </button>',
       '  </div>',
       '</div>',
     ].join('\n');
@@ -682,6 +795,7 @@
 
     setCartTop();
     window.addEventListener('resize', setCartTop);
+    window.addEventListener('cc:languagechange', renderAll);
     var mo = new MutationObserver(function () { attachDishButtons(); });
     var main = qs('.main-content');
     if (main) mo.observe(main, { childList: true, subtree: true });

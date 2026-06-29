@@ -11,9 +11,21 @@
 {% block content %}
   <section class="auth-page" aria-labelledby="signup-title">
     <div class="auth-card">
-      <p class="auth-kicker">Registration</p>
-      <h1 id="signup-title">Create account</h1>
-      <p class="auth-copy">Register with email. We will send a confirmation link before login is complete.</p>
+      <p class="auth-kicker">
+        <span class="lang lang--ru">Регистрация</span>
+        <span class="lang lang--en">Registration</span>
+        <span class="lang lang--tr">Kayıt</span>
+      </p>
+      <h1 id="signup-title">
+        <span class="lang lang--ru">Создать аккаунт</span>
+        <span class="lang lang--en">Create account</span>
+        <span class="lang lang--tr">Hesap oluştur</span>
+      </h1>
+      <p class="auth-copy">
+        <span class="lang lang--ru">Зарегистрируйтесь по email. Перед входом мы отправим ссылку подтверждения.</span>
+        <span class="lang lang--en">Register with email. We will send a confirmation link before login is complete.</span>
+        <span class="lang lang--tr">E-posta ile kaydolun. Giriş tamamlanmadan önce onay bağlantısı göndereceğiz.</span>
+      </p>
 
       <form class="auth-form" method="post" action="{% url 'account_signup' %}">
         {% csrf_token %}
@@ -24,7 +36,23 @@
             {{ field }}
           {% else %}
             <label class="auth-field" for="{{ field.id_for_label }}">
-              <span>{{ field.label }}</span>
+              <span>
+                {% if field.name == "email" %}
+                  <span class="lang lang--ru">Email</span>
+                  <span class="lang lang--en">Email</span>
+                  <span class="lang lang--tr">E-posta</span>
+                {% elif field.name == "password1" %}
+                  <span class="lang lang--ru">Пароль</span>
+                  <span class="lang lang--en">Password</span>
+                  <span class="lang lang--tr">Şifre</span>
+                {% elif field.name == "password2" %}
+                  <span class="lang lang--ru">Повторите пароль</span>
+                  <span class="lang lang--en">Confirm password</span>
+                  <span class="lang lang--tr">Şifreyi onayla</span>
+                {% else %}
+                  {{ field.label }}
+                {% endif %}
+              </span>
               {{ field }}
               {% if field.help_text %}
                 <small>{{ field.help_text }}</small>
@@ -38,11 +66,19 @@
           <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
         {% endif %}
 
-        <button class="auth-submit" type="submit">Create account</button>
+        <button class="auth-submit" type="submit">
+          <span class="lang lang--ru">Создать аккаунт</span>
+          <span class="lang lang--en">Create account</span>
+          <span class="lang lang--tr">Hesap oluştur</span>
+        </button>
       </form>
 
       <div class="auth-links">
-        <a href="{% url 'account_login' %}">Already have an account?</a>
+        <a href="{% url 'account_login' %}">
+          <span class="lang lang--ru">Уже есть аккаунт?</span>
+          <span class="lang lang--en">Already have an account?</span>
+          <span class="lang lang--tr">Zaten hesabınız var mı?</span>
+        </a>
       </div>
     </div>
   </section>

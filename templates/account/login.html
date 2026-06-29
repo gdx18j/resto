@@ -11,9 +11,21 @@
 {% block content %}
   <section class="auth-page" aria-labelledby="login-title">
     <div class="auth-card">
-      <p class="auth-kicker">Account</p>
-      <h1 id="login-title">Login</h1>
-      <p class="auth-copy">Save allergies and food preferences for safer menu recommendations.</p>
+      <p class="auth-kicker">
+        <span class="lang lang--ru">Аккаунт</span>
+        <span class="lang lang--en">Account</span>
+        <span class="lang lang--tr">Hesap</span>
+      </p>
+      <h1 id="login-title">
+        <span class="lang lang--ru">Вход</span>
+        <span class="lang lang--en">Login</span>
+        <span class="lang lang--tr">Giriş</span>
+      </h1>
+      <p class="auth-copy">
+        <span class="lang lang--ru">Сохраните аллергии и пищевые предпочтения для более точных рекомендаций.</span>
+        <span class="lang lang--en">Save allergies and food preferences for safer menu recommendations.</span>
+        <span class="lang lang--tr">Daha güvenli öneriler için alerjilerinizi ve yemek tercihlerinizi kaydedin.</span>
+      </p>
 
       <form class="auth-form" method="post" action="{% url 'account_login' %}">
         {% csrf_token %}
@@ -25,11 +37,27 @@
           {% elif field.name == "remember" %}
             <label class="auth-check" for="{{ field.id_for_label }}">
               {{ field }}
-              <span>{{ field.label }}</span>
+              <span>
+                <span class="lang lang--ru">Запомнить меня</span>
+                <span class="lang lang--en">Remember me</span>
+                <span class="lang lang--tr">Beni hatırla</span>
+              </span>
             </label>
           {% else %}
             <label class="auth-field" for="{{ field.id_for_label }}">
-              <span>{{ field.label }}</span>
+              <span>
+                {% if field.name == "login" %}
+                  <span class="lang lang--ru">Email</span>
+                  <span class="lang lang--en">Email</span>
+                  <span class="lang lang--tr">E-posta</span>
+                {% elif field.name == "password" %}
+                  <span class="lang lang--ru">Пароль</span>
+                  <span class="lang lang--en">Password</span>
+                  <span class="lang lang--tr">Şifre</span>
+                {% else %}
+                  {{ field.label }}
+                {% endif %}
+              </span>
               {{ field }}
               {{ field.errors }}
             </label>
@@ -40,19 +68,39 @@
           <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
         {% endif %}
 
-        <button class="auth-submit" type="submit">Login</button>
+        <button class="auth-submit" type="submit">
+          <span class="lang lang--ru">Войти</span>
+          <span class="lang lang--en">Login</span>
+          <span class="lang lang--tr">Giriş yap</span>
+        </button>
       </form>
 
-      <div class="auth-divider"><span>or</span></div>
+      <div class="auth-divider">
+        <span class="lang lang--ru">или</span>
+        <span class="lang lang--en">or</span>
+        <span class="lang lang--tr">veya</span>
+      </div>
 
       <form class="auth-form" method="post" action="{% provider_login_url 'google' process='login' %}">
         {% csrf_token %}
-        <button class="auth-google" type="submit">Continue with Google</button>
+        <button class="auth-google" type="submit">
+          <span class="lang lang--ru">Продолжить с Google</span>
+          <span class="lang lang--en">Continue with Google</span>
+          <span class="lang lang--tr">Google ile devam et</span>
+        </button>
       </form>
 
       <div class="auth-links">
-        <a href="{% url 'account_signup' %}">Create account</a>
-        <a href="{% url 'account_reset_password' %}">Forgot password?</a>
+        <a href="{% url 'account_signup' %}">
+          <span class="lang lang--ru">Создать аккаунт</span>
+          <span class="lang lang--en">Create account</span>
+          <span class="lang lang--tr">Hesap oluştur</span>
+        </a>
+        <a href="{% url 'account_reset_password' %}">
+          <span class="lang lang--ru">Забыли пароль?</span>
+          <span class="lang lang--en">Forgot password?</span>
+          <span class="lang lang--tr">Şifrenizi mi unuttunuz?</span>
+        </a>
       </div>
     </div>
   </section>

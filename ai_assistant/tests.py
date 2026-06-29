@@ -6,7 +6,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from menu.models import Dish
+from menu.models import Category, Dish
 
 from .models import ChatMessage, ChatSession
 from .services import (
@@ -197,6 +197,149 @@ class AskViewTests(TestCase):
             f"{reverse('menu:dish_list')}#dish-{dish.id}",
         )
         generate_ai_answer_mock.assert_called_once()
+
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        return_value=AIResult(
+            text="Пиццы сейчас нет, но есть похожие варианты.",
+            model_name="gemini-test",
+        ),
+    )
+    def test_pizza_request_includes_closest_food_alternative_cards(self, generate_ai_answer_mock):
+        category = Category.objects.create(name="Другие блюда")
+        dish = Dish.objects.create(
+            category=category,
+            name="Focaccia",
+            description="Итальянская фокачча с розмарином, оливками и вялеными томатами.",
+            price="150.00",
+            is_active=True,
+            is_available=True,
+        )
+
+        response = self.post_prompt("Хочу пиццу")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["recommended_dishes"][0]["name"], dish.name)
+        generate_ai_answer_mock.assert_called_once()
+
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        return_value=AIResult(
+            text="Могу предложить Americano.",
+            model_name="gemini-test",
+        ),
+    )
+    def test_savory_request_does_not_recommend_coffee_cards(self, generate_ai_answer_mock):
+        sandwich_category = Category.objects.create(name="Сэндвичи")
+        coffee_category = Category.objects.create(name="Горячий кофе")
+        sandwich = Dish.objects.create(
+            category=sandwich_category,
+            name="Crassus",
+            description="Сэндвич на чиабатте с индейкой, соусами, сыром и овощами.",
+            price="428.00",
+            is_active=True,
+            is_available=True,
+        )
+        Dish.objects.create(
+            category=coffee_category,
+            name="Americano",
+            description="Горячий американо.",
+            price="120.00",
+            is_active=True,
+            is_available=True,
+        )
+
+        response = self.post_prompt("Хочу шаурму")
+
+        self.assertEqual(response.status_code, 200)
+        names = [dish["name"] for dish in response.json()["recommended_dishes"]]
+        self.assertIn(sandwich.name, names)
+        self.assertNotIn("Americano", names)
+        generate_ai_answer_mock.assert_called_once()
+
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        side_effect=[
+            AIResult(
+                text="Попробуйте Focaccia, Pompei Magnus и Octavian.",
+                model_name="gemini-test",
+            ),
+            AIResult(
+                text="Можно взять Crassus или Focaccia.",
+                model_name="gemini-test",
+            ),
+        ],
+    )
+    def test_other_options_request_excludes_previous_suggestions(self, generate_ai_answer_mock):
+        category = Category.objects.create(name="Сэндвичи")
+        previous_dish = Dish.objects.create(
+            category=category,
+            name="Focaccia",
+            description="Фокачча с розмарином.",
+            price="150.00",
+            is_active=True,
+            is_available=True,
+        )
+        new_dish = Dish.objects.create(
+            category=category,
+            name="Crassus",
+            description="Сэндвич на чиабатте с индейкой, соусами, сыром и овощами.",
+            price="428.00",
+            is_active=True,
+            is_available=True,
+        )
+
+        first_response = self.post_prompt("Посоветуй что-нибудь")
+        session_id = first_response.json()["session_id"]
+        second_response = self.post_prompt("Дай другие варианты", session_id=session_id)
+
+        self.assertEqual(second_response.status_code, 200)
+        names = [dish["name"] for dish in second_response.json()["recommended_dishes"]]
+        self.assertIn(new_dish.name, names)
+        self.assertNotIn(previous_dish.name, names)
+        self.assertEqual(generate_ai_answer_mock.call_count, 2)
+
+    @patch("ai_assistant.views.generate_ai_answer_stream")
+    def test_streaming_quota_error_returns_local_fallback(self, generate_ai_answer_stream_mock):
+        class QuotaError(Exception):
+            code = 429
+
+        def broken_stream():
+            if False:
+                yield ""
+
+            raise QuotaError("RESOURCE_EXHAUSTED quota exceeded")
+
+        category = Category.objects.create(name="Другие блюда")
+        Dish.objects.create(
+            category=category,
+            name="Focaccia",
+            description="Фокачча с розмарином.",
+            price="150.00",
+            is_active=True,
+            is_available=True,
+        )
+        generate_ai_answer_stream_mock.return_value = ("gemini-test", broken_stream())
+
+        response = self.client.post(
+            reverse("ai_assistant:ask"),
+            data=json.dumps({"prompt": "Хочу пиццу"}),
+            content_type="application/json",
+            HTTP_ACCEPT="application/x-ndjson",
+            HTTP_X_AI_STREAM="1",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        content = b"".join(response.streaming_content).decode("utf-8")
+        self.assertIn('"type": "delta"', content)
+        self.assertIn('"type": "done"', content)
+        self.assertIn("Focaccia", content)
+        self.assertNotIn('"type": "error"', content)
+
+        assistant_message = ChatMessage.objects.filter(
+            role=ChatMessage.Role.ASSISTANT,
+        ).get()
+        self.assertEqual(assistant_message.model_name, "local-quota-fallback")
 
     @patch(
         "ai_assistant.views.generate_ai_answer",

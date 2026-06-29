@@ -9,12 +9,22 @@
 
 {% block content %}
   <section class="account-page">
-    <a href="{% url 'accounts:profile' %}" class="account-back-link">← Назад</a>
+    <a href="{% url 'accounts:profile' %}" class="account-back-link">
+      <span class="lang lang--ru">← Назад</span>
+      <span class="lang lang--en">← Back</span>
+      <span class="lang lang--tr">← Geri</span>
+    </a>
 
     <header class="account-hero">
-      <h1>Пищевые ограничения</h1>
+      <h1>
+        <span class="lang lang--ru">Пищевые ограничения</span>
+        <span class="lang lang--en">Dietary restrictions</span>
+        <span class="lang lang--tr">Beslenme kısıtlamaları</span>
+      </h1>
       <p class="account-muted">
-        Выберите аллергены, о которых меню должно предупреждать. Это не блокирует блюда, а помогает заметить риск заранее.
+        <span class="lang lang--ru">Выберите аллергены, о которых меню должно предупреждать. Это не блокирует блюда, а помогает заметить риск заранее.</span>
+        <span class="lang lang--en">Choose allergens the menu should warn you about. This does not block dishes, it helps you notice risks earlier.</span>
+        <span class="lang lang--tr">Menünün sizi uyarması gereken alerjenleri seçin. Bu yemekleri engellemez, riski önceden fark etmenize yardımcı olur.</span>
       </p>
     </header>
 
@@ -22,22 +32,36 @@
       {% csrf_token %}
 
       <label class="account-search">
-        <span>Поиск аллергена</span>
-        <input class="allergen-search-input" type="search" placeholder="Например: молоко, глютен, орехи">
+        <span>
+          <span class="lang lang--ru">Поиск аллергена</span>
+          <span class="lang lang--en">Search allergen</span>
+          <span class="lang lang--tr">Alerjen ara</span>
+        </span>
+        <input class="lang-input lang-input--ru allergen-search-input" type="search" placeholder="Например: молоко, глютен, орехи">
+        <input class="lang-input lang-input--en allergen-search-input" type="search" placeholder="For example: milk, gluten, nuts">
+        <input class="lang-input lang-input--tr allergen-search-input" type="search" placeholder="Örneğin: süt, gluten, kuruyemiş">
       </label>
 
       <div class="allergen-grid">
         {% for checkbox in form.allergens %}
-          <label class="allergen-chip" data-allergen-name="{{ checkbox.choice_label|lower|escape }}">
+          <label class="allergen-chip" data-allergen-name="{{ checkbox.choice_label|striptags|lower|escape }}">
             {{ checkbox.tag }}
             <span>{{ checkbox.choice_label }}</span>
           </label>
         {% endfor %}
       </div>
 
-      <p class="allergen-empty" hidden>Ничего не найдено.</p>
+      <p class="allergen-empty" hidden>
+        <span class="lang lang--ru">Ничего не найдено.</span>
+        <span class="lang lang--en">Nothing found.</span>
+        <span class="lang lang--tr">Sonuç bulunamadı.</span>
+      </p>
 
-      <button type="submit" class="account-primary-button">Сохранить</button>
+      <button type="submit" class="account-primary-button">
+        <span class="lang lang--ru">Сохранить</span>
+        <span class="lang lang--en">Save</span>
+        <span class="lang lang--tr">Kaydet</span>
+      </button>
     </form>
   </section>
 {% endblock %}

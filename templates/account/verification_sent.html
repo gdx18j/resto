@@ -10,12 +10,28 @@
 {% block content %}
   <section class="auth-page" aria-labelledby="verification-sent-title">
     <div class="auth-card">
-      <p class="auth-kicker">Email confirmation</p>
-      <h1 id="verification-sent-title">Check your email</h1>
-      <p class="auth-copy">We sent a confirmation link. In local development, the link appears in the Docker console output.</p>
+      <p class="auth-kicker">
+        <span class="lang lang--ru">Подтверждение email</span>
+        <span class="lang lang--en">Email confirmation</span>
+        <span class="lang lang--tr">E-posta onayı</span>
+      </p>
+      <h1 id="verification-sent-title">
+        <span class="lang lang--ru">Проверьте почту</span>
+        <span class="lang lang--en">Check your email</span>
+        <span class="lang lang--tr">E-postanızı kontrol edin</span>
+      </h1>
+      <p class="auth-copy">
+        <span class="lang lang--ru">Мы отправили ссылку подтверждения. В локальной разработке она появится в выводе Docker-консоли.</span>
+        <span class="lang lang--en">We sent a confirmation link. In local development, the link appears in the Docker console output.</span>
+        <span class="lang lang--tr">Onay bağlantısı gönderdik. Yerel geliştirmede bağlantı Docker konsol çıktısında görünür.</span>
+      </p>
 
       <div class="auth-links">
-        <a href="{% url 'account_login' %}">Back to login</a>
+        <a href="{% url 'account_login' %}">
+          <span class="lang lang--ru">Вернуться ко входу</span>
+          <span class="lang lang--en">Back to login</span>
+          <span class="lang lang--tr">Girişe dön</span>
+        </a>
       </div>
     </div>
   </section>

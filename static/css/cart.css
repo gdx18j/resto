@@ -51,6 +51,14 @@
 }
 .cart-add--flash { animation: cartAddFlash 460ms ease forwards; }
 
+@keyframes priceAddFlash {
+  0% { background: var(--safe-soft); color: var(--text); border-color: var(--safe); }
+  100% { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+}
+.dish-price-button.cart-add--flash {
+  animation: priceAddFlash 460ms ease forwards;
+}
+
 /* ── Desktop header cart button ─────────────────────────────── */
 .cart-desktop-wrap {
   position: relative;
@@ -139,6 +147,11 @@
 
 /* AI кнопка поднимается над плашкой корзины на мобиле */
 @media (max-width: 767px) {
+  body.ai-assistant-lock .cart-bar.cart-bar--visible {
+    pointer-events: none;
+    transform: translateY(calc(100% + 12px));
+  }
+
   .cart-bar-visible .ai-assistant__launcher {
     bottom: calc(54px + max(env(safe-area-inset-bottom, 0px), 12px) + 24px) !important;
     transition: bottom 340ms cubic-bezier(0.2, 0.8, 0.2, 1),

@@ -10,20 +10,40 @@
 {% block content %}
   <section class="auth-page" aria-labelledby="logout-title">
     <div class="auth-card">
-      <p class="auth-kicker">Session</p>
-      <h1 id="logout-title">Logout</h1>
-      <p class="auth-copy">End the current session for this account.</p>
+      <p class="auth-kicker">
+        <span class="lang lang--ru">Сессия</span>
+        <span class="lang lang--en">Session</span>
+        <span class="lang lang--tr">Oturum</span>
+      </p>
+      <h1 id="logout-title">
+        <span class="lang lang--ru">Выход</span>
+        <span class="lang lang--en">Logout</span>
+        <span class="lang lang--tr">Çıkış</span>
+      </h1>
+      <p class="auth-copy">
+        <span class="lang lang--ru">Завершить текущую сессию этого аккаунта.</span>
+        <span class="lang lang--en">End the current session for this account.</span>
+        <span class="lang lang--tr">Bu hesabın geçerli oturumunu kapatın.</span>
+      </p>
 
       <form class="auth-form" method="post" action="{% url 'account_logout' %}">
         {% csrf_token %}
         {% if redirect_field_value %}
           <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
         {% endif %}
-        <button class="auth-submit" type="submit">Logout</button>
+        <button class="auth-submit" type="submit">
+          <span class="lang lang--ru">Выйти</span>
+          <span class="lang lang--en">Logout</span>
+          <span class="lang lang--tr">Çıkış yap</span>
+        </button>
       </form>
 
       <div class="auth-links">
-        <a href="{% url 'menu:dish_list' %}">Back to menu</a>
+        <a href="{% url 'menu:dish_list' %}">
+          <span class="lang lang--ru">Вернуться в меню</span>
+          <span class="lang lang--en">Back to menu</span>
+          <span class="lang lang--tr">Menüye dön</span>
+        </a>
       </div>
     </div>
   </section>

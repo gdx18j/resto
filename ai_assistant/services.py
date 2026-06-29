@@ -9,6 +9,7 @@ from google.genai import errors, types
 
 from accounts.models import UserAllergy
 from menu.models import Dish
+from menu.translations import normalize_language
 
 from .models import ChatMessage, ChatSession
 from .prompts import RESTAURANT_ASSISTANT_SYSTEM_PROMPT
@@ -23,6 +24,12 @@ RETRYABLE_ERROR_CODES = {
     502,
     503,
     504,
+}
+
+LANGUAGE_INSTRUCTIONS = {
+    "ru": "Interface language: Russian. Answer in Russian.",
+    "en": "Interface language: English. Answer in clear natural English.",
+    "tr": "Interface language: Turkish. Answer in clear natural Turkish.",
 }
 
 
@@ -145,12 +152,117 @@ def build_user_context(session: ChatSession) -> str:
     )
 
 
+def _latest_user_message_text(session: ChatSession) -> str:
+    message = (
+        session.messages.filter(role=ChatMessage.Role.USER)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+
+    return message.content if message else ""
+
+
+def _previous_assistant_dish_names(session: ChatSession) -> list[str]:
+    previous_text = " ".join(
+        session.messages.filter(role=ChatMessage.Role.ASSISTANT)
+        .order_by("created_at", "id")
+        .values_list("content", flat=True)
+    ).casefold()
+
+    if not previous_text:
+        return []
+
+    names = []
+
+    for dish in Dish.objects.filter(is_active=True, is_available=True).order_by("name"):
+        if dish.name.casefold() in previous_text:
+            names.append(dish.name)
+
+    return names
+
+
+def build_request_context(session: ChatSession) -> str:
+    prompt = _latest_user_message_text(session).casefold()
+
+    if not prompt:
+        return "Current request guidance: no current user request."
+
+    guidance = [
+        "Current request guidance:",
+        "Prefer a direct recommendation over a clarifying question when the menu has close alternatives.",
+    ]
+
+    savory_request = any(
+        marker in prompt
+        for marker in (
+            "пицц",
+            "pizza",
+            "pide",
+            "шаур",
+            "шаверм",
+            "doner",
+            "döner",
+            "донер",
+            "кебаб",
+            "kebab",
+            "wrap",
+            "сэндвич",
+            "sandwich",
+            "тост",
+            "tost",
+        )
+    )
+
+    if any(marker in prompt for marker in ("пицц", "pizza", "pide")):
+        guidance.append(
+            "The user is asking for pizza or pizza-like food. Pizza is not listed in the menu. "
+            "Recommend Focaccia first, then savory bread/cheese alternatives like Pompei Magnus, "
+            "Octavian or Dana Sucuklu Peynirli Tost if available. Do not recommend coffee, matcha, "
+            "cold drinks or desserts as pizza alternatives."
+        )
+
+    if any(
+        marker in prompt
+        for marker in ("шаур", "шаверм", "doner", "döner", "донер", "кебаб", "kebab", "wrap")
+    ):
+        guidance.append(
+            "The user is asking for shawarma/doner/wrap-like savory food. Recommend savory sandwiches "
+            "and toasts such as Crassus, Pompei Magnus, Octavian or Dana Sucuklu Peynirli Tost if available. "
+            "Do not recommend coffee, matcha, cold drinks or desserts as similar alternatives."
+        )
+
+    if savory_request:
+        guidance.append(
+            "For this savory food request, drinks-only, coffee-only and dessert-only items are poor matches "
+            "unless the user explicitly asks for a drink or dessert."
+        )
+
+    if any(marker in prompt for marker in ("друг", "ещё", "еще", "another", "other", "else", "more")):
+        previous_names = _previous_assistant_dish_names(session)
+
+        if previous_names:
+            guidance.append(
+                "The user is asking for different options. Do not repeat these dishes from earlier assistant "
+                f"answers: {', '.join(previous_names)}. Recommend other suitable menu items instead."
+            )
+        else:
+            guidance.append(
+                "The user is asking for different options. Avoid repeating earlier suggestions when possible."
+            )
+
+    return "\n".join(guidance)
+
+
 def build_system_instruction(session: ChatSession) -> str:
+    language = normalize_language(getattr(session, "interface_language", "ru"))
+
     return "\n\n".join(
         [
             RESTAURANT_ASSISTANT_SYSTEM_PROMPT,
+            LANGUAGE_INSTRUCTIONS[language],
             build_menu_context(),
             build_user_context(session),
+            build_request_context(session),
         ]
     )
 
@@ -203,7 +315,7 @@ def build_generation_config(session: ChatSession) -> types.GenerateContentConfig
     return types.GenerateContentConfig(
         system_instruction=build_system_instruction(session),
         max_output_tokens=settings.AI_MAX_OUTPUT_TOKENS,
-        temperature=0.35,
+        temperature=0.2,
     )
 
 
@@ -244,6 +356,59 @@ def generate_with_model(
         text=answer,
         model_name=model_name,
     )
+
+
+def stream_with_model(
+    model_name: str,
+    session: ChatSession,
+    contents: list[dict],
+):
+    client = get_gemini_client()
+
+    return client.models.generate_content_stream(
+        model=model_name,
+        contents=contents,
+        config=build_generation_config(session),
+    )
+
+
+def generate_ai_answer_stream(session: ChatSession):
+    contents = build_conversation_contents(session)
+
+    if not contents:
+        raise AIServiceError("Conversation has no user messages.")
+
+    model_names = get_configured_model_names()
+
+    if not model_names:
+        raise AIServiceError("No Gemini models are configured.")
+
+    last_error: Exception | None = None
+
+    for model_name in model_names:
+        try:
+            return model_name, stream_with_model(
+                model_name=model_name,
+                session=session,
+                contents=contents,
+            )
+        except (errors.APIError, EmptyAIResponseError, ImproperlyConfigured) as exc:
+            last_error = exc
+
+            if isinstance(exc, errors.APIError):
+                status_code = getattr(exc, "code", None)
+
+                if status_code not in RETRYABLE_ERROR_CODES:
+                    logger.exception("Gemini streaming request failed with non-retryable error.")
+                    break
+
+            logger.warning(
+                "Gemini streaming model %s failed, trying fallback if configured.",
+                model_name,
+                exc_info=True,
+            )
+
+    raise AIServiceError("All Gemini streaming models failed.") from last_error
 
 
 def generate_ai_answer(session: ChatSession) -> AIResult:

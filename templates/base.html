@@ -1,12 +1,32 @@
 {% load socialaccount static %}
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-language="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111210">
   <meta name="description" content="{% block meta_description %}Цифровое меню ресторана Caesar & Company.{% endblock %}">
   <title>{% block title %}Caesar &amp; Company{% endblock %}</title>
+
+  <script>
+    (function () {
+      var supported = { ru: true, en: true, tr: true };
+      var language = "ru";
+
+      try {
+        language = window.localStorage.getItem("cc_language") || language;
+      } catch (error) {
+        language = "ru";
+      }
+
+      if (!supported[language]) {
+        language = "ru";
+      }
+
+      document.documentElement.dataset.language = language;
+      document.documentElement.lang = language;
+    })();
+  </script>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -80,7 +100,11 @@
 
           <label class="icon-button profile-button" for="profile-toggle" aria-label="Личный кабинет">
             <svg><use href="#i-user"/></svg>
-            <span class="profile-button__label">Кабинет</span>
+            <span class="profile-button__label">
+              <span class="lang lang--ru">Кабинет</span>
+              <span class="lang lang--en">Account</span>
+              <span class="lang lang--tr">Hesap</span>
+            </span>
           </label>
         </div>
       </div>
@@ -164,8 +188,16 @@
         </label>
 
         {% if request.user.is_authenticated %}
-          <p class="profile-popover__kicker">Аккаунт</p>
-          <h2 id="profile-popover-title">Личный кабинет</h2>
+          <p class="profile-popover__kicker">
+            <span class="lang lang--ru">Аккаунт</span>
+            <span class="lang lang--en">Account</span>
+            <span class="lang lang--tr">Hesap</span>
+          </p>
+          <h2 id="profile-popover-title">
+            <span class="lang lang--ru">Личный кабинет</span>
+            <span class="lang lang--en">Personal account</span>
+            <span class="lang lang--tr">Kişisel hesap</span>
+          </h2>
           <div class="profile-popover__identity">
             <span class="profile-popover__avatar">{{ account_display_initial }}</span>
             <span class="profile-popover__identity-copy">
@@ -178,34 +210,82 @@
           </div>
 
           <div class="profile-popover__actions profile-popover__actions--stacked">
-            <a class="profile-popover__primary" href="{% url 'accounts:profile' %}">Открыть профиль</a>
-            <a class="profile-popover__secondary" href="{% url 'accounts:edit_allergies' %}">Аллергии</a>
+            <a class="profile-popover__primary" href="{% url 'accounts:profile' %}">
+              <span class="lang lang--ru">Открыть профиль</span>
+              <span class="lang lang--en">Open profile</span>
+              <span class="lang lang--tr">Profili aç</span>
+            </a>
+            <a class="profile-popover__secondary" href="{% url 'accounts:edit_allergies' %}">
+              <span class="lang lang--ru">Аллергии</span>
+              <span class="lang lang--en">Allergies</span>
+              <span class="lang lang--tr">Alerjiler</span>
+            </a>
           </div>
 
           <div class="profile-popover__actions profile-popover__actions--stacked">
-            <a class="profile-popover__primary" href="{% url 'accounts:profile' %}">Открыть профиль</a>
-            <a class="profile-popover__secondary" href="{% url 'accounts:edit_allergies' %}">Аллергии</a>
+            <a class="profile-popover__primary" href="{% url 'accounts:profile' %}">
+              <span class="lang lang--ru">Открыть профиль</span>
+              <span class="lang lang--en">Open profile</span>
+              <span class="lang lang--tr">Profili aç</span>
+            </a>
+            <a class="profile-popover__secondary" href="{% url 'accounts:edit_allergies' %}">
+              <span class="lang lang--ru">Аллергии</span>
+              <span class="lang lang--en">Allergies</span>
+              <span class="lang lang--tr">Alerjiler</span>
+            </a>
           </div>
 
           <form class="profile-popover__logout" method="post" action="{% url 'account_logout' %}">
             {% csrf_token %}
-            <button class="profile-popover__secondary" type="submit">Выйти</button>
+            <button class="profile-popover__secondary" type="submit">
+              <span class="lang lang--ru">Выйти</span>
+              <span class="lang lang--en">Log out</span>
+              <span class="lang lang--tr">Çıkış yap</span>
+            </button>
           </form>
         {% else %}
-          <p class="profile-popover__kicker">Аккаунт</p>
-          <h2 id="profile-popover-title">Личный кабинет</h2>
-          <p class="profile-popover__copy">Сохраните аллергии и пищевые ограничения, чтобы меню подсвечивало риски.</p>
+          <p class="profile-popover__kicker">
+            <span class="lang lang--ru">Аккаунт</span>
+            <span class="lang lang--en">Account</span>
+            <span class="lang lang--tr">Hesap</span>
+          </p>
+          <h2 id="profile-popover-title">
+            <span class="lang lang--ru">Личный кабинет</span>
+            <span class="lang lang--en">Personal account</span>
+            <span class="lang lang--tr">Kişisel hesap</span>
+          </h2>
+          <p class="profile-popover__copy">
+            <span class="lang lang--ru">Сохраните аллергии и пищевые ограничения, чтобы меню подсвечивало риски.</span>
+            <span class="lang lang--en">Save allergies and dietary restrictions so the menu can highlight risks.</span>
+            <span class="lang lang--tr">Menünün riskleri vurgulaması için alerjileri ve beslenme kısıtlamalarını kaydedin.</span>
+          </p>
 
           <div class="profile-popover__actions">
-            <a class="profile-popover__primary" href="{% url 'account_login' %}">Войти</a>
-            <a class="profile-popover__secondary" href="{% url 'account_signup' %}">Регистрация</a>
+            <a class="profile-popover__primary" href="{% url 'account_login' %}">
+              <span class="lang lang--ru">Войти</span>
+              <span class="lang lang--en">Log in</span>
+              <span class="lang lang--tr">Giriş yap</span>
+            </a>
+            <a class="profile-popover__secondary" href="{% url 'account_signup' %}">
+              <span class="lang lang--ru">Регистрация</span>
+              <span class="lang lang--en">Sign up</span>
+              <span class="lang lang--tr">Kayıt ol</span>
+            </a>
           </div>
 
-          <div class="profile-popover__divider"><span>или</span></div>
+          <div class="profile-popover__divider">
+            <span class="lang lang--ru">или</span>
+            <span class="lang lang--en">or</span>
+            <span class="lang lang--tr">veya</span>
+          </div>
 
           <form method="post" action="{% provider_login_url 'google' process='login' %}">
             {% csrf_token %}
-            <button class="profile-popover__google" type="submit">Продолжить с Google</button>
+            <button class="profile-popover__google" type="submit">
+              <span class="lang lang--ru">Продолжить с Google</span>
+              <span class="lang lang--en">Continue with Google</span>
+              <span class="lang lang--tr">Google ile devam et</span>
+            </button>
           </form>
         {% endif %}
       </aside>
