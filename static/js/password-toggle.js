@@ -9,6 +9,19 @@
     return control.querySelector("input");
   }
 
+  function getCurrentLanguage() {
+    var language = document.documentElement.dataset.language || document.documentElement.lang || "ru";
+
+    return ["ru", "en", "tr"].indexOf(language) === -1 ? "ru" : language;
+  }
+
+  function localizedDatasetValue(button, name) {
+    var language = getCurrentLanguage();
+    var key = name + language.charAt(0).toUpperCase() + language.slice(1);
+
+    return button.dataset[key] || button.dataset[name] || "";
+  }
+
   document.addEventListener("click", function (event) {
     var button = event.target.closest("[data-password-toggle]");
 
@@ -28,8 +41,8 @@
     button.setAttribute(
       "aria-label",
       shouldShow
-        ? button.dataset.hideLabel || "Hide password"
-        : button.dataset.showLabel || "Show password"
+        ? localizedDatasetValue(button, "hideLabel") || "Hide password"
+        : localizedDatasetValue(button, "showLabel") || "Show password"
     );
   });
 })();

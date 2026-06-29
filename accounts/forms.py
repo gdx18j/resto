@@ -1,9 +1,63 @@
 from django import forms
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
+from allauth.account.forms import (
+    LoginForm,
+    ResetPasswordForm,
+    ResetPasswordKeyForm,
+    SignupForm,
+)
 
 from menu.models import Allergen
 from menu.translations import localized_allergen_html
+
+
+PASSWORD_PLACEHOLDER = "Пароль"
+PASSWORD_CONFIRM_PLACEHOLDER = "Повторите пароль"
+EMAIL_PLACEHOLDER = "Email"
+
+
+class LocalizedAuthFormMixin:
+    field_placeholders = {}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._localize_fields()
+
+    def _localize_fields(self):
+        for field_name, placeholder in self.field_placeholders.items():
+            field = self.fields.get(field_name)
+
+            if field:
+                field.widget.attrs["placeholder"] = placeholder
+
+
+class LocalizedLoginForm(LocalizedAuthFormMixin, LoginForm):
+    field_placeholders = {
+        "login": EMAIL_PLACEHOLDER,
+        "password": PASSWORD_PLACEHOLDER,
+    }
+
+
+class LocalizedSignupForm(LocalizedAuthFormMixin, SignupForm):
+    field_placeholders = {
+        "email": EMAIL_PLACEHOLDER,
+        "password1": PASSWORD_PLACEHOLDER,
+        "password2": PASSWORD_CONFIRM_PLACEHOLDER,
+    }
+
+
+class LocalizedResetPasswordForm(LocalizedAuthFormMixin, ResetPasswordForm):
+    field_placeholders = {
+        "email": EMAIL_PLACEHOLDER,
+    }
+
+
+class LocalizedResetPasswordKeyForm(LocalizedAuthFormMixin, ResetPasswordKeyForm):
+    field_placeholders = {
+        "password1": PASSWORD_PLACEHOLDER,
+        "password2": PASSWORD_CONFIRM_PLACEHOLDER,
+    }
 
 
 ALLERGEN_ICONS = {

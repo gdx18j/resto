@@ -65,6 +65,41 @@ class AccountViewTests(TestCase):
                 response = self.client.get(reverse(url_name))
                 self.assertEqual(response.status_code, 200)
 
+    def test_auth_pages_include_client_language_variants(self):
+        login_response = self.client.get(reverse("account_login"))
+        signup_response = self.client.get(reverse("account_signup"))
+
+        self.assertContains(login_response, "Şifreyi göster")
+        self.assertContains(login_response, "Şifreyi gizle")
+        self.assertContains(login_response, "Şifrenizi mi unuttunuz?")
+        self.assertContains(signup_response, "Hesap oluştur")
+        self.assertContains(signup_response, "En az 8 karakter kullanın")
+
+    def test_signup_password_errors_and_placeholders_are_russian_by_default(self):
+        get_response = self.client.get(reverse("account_signup"))
+
+        self.assertContains(get_response, 'placeholder="Пароль"')
+        self.assertContains(get_response, 'placeholder="Повторите пароль"')
+
+        post_response = self.client.post(
+            reverse("account_signup"),
+            {
+                "email": "asd@gmail.com",
+                "password1": "password",
+                "password2": "password",
+            },
+        )
+
+        self.assertEqual(post_response.status_code, 200)
+        content = post_response.content.decode()
+        error_start = content.index('<ul class="errorlist"')
+        error_end = content.index("</ul>", error_start)
+        error_html = content[error_start:error_end]
+
+        self.assertContains(post_response, "Введённый пароль")
+        self.assertNotIn("This password", error_html)
+        self.assertNotIn("The password", error_html)
+
     def test_signup_creates_user_and_unverified_email_address(self):
         response = self.client.post(
             reverse("account_signup"),

@@ -63,6 +63,12 @@
                     aria-label="Показать пароль"
                     data-show-label="Показать пароль"
                     data-hide-label="Скрыть пароль"
+                    data-show-label-ru="Показать пароль"
+                    data-hide-label-ru="Скрыть пароль"
+                    data-show-label-en="Show password"
+                    data-hide-label-en="Hide password"
+                    data-show-label-tr="Şifreyi göster"
+                    data-hide-label-tr="Şifreyi gizle"
                   >
                     <svg class="password-toggle-button__icon password-toggle-button__icon--show" aria-hidden="true"><use href="#i-eye"/></svg>
                     <svg class="password-toggle-button__icon password-toggle-button__icon--hide" aria-hidden="true"><use href="#i-eye-off"/></svg>
@@ -71,7 +77,13 @@
               {% else %}
                 {{ field }}
               {% endif %}
-              {% if field.help_text %}
+              {% if field.name == "password1" and field.help_text %}
+                <small>
+                  <span class="lang lang--ru">Минимум 8 символов. Пароль не должен быть слишком простым или состоять только из цифр.</span>
+                  <span class="lang lang--en">Use at least 8 characters. The password should not be too common or only numeric.</span>
+                  <span class="lang lang--tr">En az 8 karakter kullanın. Şifre çok yaygın olmamalı veya yalnızca rakamlardan oluşmamalı.</span>
+                </small>
+              {% elif field.help_text %}
                 <small>{{ field.help_text }}</small>
               {% endif %}
               {{ field.errors }}

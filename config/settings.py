@@ -118,6 +118,12 @@ ACCOUNT_SIGNUP_FIELDS = [
 ]
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 ACCOUNT_UNIQUE_EMAIL = True
+ACCOUNT_FORMS = {
+    "login": "accounts.forms.LocalizedLoginForm",
+    "signup": "accounts.forms.LocalizedSignupForm",
+    "reset_password": "accounts.forms.LocalizedResetPasswordForm",
+    "reset_password_from_key": "accounts.forms.LocalizedResetPasswordKeyForm",
+}
 
 LOGIN_URL = "account_login"
 LOGIN_REDIRECT_URL = "/"
@@ -196,7 +202,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'ru'
 
 TIME_ZONE = 'UTC'
 
