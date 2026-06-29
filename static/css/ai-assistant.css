@@ -193,7 +193,7 @@ body.ai-assistant-lock {
 .ai-assistant__message {
   width: fit-content;
   max-width: min(88%, 350px);
-  padding: 10px 12px;
+  padding: 9px 11px 7px 12px;
   border: 1px solid var(--line);
   border-radius: 14px;
   font-size: 13px;
@@ -201,8 +201,26 @@ body.ai-assistant-lock {
   overflow-wrap: anywhere;
 }
 
+.ai-assistant__message::after {
+  display: block;
+  clear: both;
+  content: "";
+}
+
 .ai-assistant__message-text {
   white-space: pre-wrap;
+}
+
+.ai-assistant__message-time {
+  float: right;
+  margin: 5px 0 0 10px;
+  color: var(--muted);
+  font-size: 9.5px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: right;
+  white-space: nowrap;
+  opacity: 0.82;
 }
 
 .ai-assistant__message--assistant {
@@ -219,11 +237,29 @@ body.ai-assistant-lock {
   background: var(--accent);
 }
 
+.ai-assistant__message--user .ai-assistant__message-time {
+  color: color-mix(in srgb, var(--accent-contrast) 72%, transparent);
+}
+
 .ai-assistant__message--error {
   align-self: flex-start;
   border-color: color-mix(in srgb, var(--danger) 48%, var(--line));
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+}
+
+.ai-assistant__date-divider {
+  align-self: center;
+  margin: 4px 0 6px;
+  padding: 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-radius: 999px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-raised) 72%, transparent);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .ai-assistant__dish-list {
@@ -257,33 +293,40 @@ body.ai-assistant-lock {
   transform: translateY(-1px);
 }
 
-.ai-assistant__cart-button {
+.ai-assistant .ai-assistant__dish-cart-control {
+  width: 100%;
+  min-width: 0;
+}
+
+.ai-assistant .ai-assistant__dish-price-button,
+.ai-assistant .ai-assistant__dish-qty-stepper {
   width: 100%;
   min-height: 42px;
-  padding: 0 14px;
-  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--line));
   border-radius: 13px;
+}
+
+.ai-assistant .ai-assistant__dish-price-button {
+  padding: 0;
+  border: 1px solid var(--accent);
   color: var(--accent-contrast);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent-hover) 72%, var(--accent)), var(--accent));
+  background: var(--accent);
   box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 20%, transparent);
-  font-size: 12px;
+}
+
+.ai-assistant .ai-assistant__dish-price-button strong {
+  min-height: 42px;
+  padding-inline: 14px;
+  font-size: 13px;
   font-weight: 900;
-  line-height: 1;
-  cursor: pointer;
-  transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease, transform 160ms ease, box-shadow 180ms ease;
 }
 
-.ai-assistant__cart-button:hover {
-  color: var(--accent-contrast);
-  box-shadow: 0 10px 22px color-mix(in srgb, var(--accent) 26%, transparent);
-  transform: translateY(-1px);
+.ai-assistant .ai-assistant__dish-qty-stepper {
+  grid-template-columns: 42px minmax(34px, 1fr) 42px;
 }
 
-.ai-assistant__cart-button.is-added {
-  border-color: var(--safe);
-  color: var(--text);
-  background: var(--safe-soft);
+.ai-assistant .ai-assistant__dish-qty-stepper .dish-qty-stepper__btn {
+  width: 42px;
+  height: 42px;
 }
 
 .ai-assistant__dish-media {
@@ -482,8 +525,22 @@ body.ai-assistant-lock {
     font-size: 13px;
   }
 
-  .ai-assistant__cart-button {
+  .ai-assistant .ai-assistant__dish-price-button,
+  .ai-assistant .ai-assistant__dish-qty-stepper {
     min-height: 40px;
+  }
+
+  .ai-assistant .ai-assistant__dish-price-button strong {
+    min-height: 40px;
+  }
+
+  .ai-assistant .ai-assistant__dish-qty-stepper {
+    grid-template-columns: 40px minmax(30px, 1fr) 40px;
+  }
+
+  .ai-assistant .ai-assistant__dish-qty-stepper .dish-qty-stepper__btn {
+    width: 40px;
+    height: 40px;
   }
 }
 

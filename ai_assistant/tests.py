@@ -211,6 +211,87 @@ class AskViewTests(TestCase):
         )
         generate_ai_answer_mock.assert_called_once_with(session)
 
+    def test_authenticated_history_returns_latest_account_dialog(self):
+        user = get_user_model().objects.create_user(
+            email="history@example.com",
+            password="strong-pass-123",
+        )
+        old_session = ChatSession.objects.create(
+            user=user,
+            session_key="old-session",
+            title="Old chat",
+        )
+        ChatMessage.objects.create(
+            session=old_session,
+            role=ChatMessage.Role.USER,
+            content="Старый вопрос",
+        )
+        latest_session = ChatSession.objects.create(
+            user=user,
+            session_key="latest-session",
+            title="Latest chat",
+        )
+        user_message = ChatMessage.objects.create(
+            session=latest_session,
+            role=ChatMessage.Role.USER,
+            content="Что посоветуешь?",
+        )
+        assistant_message = ChatMessage.objects.create(
+            session=latest_session,
+            role=ChatMessage.Role.ASSISTANT,
+            content="Советую Focaccia.",
+            model_name="gemini-test",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("ai_assistant:history"))
+
+        self.assertEqual(response.status_code, 200)
+
+        payload = response.json()
+        self.assertEqual(payload["session_id"], str(latest_session.id))
+        self.assertEqual(
+            [message["text"] for message in payload["messages"]],
+            [
+                user_message.content,
+                assistant_message.content,
+            ],
+        )
+        self.assertTrue(payload["messages"][0]["created_at"])
+        self.assertTrue(payload["messages"][1]["created_at"])
+
+    def test_authenticated_history_can_load_requested_owned_session(self):
+        user = get_user_model().objects.create_user(
+            email="owned-history@example.com",
+            password="strong-pass-123",
+        )
+        requested_session = ChatSession.objects.create(
+            user=user,
+            session_key="requested-session",
+            title="Requested chat",
+        )
+        ChatMessage.objects.create(
+            session=requested_session,
+            role=ChatMessage.Role.USER,
+            content="Верни этот диалог",
+        )
+        ChatSession.objects.create(
+            user=user,
+            session_key="latest-session",
+            title="Latest chat",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(
+            reverse("ai_assistant:history"),
+            {
+                "session_id": str(requested_session.id),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["session_id"], str(requested_session.id))
+
     @patch(
         "ai_assistant.views.generate_ai_answer",
         return_value=AIResult(
@@ -407,6 +488,7 @@ class AssistantWidgetTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "data-ai-assistant")
+        self.assertContains(response, "data-history-endpoint")
         self.assertContains(response, "ai-assistant.css")
         self.assertContains(response, "ai-assistant.js")
 

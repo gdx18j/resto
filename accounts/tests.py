@@ -7,6 +7,8 @@ from django.db import IntegrityError
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
+from menu.models import Allergen
+
 
 User = get_user_model()
 
@@ -134,6 +136,26 @@ class AccountViewTests(TestCase):
         self.client.post(reverse("account_logout"))
 
         self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_allergy_editor_shows_allergen_product_icons(self):
+        user = User.objects.create_user(
+            email="allergy-icons@example.com",
+            password="StrongPass123!",
+        )
+        Allergen.objects.update_or_create(
+            code="milk",
+            defaults={
+                "name": "Молоко",
+            },
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("accounts:edit_allergies"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "allergen-chip__icon")
+        self.assertContains(response, "allergen-chip__icon--milk")
+        self.assertContains(response, "<svg viewBox=\"0 0 24 24\">")
 
 
 class GoogleAuthTests(TestCase):

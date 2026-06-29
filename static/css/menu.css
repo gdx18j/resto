@@ -438,7 +438,7 @@ label[for="theme-toggle"] {
 }
 
 .main-content {
-  padding-top: 18px;
+  padding-top: 14px;
   padding-bottom: 148px;
 }
 
@@ -1904,7 +1904,11 @@ body.dish-detail-open {
 
 @media (min-width: 960px) {
   .main-content {
-    padding-top: 24px;
+    padding-top: 14px;
+  }
+
+  .menu-controls {
+    margin-bottom: 14px;
   }
 
   .search-section {

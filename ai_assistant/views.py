@@ -6,7 +6,7 @@ from django.core.exceptions import ValidationError
 from django.http import JsonResponse, StreamingHttpResponse
 from django.urls import reverse
 from django.utils import timezone
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 from google.genai import errors
 
 from menu.models import Dish
@@ -464,6 +464,99 @@ def _build_quota_fallback_answer(prompt, request, session, language="ru"):
     )
 
 
+def _get_latest_session(request):
+    if request.user.is_authenticated:
+        return (
+            ChatSession.objects.filter(user=request.user)
+            .order_by("-updated_at", "-created_at")
+            .first()
+        )
+
+    session_key = request.session.session_key
+
+    if not session_key:
+        return None
+
+    return (
+        ChatSession.objects.filter(
+            user__isnull=True,
+            session_key=session_key,
+        )
+        .order_by("-updated_at", "-created_at")
+        .first()
+    )
+
+
+def _serialize_timestamp(value):
+    return timezone.localtime(value).isoformat()
+
+
+def _serialize_chat_messages(session, request, language=""):
+    serialized = []
+    last_user_prompt = ""
+
+    for message in session.messages.order_by("created_at", "id"):
+        dishes = []
+
+        if message.role == ChatMessage.Role.USER:
+            last_user_prompt = message.content
+        elif message.role == ChatMessage.Role.ASSISTANT:
+            dishes = _serialize_recommended_dishes(
+                message.content,
+                request,
+                prompt=last_user_prompt,
+                language=language,
+            )
+
+        serialized.append(
+            {
+                "id": message.id,
+                "role": message.role,
+                "text": message.content,
+                "created_at": _serialize_timestamp(message.created_at),
+                "dishes": dishes,
+            }
+        )
+
+    return serialized
+
+
+@require_GET
+def history(request):
+    language_value = request.GET.get("language")
+    language = normalize_language(language_value) if language_value else ""
+    session_id = request.GET.get("session_id")
+    session = None
+
+    if session_id:
+        session = _get_existing_session(request, session_id)
+
+    if session is None:
+        session = _get_latest_session(request)
+
+    if session is None:
+        return JsonResponse(
+            {
+                "session_id": None,
+                "messages": [],
+            }
+        )
+
+    return JsonResponse(
+        {
+            "session_id": str(session.id),
+            "title": session.title,
+            "created_at": _serialize_timestamp(session.created_at),
+            "updated_at": _serialize_timestamp(session.updated_at),
+            "messages": _serialize_chat_messages(
+                session,
+                request,
+                language=language,
+            ),
+        }
+    )
+
+
 @require_POST
 def ask(request):
     try:
@@ -521,7 +614,7 @@ def ask(request):
     session.interface_language = language or "ru"
     session.response_language = response_language
 
-    ChatMessage.objects.create(
+    user_message = ChatMessage.objects.create(
         session=session,
         role=ChatMessage.Role.USER,
         content=prompt,
@@ -547,7 +640,12 @@ def ask(request):
         def event_stream():
             answer_parts = []
 
-            yield _stream_event("session", session_id=str(session.id))
+            yield _stream_event(
+                "session",
+                session_id=str(session.id),
+                user_message_id=user_message.id,
+                user_message_created_at=_serialize_timestamp(user_message.created_at),
+            )
 
             try:
                 for chunk in stream:
@@ -584,6 +682,7 @@ def ask(request):
                         session_id=str(session.id),
                         model=assistant_message.model_name,
                         message_id=assistant_message.id,
+                        created_at=_serialize_timestamp(assistant_message.created_at),
                     )
                     return
 
@@ -633,6 +732,7 @@ def ask(request):
                 session_id=str(session.id),
                 model=model_name,
                 message_id=assistant_message.id,
+                created_at=_serialize_timestamp(assistant_message.created_at),
             )
 
         return StreamingHttpResponse(
@@ -680,6 +780,9 @@ def ask(request):
             "session_id": str(session.id),
             "model": result.model_name,
             "message_id": assistant_message.id,
+            "created_at": _serialize_timestamp(assistant_message.created_at),
+            "user_message_id": user_message.id,
+            "user_message_created_at": _serialize_timestamp(user_message.created_at),
         },
         status=200,
     )

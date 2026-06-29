@@ -2,6 +2,8 @@
   class="ai-assistant"
   data-ai-assistant
   data-endpoint="{% url 'ai_assistant:ask' %}"
+  data-history-endpoint="{% url 'ai_assistant:history' %}"
+  data-account-bound="{% if request.user.is_authenticated %}1{% else %}0{% endif %}"
   data-storage-key="resto.aiAssistant.v3"
   aria-label="ИИ-ассистент"
 >

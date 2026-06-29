@@ -9,6 +9,8 @@
 
   function initAssistant(root) {
     var endpoint = root.dataset.endpoint;
+    var historyEndpoint = root.dataset.historyEndpoint || "";
+    var isAccountBound = root.dataset.accountBound === "1";
     var storageKey = root.dataset.storageKey || "resto.aiAssistant.v3";
     var launcher = root.querySelector("[data-ai-open]");
     var backdrop = root.querySelector("[data-ai-backdrop]");
@@ -38,7 +40,9 @@
         noResponse: "Я не получил текст ответа.",
         requestFailed: "Не удалось получить ответ. Попробуйте еще раз.",
         timeout: "Ответ занимает слишком много времени. Попробуйте еще раз.",
-        connection: "Не удалось связаться с ассистентом. Проверьте соединение."
+        connection: "Не удалось связаться с ассистентом. Проверьте соединение.",
+        today: "Сегодня",
+        yesterday: "Вчера"
       },
       en: {
         greeting: "Hi! I can help you explore the menu, choose a dish, and check ingredients or allergens.",
@@ -49,7 +53,9 @@
         noResponse: "I did not receive a text response.",
         requestFailed: "Could not get a response. Please try again.",
         timeout: "The response is taking too long. Please try again.",
-        connection: "Could not reach the assistant. Check your connection."
+        connection: "Could not reach the assistant. Check your connection.",
+        today: "Today",
+        yesterday: "Yesterday"
       },
       tr: {
         greeting: "Merhaba! Menüyü keşfetmenize, yemek seçmenize, içerikleri ve alerjenleri kontrol etmenize yardımcı olurum.",
@@ -60,14 +66,18 @@
         noResponse: "Yanıt metni alınamadı.",
         requestFailed: "Yanıt alınamadı. Lütfen tekrar deneyin.",
         timeout: "Yanıt çok uzun sürüyor. Lütfen tekrar deneyin.",
-        connection: "Asistana ulaşılamadı. Bağlantınızı kontrol edin."
+        connection: "Asistana ulaşılamadı. Bağlantınızı kontrol edin.",
+        today: "Bugün",
+        yesterday: "Dün"
       }
     };
 
     var state = readState();
     var isBusy = false;
+    var hasUserInteracted = false;
 
     renderMessages();
+    hydrateServerHistory();
 
     function getCurrentLanguage() {
       var language = document.documentElement.dataset.language || document.documentElement.lang || "ru";
@@ -77,6 +87,115 @@
     function t(key) {
       var language = getCurrentLanguage();
       return translations[language][key] || translations.ru[key] || "";
+    }
+
+    function getCurrentLocale() {
+      var language = getCurrentLanguage();
+      var locales = {
+        ru: "ru-RU",
+        en: "en-US",
+        tr: "tr-TR",
+      };
+
+      return locales[language] || locales.ru;
+    }
+
+    function normalizeTimestamp(value) {
+      var date;
+
+      if (typeof value !== "string" || !value) {
+        return null;
+      }
+
+      date = new Date(value);
+
+      if (Number.isNaN(date.getTime())) {
+        return null;
+      }
+
+      return date.toISOString();
+    }
+
+    function parseMessageDate(value) {
+      var date = value ? new Date(value) : null;
+
+      if (!date || Number.isNaN(date.getTime())) {
+        return null;
+      }
+
+      return date;
+    }
+
+    function getLocalDateKey(value) {
+      var date = parseMessageDate(value);
+
+      if (!date) {
+        return "";
+      }
+
+      return [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, "0"),
+        String(date.getDate()).padStart(2, "0"),
+      ].join("-");
+    }
+
+    function isSameLocalDay(left, right) {
+      return (
+        left &&
+        right &&
+        left.getFullYear() === right.getFullYear() &&
+        left.getMonth() === right.getMonth() &&
+        left.getDate() === right.getDate()
+      );
+    }
+
+    function formatDateLabel(value) {
+      var date = parseMessageDate(value);
+      var today = new Date();
+      var yesterday = new Date();
+      var options;
+
+      if (!date) {
+        return "";
+      }
+
+      yesterday.setDate(today.getDate() - 1);
+
+      if (isSameLocalDay(date, today)) {
+        return t("today");
+      }
+
+      if (isSameLocalDay(date, yesterday)) {
+        return t("yesterday");
+      }
+
+      options = {
+        day: "numeric",
+        month: "long",
+      };
+
+      if (date.getFullYear() !== today.getFullYear()) {
+        options.year = "numeric";
+      }
+
+      return new Intl.DateTimeFormat(getCurrentLocale(), options).format(date);
+    }
+
+    function formatMessageTime(value) {
+      var date = parseMessageDate(value);
+
+      if (!date) {
+        return "";
+      }
+
+      return new Intl.DateTimeFormat(
+        getCurrentLocale(),
+        {
+          hour: "2-digit",
+          minute: "2-digit",
+        }
+      ).format(date);
     }
 
     function getVisibleInput() {
@@ -121,7 +240,9 @@
 
     if (resetButton) {
       resetButton.addEventListener("click", function () {
+        hasUserInteracted = true;
         state = createInitialState();
+        state.isNewChat = true;
         writeState();
         renderMessages();
         resizeInput();
@@ -197,33 +318,6 @@
     );
 
     messagesNode.addEventListener("click", function (event) {
-      var cartButton = event.target.closest("[data-ai-add-to-cart]");
-
-      if (cartButton) {
-        event.preventDefault();
-        event.stopPropagation();
-
-        if (window.CaesarCart && window.CaesarCart.addItem) {
-          var added = window.CaesarCart.addItem({
-            id: cartButton.dataset.cartId,
-            name: cartButton.dataset.name,
-            price: cartButton.dataset.price,
-          });
-
-          if (added) {
-            cartButton.classList.add("is-added");
-            cartButton.textContent = t("added");
-
-            window.setTimeout(function () {
-              cartButton.classList.remove("is-added");
-              cartButton.textContent = formatCartButtonText(cartButton.dataset.price);
-            }, 1200);
-          }
-        }
-
-        return;
-      }
-
       var link = event.target.closest("[data-ai-dish-link]");
 
       if (link) {
@@ -243,6 +337,7 @@
 
     window.addEventListener("cc:languagechange", function () {
       syncInitialGreetingLanguage();
+      renderMessages();
       resizeInput();
 
       if (root.classList.contains("is-open")) {
@@ -254,6 +349,7 @@
       return {
         sessionId: null,
         greetingLanguage: getCurrentLanguage(),
+        isNewChat: false,
         messages: [
           {
             role: "assistant",
@@ -337,6 +433,7 @@
             role: message.role,
             text: message.text.trim(),
             dishes: normalizeDishes(message.dishes),
+            createdAt: normalizeTimestamp(message.createdAt || message.created_at),
           };
         });
 
@@ -361,11 +458,70 @@
         return {
           sessionId: parsed.sessionId || null,
           greetingLanguage: parsed.greetingLanguage || null,
+          isNewChat: Boolean(parsed.isNewChat),
           messages: messages,
         };
       } catch (error) {
         return createInitialState();
       }
+    }
+
+    function hydrateServerHistory() {
+      var url;
+
+      if (!historyEndpoint || !isAccountBound || state.isNewChat) {
+        return;
+      }
+
+      url = new URL(historyEndpoint, window.location.href);
+      url.searchParams.set("language", getCurrentLanguage());
+
+      if (state.sessionId) {
+        url.searchParams.set("session_id", state.sessionId);
+      }
+
+      window.fetch(url.toString(), {
+        method: "GET",
+        credentials: "same-origin",
+        headers: {
+          "Accept": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+      })
+        .then(function (response) {
+          if (!response.ok) {
+            return null;
+          }
+
+          return response.json().catch(function () {
+            return null;
+          });
+        })
+        .then(function (data) {
+          var messages;
+
+          if (!data || hasUserInteracted) {
+            return;
+          }
+
+          messages = normalizeMessages(data.messages);
+
+          if (!messages) {
+            return;
+          }
+
+          state = {
+            sessionId: data.session_id || null,
+            greetingLanguage: getCurrentLanguage(),
+            isNewChat: false,
+            messages: messages,
+          };
+          writeState();
+          renderMessages();
+        })
+        .catch(function () {
+          return;
+        });
     }
 
     function writeState() {
@@ -409,15 +565,47 @@
     }
 
     function renderMessages() {
+      var previousMessage = null;
+
       messagesNode.textContent = "";
 
       state.messages.forEach(function (message) {
+        appendDateDividerForMessage(message, previousMessage);
         messagesNode.appendChild(
-          createMessageNode(message.role, message.text, message.dishes)
+          createMessageNode(
+            message.role,
+            message.text,
+            message.dishes,
+            message.createdAt
+          )
         );
+        previousMessage = message;
       });
 
       scrollMessagesToBottom(true);
+    }
+
+    function createDateDividerNode(createdAt) {
+      var divider = document.createElement("div");
+      var time = document.createElement("time");
+
+      divider.className = "ai-assistant__date-divider";
+      time.dateTime = createdAt;
+      time.textContent = formatDateLabel(createdAt);
+      divider.appendChild(time);
+
+      return divider;
+    }
+
+    function appendDateDividerForMessage(message, previousMessage) {
+      var dateKey = getLocalDateKey(message && message.createdAt);
+      var previousDateKey = getLocalDateKey(previousMessage && previousMessage.createdAt);
+
+      if (!dateKey || dateKey === previousDateKey) {
+        return;
+      }
+
+      messagesNode.appendChild(createDateDividerNode(message.createdAt));
     }
 
     function stripSimpleMarkdown(text) {
@@ -427,18 +615,43 @@
         .trim();
     }
 
-    function formatCartButtonText(price) {
-      return price ? t("add") + " · " + price + " ₽" : t("add");
+    function createMessageTimeNode(createdAt) {
+      var timeText = formatMessageTime(createdAt);
+      var timeNode;
+
+      if (!timeText) {
+        return null;
+      }
+
+      timeNode = document.createElement("time");
+      timeNode.className = "ai-assistant__message-time";
+      timeNode.dateTime = createdAt;
+      timeNode.textContent = timeText;
+
+      return timeNode;
     }
 
-    function createMessageNode(role, text, dishes) {
+    function refreshCartControlsSoon() {
+      window.requestAnimationFrame(function () {
+        if (window.CaesarCart && window.CaesarCart.refreshControls) {
+          window.CaesarCart.refreshControls();
+        }
+      });
+    }
+
+    function createMessageNode(role, text, dishes, createdAt) {
       var article = document.createElement("article");
       var textNode = document.createElement("div");
+      var timeNode = createMessageTimeNode(createdAt);
 
       article.className = "ai-assistant__message ai-assistant__message--" + role;
       textNode.className = "ai-assistant__message-text";
       textNode.textContent = stripSimpleMarkdown(text);
       article.appendChild(textNode);
+
+      if (timeNode) {
+        article.appendChild(timeNode);
+      }
 
       if (role === "assistant" && dishes && dishes.length) {
         article.appendChild(createDishCardsNode(dishes));
@@ -447,15 +660,21 @@
       return article;
     }
 
-    function appendLiveAssistantMessage(text, dishes) {
+    function appendLiveAssistantMessage(text, dishes, createdAt) {
       var article = document.createElement("article");
       var textNode = document.createElement("div");
+      var timeNode = createMessageTimeNode(createdAt);
       var cleanText = stripSimpleMarkdown(text);
       var index = 0;
 
       article.className = "ai-assistant__message ai-assistant__message--assistant";
       textNode.className = "ai-assistant__message-text";
       article.appendChild(textNode);
+
+      if (timeNode) {
+        article.appendChild(timeNode);
+      }
+
       messagesNode.appendChild(article);
 
       function tick() {
@@ -490,7 +709,14 @@
         var title = document.createElement("strong");
         var meta = document.createElement("span");
         var description = document.createElement("span");
-        var cartButton = document.createElement("button");
+        var cartControl = document.createElement("div");
+        var addButton = document.createElement("button");
+        var price = document.createElement("strong");
+        var stepper = document.createElement("div");
+        var decreaseButton = document.createElement("button");
+        var count = document.createElement("span");
+        var increaseButton = document.createElement("button");
+        var cartId = dish.cartId || ("dish-" + dish.id);
 
         card.className = "ai-assistant__dish-card-wrap";
         link.className = "ai-assistant__dish-card";
@@ -532,19 +758,63 @@
         card.appendChild(link);
 
         if (dish.price) {
-          cartButton.className = "ai-assistant__cart-button";
-          cartButton.type = "button";
-          cartButton.textContent = formatCartButtonText(dish.price);
-          cartButton.setAttribute("data-ai-add-to-cart", "");
-          cartButton.dataset.cartId = dish.cartId || ("dish-" + dish.id);
-          cartButton.dataset.name = dish.name;
-          cartButton.dataset.price = dish.price;
-          card.appendChild(cartButton);
+          cartControl.className = "dish-cart-control ai-assistant__dish-cart-control";
+          cartControl.dataset.id = cartId;
+          cartControl.dataset.name = dish.name;
+          cartControl.dataset.nameRu = dish.name;
+          cartControl.dataset.nameEn = dish.name;
+          cartControl.dataset.nameTr = dish.name;
+          cartControl.dataset.price = dish.price;
+          cartControl.setAttribute("data-dish-cart-control", "");
+
+          addButton.className = "dish-price-button ai-assistant__dish-price-button";
+          addButton.type = "button";
+          addButton.setAttribute("data-add-btn", "");
+          addButton.dataset.id = cartId;
+          addButton.dataset.name = dish.name;
+          addButton.dataset.nameRu = dish.name;
+          addButton.dataset.nameEn = dish.name;
+          addButton.dataset.nameTr = dish.name;
+          addButton.dataset.price = dish.price;
+          addButton.setAttribute("aria-label", t("add") + ": " + dish.name);
+          price.textContent = dish.price + " ₽";
+          addButton.appendChild(price);
+
+          stepper.className = "dish-qty-stepper ai-assistant__dish-qty-stepper";
+          stepper.setAttribute("data-dish-qty-stepper", "");
+          stepper.hidden = true;
+
+          decreaseButton.className = "dish-qty-stepper__btn";
+          decreaseButton.type = "button";
+          decreaseButton.textContent = "−";
+          decreaseButton.dataset.dishQtyAction = "dec";
+          decreaseButton.dataset.id = cartId;
+          decreaseButton.setAttribute("aria-label", "Уменьшить количество");
+
+          count.className = "dish-qty-stepper__count";
+          count.setAttribute("data-dish-qty-count", "");
+          count.setAttribute("aria-live", "polite");
+          count.textContent = "0";
+
+          increaseButton.className = "dish-qty-stepper__btn";
+          increaseButton.type = "button";
+          increaseButton.textContent = "+";
+          increaseButton.dataset.dishQtyAction = "inc";
+          increaseButton.dataset.id = cartId;
+          increaseButton.setAttribute("aria-label", "Увеличить количество");
+
+          stepper.appendChild(decreaseButton);
+          stepper.appendChild(count);
+          stepper.appendChild(increaseButton);
+          cartControl.appendChild(addButton);
+          cartControl.appendChild(stepper);
+          card.appendChild(cartControl);
         }
 
         list.appendChild(card);
       });
 
+      refreshCartControlsSoon();
       return list;
     }
 
@@ -564,21 +834,30 @@
       return article;
     }
 
-    function addMessage(role, text, dishes) {
+    function addMessage(role, text, dishes, createdAt) {
+      var previousMessage = state.messages[state.messages.length - 1] || null;
       var message = {
         role: role,
         text: stripSimpleMarkdown(text),
         dishes: normalizeDishes(dishes),
+        createdAt: normalizeTimestamp(createdAt) || new Date().toISOString(),
       };
 
       state.messages.push(message);
       writeState();
 
+      appendDateDividerForMessage(message, previousMessage);
+
       if (message.role === "assistant") {
-        appendLiveAssistantMessage(message.text, message.dishes);
+        appendLiveAssistantMessage(message.text, message.dishes, message.createdAt);
       } else {
         messagesNode.appendChild(
-          createMessageNode(message.role, message.text, message.dishes)
+          createMessageNode(
+            message.role,
+            message.text,
+            message.dishes,
+            message.createdAt
+          )
         );
       }
 
@@ -586,7 +865,15 @@
     }
 
     function addError(text) {
-      messagesNode.appendChild(createMessageNode("error", text, []));
+      var message = {
+        createdAt: new Date().toISOString(),
+      };
+      var previousMessage = state.messages[state.messages.length - 1] || null;
+
+      appendDateDividerForMessage(message, previousMessage);
+      messagesNode.appendChild(
+        createMessageNode("error", text, [], message.createdAt)
+      );
       scrollMessagesToBottom(true);
     }
 
@@ -648,6 +935,7 @@
         return;
       }
 
+      hasUserInteracted = true;
       inputs.forEach(function (input) {
         input.value = "";
       });
@@ -656,9 +944,28 @@
       sendPrompt(prompt, true);
     }
 
-    function createStreamingMessageNode() {
+    function updateLatestUserMessageTimestamp(createdAt) {
+      var normalized = normalizeTimestamp(createdAt);
+      var index;
+
+      if (!normalized) {
+        return;
+      }
+
+      for (index = state.messages.length - 1; index >= 0; index -= 1) {
+        if (state.messages[index].role === "user") {
+          state.messages[index].createdAt = normalized;
+          writeState();
+          return;
+        }
+      }
+    }
+
+    function createStreamingMessageNode(createdAt) {
       var article = document.createElement("article");
       var textNode = document.createElement("div");
+      var messageCreatedAt = normalizeTimestamp(createdAt) || new Date().toISOString();
+      var timeNode = createMessageTimeNode(messageCreatedAt);
       var text = "";
       var displayedText = "";
       var queuedText = "";
@@ -670,6 +977,22 @@
       article.className = "ai-assistant__message ai-assistant__message--assistant";
       textNode.className = "ai-assistant__message-text";
       article.appendChild(textNode);
+
+      if (timeNode) {
+        article.appendChild(timeNode);
+      }
+
+      function setMessageCreatedAt(value) {
+        var normalized = normalizeTimestamp(value);
+
+        if (!normalized || !timeNode) {
+          return;
+        }
+
+        messageCreatedAt = normalized;
+        timeNode.dateTime = normalized;
+        timeNode.textContent = formatMessageTime(normalized);
+      }
 
       function saveMessageWhenReady() {
         var message;
@@ -686,6 +1009,7 @@
           role: "assistant",
           text: stripSimpleMarkdown(text),
           dishes: finishedDishes,
+          createdAt: messageCreatedAt,
         };
 
         state.messages.push(message);
@@ -711,6 +1035,7 @@
 
       return {
         node: article,
+        createdAt: messageCreatedAt,
         append: function (delta) {
           text += delta;
           queuedText += delta;
@@ -719,7 +1044,8 @@
             typeNextCharacter();
           }
         },
-        finish: function (dishes) {
+        finish: function (dishes, createdAt) {
+          setMessageCreatedAt(createdAt);
           isFinished = true;
           finishedDishes = normalizeDishes(dishes);
           saveMessageWhenReady();
@@ -752,6 +1078,8 @@
 
         if (event.type === "session") {
           state.sessionId = event.session_id || state.sessionId;
+          state.isNewChat = false;
+          updateLatestUserMessageTimestamp(event.user_message_created_at);
           writeState();
           return;
         }
@@ -760,6 +1088,12 @@
           if (!liveMessage) {
             typingNode.remove();
             liveMessage = createStreamingMessageNode();
+            appendDateDividerForMessage(
+              {
+                createdAt: liveMessage.createdAt,
+              },
+              state.messages[state.messages.length - 1] || null
+            );
             messagesNode.appendChild(liveMessage.node);
           }
 
@@ -769,9 +1103,10 @@
 
         if (event.type === "done") {
           state.sessionId = event.session_id || state.sessionId;
+          state.isNewChat = false;
 
           if (liveMessage) {
-            liveMessage.finish(event.recommended_dishes || []);
+            liveMessage.finish(event.recommended_dishes || [], event.created_at);
           } else {
             typingNode.remove();
           }
@@ -894,6 +1229,8 @@
           }
 
           state.sessionId = result.data.session_id || state.sessionId;
+          state.isNewChat = false;
+          updateLatestUserMessageTimestamp(result.data.user_message_created_at);
           writeState();
 
           if (!result.ok) {
@@ -907,7 +1244,8 @@
           addMessage(
             "assistant",
             result.data.answer || t("noResponse"),
-            result.data.recommended_dishes || []
+            result.data.recommended_dishes || [],
+            result.data.created_at
           );
         })
         .catch(function (error) {

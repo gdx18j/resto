@@ -357,6 +357,10 @@
     return true;
   };
 
+  window.CaesarCart.refreshControls = function () {
+    renderAll();
+  };
+
   function changeQty(id, delta) {
     if (!cart.items[id]) return;
     cart.items[id].qty += delta;

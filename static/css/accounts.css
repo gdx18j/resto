@@ -141,9 +141,10 @@
 
 .allergen-chip > span {
   min-height: 42px;
-  padding: 0 15px;
+  padding: 0 15px 0 8px;
   display: inline-flex;
   align-items: center;
+  gap: 8px;
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--text-soft);
@@ -162,6 +163,40 @@
   border-color: var(--accent);
   color: var(--accent-contrast);
   background: var(--accent);
+}
+
+.allergen-chip__icon {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  border-radius: 50%;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-soft));
+}
+
+.allergen-chip__icon svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.allergen-chip input:checked + span .allergen-chip__icon {
+  border-color: color-mix(in srgb, var(--accent-contrast) 24%, transparent);
+  color: var(--accent-contrast);
+  background: color-mix(in srgb, var(--accent-contrast) 12%, transparent);
+}
+
+.allergen-chip__name {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
 }
 
 .account-form {
