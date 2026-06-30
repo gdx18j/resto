@@ -1,0 +1,759 @@
+/* ============================================================
+   Caesar & Company — Cart styles
+   ============================================================ */
+
+/* iOS Safari fix: делегация кликов работает только если
+   промежуточные элементы имеют cursor:pointer */
+.app-shell { cursor: default; }
+.app-shell button,
+.app-shell a,
+.app-shell label,
+.app-shell [data-add-btn],
+.app-shell [data-dish-qty-action],
+.app-shell [data-cart-open],
+.app-shell [data-cart-close] { cursor: pointer; }
+
+/* ── "Add to cart" button on dish cards ──────────────────────── */
+.cart-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-soft);
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 160ms ease, border-color 160ms ease, background-color 200ms ease, transform 160ms ease;
+  white-space: nowrap;
+}
+.cart-add-btn svg {
+  width: 15px; height: 15px;
+  stroke: currentColor; fill: none;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+  flex: 0 0 auto;
+}
+.cart-add-btn:hover {
+  color: var(--accent-contrast);
+  border-color: var(--accent);
+  background: var(--accent);
+  transform: translateY(-1px);
+}
+.cart-add-btn:active { transform: scale(0.95); }
+
+@keyframes cartAddFlash {
+  0%   { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+  100% { background: var(--surface); color: var(--text-soft); border-color: var(--line); }
+}
+.cart-add--flash { animation: cartAddFlash 460ms ease forwards; }
+
+@keyframes priceAddFlash {
+  0% { background: var(--safe-soft); color: var(--text); border-color: var(--safe); }
+  100% { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+}
+.dish-price-button.cart-add--flash {
+  animation: priceAddFlash 460ms ease forwards;
+}
+.dish-cart-control.cart-add--flash {
+  animation: none;
+}
+.dish-cart-control.cart-add--flash .dish-qty-stepper {
+  animation: priceAddFlash 460ms ease forwards;
+}
+
+/* ── Desktop header cart button ─────────────────────────────── */
+.cart-desktop-wrap {
+  position: relative;
+  display: none;
+}
+@media (min-width: 768px) {
+  .cart-desktop-wrap { display: block; }
+}
+
+.cart-btn { position: relative; }
+.cart-btn__badge {
+  position: absolute;
+  top: -5px; right: -5px;
+  min-width: 17px; height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 10px; font-weight: 800; line-height: 17px;
+  text-align: center;
+  pointer-events: none;
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1.4);
+  transform: scale(0);
+}
+.cart-btn__badge:not([hidden]) { transform: scale(1); }
+.cart-btn--has-items {
+  color: var(--accent) !important;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line)) !important;
+}
+
+/* ── Mobile bottom bar ───────────────────────────────────────── */
+.cart-bar {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 198;
+  padding: 0 12px;
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 12px);
+  pointer-events: none;
+  transform: translateY(calc(100% + 12px));
+  transition: transform 340ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.cart-bar.cart-bar--visible {
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.cart-bar__inner {
+  width: 100%;
+  min-height: 54px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  border-radius: 16px;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 8px 28px rgba(0,0,0,.22), 0 0 0 1px var(--line);
+  font-size: 14px; font-weight: 700;
+  cursor: pointer; text-align: left;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms ease;
+}
+.cart-bar__inner:active { transform: scale(0.98); }
+
+.cart-bar__icon { position: relative; display: flex; align-items: center; }
+.cart-bar__icon svg {
+  width: 20px; height: 20px;
+  stroke: var(--accent); fill: none;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+  flex: 0 0 20px;
+}
+.cart-bar__count {
+  position: absolute; top: -7px; right: -8px;
+  min-width: 16px; height: 16px; padding: 0 3px;
+  border-radius: 999px;
+  background: var(--accent); color: var(--accent-contrast);
+  font-size: 9px; font-weight: 800; line-height: 16px; text-align: center;
+}
+.cart-bar__sep { width: 1px; height: 20px; background: var(--line); flex: 0 0 1px; }
+.cart-bar__price { color: var(--accent); font-size: 15px; font-weight: 800; }
+.cart-bar__action { flex: 1; color: var(--text-soft); font-size: 13px; font-weight: 600; }
+.cart-bar__arrow { color: var(--accent); font-size: 20px; line-height: 1; }
+
+@media (min-width: 768px) { .cart-bar { display: none; } }
+
+/* AI кнопка поднимается над плашкой корзины на мобиле */
+@media (max-width: 767px) {
+  body.ai-assistant-lock .cart-bar.cart-bar--visible {
+    pointer-events: none;
+    transform: translateY(calc(100% + 12px));
+  }
+
+  .cart-bar-visible .ai-assistant__launcher {
+    bottom: calc(54px + max(env(safe-area-inset-bottom, 0px), 12px) + 24px) !important;
+    transition: bottom 340ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                transform 180ms ease,
+                box-shadow 180ms ease !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CART PANEL
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Backdrop: невидимый пока панель закрыта, НЕ перехватывает клики */
+.cart-panel__backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+  background: rgba(0,0,0,0.45);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 260ms ease;
+  cursor: pointer;
+}
+
+/* Сама панель */
+.cart-panel {
+  position: fixed;
+  z-index: 200;
+
+  /* Mobile: шторка снизу со скруглёнными углами сверху */
+  top: auto;
+  bottom: 0; left: 0; right: 0;
+  height: 92dvh;          /* не во весь экран — виден контент за шторкой */
+  max-height: 92dvh;
+  width: 100%;
+  transform: translateY(100%);
+  border-radius: 20px 20px 0 0;
+  border: none;
+
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  box-shadow: 0 -8px 40px rgba(0,0,0,.32);
+  transition: transform 420ms cubic-bezier(0.16,1,0.3,1),
+              visibility 0ms linear 420ms,
+              background-color 260ms ease;
+  overflow: hidden;
+  visibility: hidden;
+}
+
+.cart-panel--open {
+  transform: translateY(0);
+  visibility: visible;
+  transition: transform 420ms cubic-bezier(0.16,1,0.3,1),
+              visibility 0ms linear 0ms,
+              background-color 260ms ease;
+}
+
+/* Desktop: панель справа, страница сдвигается влево */
+@media (min-width: 768px) {
+  .cart-panel__backdrop { display: none !important; }
+
+  .cart-panel {
+    top: var(--cart-top, 60px);
+    right: 0;
+    bottom: 0;
+    left: auto;
+    width: 380px;
+    height: calc(100vh - var(--cart-top, 60px));
+    max-height: none;
+    border-radius: 0;
+    border-left: 1px solid var(--line);
+    transform: translateX(105%);
+    box-shadow: -8px 0 32px rgba(0,0,0,.12);
+    /* На десктопе — панель скроллится целиком, не body внутри */
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: transform 500ms cubic-bezier(0.22,1,0.36,1),
+                visibility 0ms linear 500ms,
+                opacity 500ms ease,
+                background-color 300ms ease;
+    opacity: 0;
+  }
+  .cart-panel--open {
+    transform: translateX(0);
+    opacity: 1;
+    transition: transform 500ms cubic-bezier(0.22,1,0.36,1),
+                visibility 0ms linear 0ms,
+                opacity 300ms ease,
+                background-color 300ms ease;
+  }
+
+  /* На десктопе body не скроллится — панель скроллится целиком */
+  .cart-panel .cart-panel__body {
+    flex: 0 0 auto;       /* не растягивается — естественная высота контента */
+    min-height: 0;
+    overflow-y: visible;  /* скролл на панели, не на body */
+  }
+
+  /* Футер прилипает к низу панели при скролле */
+  .cart-panel .cart-panel__footer {
+    position: sticky;
+    bottom: 0;
+    margin-top: auto;     /* толкает футер вниз если контента мало */
+    z-index: 2;
+  }
+
+  /* Страница плавно сдвигается влево синхронно с панелью */
+  .app-shell {
+    transition: padding-right 500ms cubic-bezier(0.22,1,0.36,1);
+  }
+  .app-shell.cart-is-open {
+    padding-right: 380px;
+  }
+
+  /* Хедер всегда на всю ширину */
+  .site-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    z-index: 210;
+    box-sizing: border-box;
+    transition: right 500ms cubic-bezier(0.22,1,0.36,1),
+                border-color 260ms ease,
+                background-color 260ms ease;
+  }
+  .app-shell.cart-is-open .site-header {
+    right: 380px;
+  }
+}
+
+/* ── Шапка корзины ────────────────────────────────────────────── */
+/* Шапка: [название+счётчик] слева, [крестик] справа, на одном уровне */
+.cart-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+  gap: 12px;
+}
+
+.cart-panel__header-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.cart-panel__title {
+  margin: 0;
+  font-size: 26px;
+  font-family: "Forum", Georgia, serif;
+  font-weight: 400;
+  line-height: 1.1;
+  color: var(--text);
+}
+
+.cart-panel__header-count {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-soft);
+  letter-spacing: 0.01em;
+}
+
+/* Правая часть — только крестик, цена скрыта */
+.cart-panel__header-right {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.cart-panel__header-total {
+  display: none; /* цена убрана из шапки — она в футере */
+}
+
+/* ── Body ─────────────────────────────────────────────────────── */
+.cart-panel__body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+  background: var(--surface);
+}
+
+/* ── Cart lines (товары) ──────────────────────────────────────── */
+.cart-lines {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 24px;
+}
+
+.cart-empty-msg {
+  margin: 0; padding: 32px 0;
+  color: var(--muted); font-size: 14px;
+  text-align: center; line-height: 1.5;
+}
+
+.cart-line {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  align-items: start;
+  gap: 8px 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+  animation: cartLineIn 220ms ease both;
+}
+.cart-line:last-child { border-bottom: none; }
+
+@keyframes cartLineIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.cart-line__name {
+  grid-column: 1; grid-row: 1;
+  font-size: 15px; font-weight: 700;
+  color: var(--text); line-height: 1.3;
+  align-self: center;
+}
+
+.cart-line__price {
+  grid-column: 2; grid-row: 1;
+  font-size: 16px; font-weight: 800;
+  color: var(--accent);
+  text-align: right; white-space: nowrap;
+  align-self: center;
+}
+
+.cart-qty {
+  grid-column: 1 / -1; grid-row: 2;
+  display: flex; align-items: center; gap: 0;
+}
+
+.cart-qty__btn {
+  width: 34px; height: 34px;
+  display: grid; place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text-soft);
+  background: transparent;
+  font-size: 18px; line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+.cart-qty__btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.cart-qty__num {
+  min-width: 38px; text-align: center;
+  font-size: 15px; font-weight: 700; color: var(--text);
+}
+
+/* ── Секции (персоны / оплата / комментарий) ─────────────────── */
+.cart-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+.cart-section:last-child {
+  border-bottom: none;
+  padding-bottom: 20px;
+}
+
+.cart-section__label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase;
+}
+
+/* Stepper персон */
+.cart-stepper {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); align-self: flex-start;
+}
+.cart-stepper__btn {
+  width: 40px; height: 40px; display: grid; place-items: center;
+  border: none; border-radius: 9px;
+  color: var(--text-soft); background: transparent;
+  font-size: 22px; cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 140ms ease, background-color 180ms ease;
+}
+.cart-stepper__btn:hover { color: var(--text); background: color-mix(in srgb, var(--line) 60%, transparent); }
+.cart-stepper__val {
+  min-width: 44px; text-align: center;
+  font-size: 18px; font-weight: 700; color: var(--text);
+}
+
+/* Кнопки оплаты */
+.cart-pay-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cart-pay-btn {
+  min-height: 52px; padding: 0 14px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  border: 1px solid var(--line); border-radius: 12px;
+  color: var(--text-soft); background: var(--surface);
+  font-size: 14px; font-weight: 700; cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 160ms ease, border-color 160ms ease, background-color 200ms ease;
+}
+.cart-pay-btn svg {
+  width: 17px; height: 17px; stroke: currentColor; fill: none;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto;
+}
+.cart-pay-btn:hover { color: var(--text); border-color: var(--accent); }
+.cart-pay-btn.is-selected {
+  color: var(--accent-contrast);
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+/* Комментарий */
+.cart-comment {
+  width: 100%; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 12px;
+  color: var(--text); background: var(--surface);
+  font-size: 14px; line-height: 1.5;
+  resize: vertical; min-height: 90px;
+  box-sizing: border-box;
+  transition: border-color 160ms ease;
+}
+.cart-comment:focus { outline: none; border-color: var(--accent); }
+.cart-comment::placeholder { color: var(--muted); }
+
+/* ── Футер: две строки + кнопка (стиль Lovin скрин 2) ─────────── */
+.cart-panel__footer {
+  flex: 0 0 auto;
+  position: sticky;
+  bottom: 0;
+  padding: 12px 20px max(env(safe-area-inset-bottom, 0px), 12px);
+  border-top: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 10px;
+  background: var(--surface);
+  z-index: 2;
+}
+
+/* Строка 1: "2 товаров" слева, "1700 ₽" справа */
+.cart-total-row {
+  display: flex; align-items: center; justify-content: space-between;
+  color: var(--text-soft); font-size: 13px; font-weight: 500;
+}
+.cart-total-row strong {
+  color: var(--text-soft);
+  font-size: 13px; font-weight: 600;
+}
+
+/* Строка 2: "К оплате  1700 ₽" слева + кнопка справа — в одну строку */
+.cart-checkout-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.cart-checkout-label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.cart-checkout-label__hint {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.cart-checkout-label__price {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+.cart-submit-btn {
+  flex: 0 0 auto;
+  min-height: 50px; padding: 0 22px;
+  font-size: 15px; font-weight: 800; border-radius: 14px;
+  letter-spacing: 0.01em;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 180ms ease, transform 120ms ease;
+  white-space: nowrap;
+}
+.cart-submit-btn:disabled { opacity: .38; cursor: not-allowed; }
+.cart-submit-btn:not(:disabled):hover { transform: translateY(-1px); }
+.cart-submit-btn:not(:disabled):active { transform: scale(0.98); }
+
+/* ── Кнопка закрытия ─────────────────────────────────────────── */
+.cart-panel .close-button {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+/* ── Мобильная шторка: backdrop + drag-handle ─────────────────── */
+@media (max-width: 767px) {
+  /* Тёмный фон за шторкой на мобиле */
+  .cart-panel__backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+    background: rgba(0,0,0,0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 420ms ease;
+    cursor: pointer;
+  }
+  .cart-panel__backdrop.cart-panel--open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Drag-handle полоска сверху шторки */
+  .cart-panel__header::before {
+    content: '';
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 36px; height: 4px;
+    border-radius: 2px;
+    background: var(--line);
+  }
+  .cart-panel__header {
+    position: relative;
+    padding-top: 26px; /* место под drag-handle */
+  }
+}
+
+/* Не скруглять на десктопе */
+@media (min-width: 768px) {
+  .cart-panel {
+    border-radius: 0;
+  }
+}
+
+/* cart-extras скрыт когда корзина пустая */
+.cart-extras[hidden] { display: none; }
+.cart-extras { display: contents; } /* дети сливаются с body flex */
+/* ══════════════════════════════════════════════════════════════
+   DESKTOP ADD-TO-CART TOAST
+   ══════════════════════════════════════════════════════════════ */
+.cart-toast {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .cart-toast {
+    display: flex;
+    position: fixed;
+    top: calc(var(--cart-top, 68px) + 12px);
+    right: 12px;
+    z-index: 300;
+    align-items: center;
+    gap: 12px;
+    min-width: 280px;
+    max-width: 340px;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.18);
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(-8px) scale(0.97);
+    transition: opacity 200ms ease, transform 200ms cubic-bezier(0.22,1,0.36,1);
+  }
+  .cart-toast--visible {
+    pointer-events: auto;
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  .cart-toast__icon {
+    flex: 0 0 36px;
+    width: 36px; height: 36px;
+    display: grid; place-items: center;
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    border-radius: 10px;
+  }
+  .cart-toast__icon svg {
+    width: 18px; height: 18px;
+    stroke: var(--accent); fill: none;
+    stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+  }
+  .cart-toast__body {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; gap: 1px;
+  }
+  .cart-toast__name {
+    font-size: 13px; font-weight: 700;
+    color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .cart-toast__hint {
+    font-size: 12px; color: var(--text-soft);
+  }
+  .cart-toast__open {
+    flex: 0 0 auto;
+    padding: 6px 12px;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    color: var(--accent);
+    background: transparent;
+    font-size: 12px; font-weight: 700;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: background 160ms ease, color 160ms ease;
+  }
+  .cart-toast__open:hover {
+    background: var(--accent);
+    color: var(--accent-contrast);
+  }
+  .cart-toast__close {
+    flex: 0 0 auto;
+    width: 24px; height: 24px;
+    display: grid; place-items: center;
+    border: none; background: none;
+    color: var(--muted);
+    font-size: 16px; line-height: 1;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: color 140ms ease, background 140ms ease;
+  }
+  .cart-toast__close:hover {
+    color: var(--text);
+    background: color-mix(in srgb, var(--line) 60%, transparent);
+  }
+}
+
+/* ── Кнопка очистки корзины ────────────────────────────────────── */
+.cart-clear-btn {
+  display: block;
+  width: calc(100% - 40px);
+  margin: 0 20px 16px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+.cart-clear-btn:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+/* ── AI кнопка сдвигается когда открыта корзина (десктоп) ─────── */
+@media (min-width: 768px) {
+  .app-shell.cart-is-open .ai-assistant__launcher {
+    right: calc(380px + 16px);
+    transition: right 500ms cubic-bezier(0.22,1,0.36,1),
+                transform 180ms ease,
+                box-shadow 180ms ease,
+                background-color 220ms ease,
+                opacity 180ms ease;
+  }
+  .app-shell.cart-is-open .ai-assistant__panel {
+    right: calc(380px + 18px);
+    transition: right 500ms cubic-bezier(0.22,1,0.36,1),
+                opacity 210ms ease,
+                transform 260ms cubic-bezier(0.22,1,0.36,1);
+  }
+}
