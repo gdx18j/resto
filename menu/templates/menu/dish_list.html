@@ -4,6 +4,26 @@
 {% block meta_description %}Цифровое меню ресторана Caesar & Company.{% endblock %}
 
 {% block content %}
+  {% if menu_sections %}
+    <section class="menu-hero" aria-label="Caesar & Company">
+      <span class="menu-hero__light" aria-hidden="true"></span>
+      <span class="menu-hero__texture" aria-hidden="true"></span>
+      <div class="menu-hero__content">
+        <p class="menu-hero__kicker">
+          <span class="lang lang--ru">Цифровое меню</span>
+          <span class="lang lang--en">Digital menu</span>
+          <span class="lang lang--tr">Dijital menü</span>
+        </p>
+        <h1>Caesar &amp; Company</h1>
+        <p class="menu-hero__copy">
+          <span class="lang lang--ru">Выберите блюда, проверьте состав и добавьте заказ в корзину.</span>
+          <span class="lang lang--en">Choose dishes, check details, and add your order to the cart.</span>
+          <span class="lang lang--tr">Yemekleri seçin, detayları kontrol edin ve siparişinizi sepete ekleyin.</span>
+        </p>
+        <span class="menu-hero__scroll" aria-hidden="true"></span>
+      </div>
+    </section>
+  {% endif %}
   <div class="menu-controls">
     <section class="search-section" aria-label="Поиск по меню">
       <label class="search-box">
@@ -83,7 +103,7 @@
                 <span class="lang lang--en">Restaurant menu</span>
                 <span class="lang lang--tr">Restoran menüsü</span>
               </div>
-              <h1>{{ section.title_html }}</h1>
+              <h2>{{ section.title_html }}</h2>
             {% else %}
               <h2>{{ section.title_html }}</h2>
             {% endif %}
