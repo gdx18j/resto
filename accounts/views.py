@@ -3,6 +3,8 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 
 from menu.translations import localized_allergen_html
+from orders.models import Order
+from orders.presentation import decorate_orders
 
 from .forms import AllergyPreferencesForm
 from .models import UserAllergy
@@ -23,8 +25,16 @@ def profile(request):
             record.allergen
         )
 
+    recent_orders = list(
+        Order.objects.filter(user=request.user)
+        .select_related("table")
+        .prefetch_related("items__dish", "payments")
+        .order_by("-created_at")[:2]
+    )
+
     context = {
         "allergy_records": allergy_records,
+        "recent_orders": decorate_orders(recent_orders),
     }
 
     return render(

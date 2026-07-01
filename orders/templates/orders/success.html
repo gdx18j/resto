@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Заказ №{{ order.id }} | Caesar &amp; Company{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'css/order_history.css' %}">
+{% endblock %}
+
+{% block content %}
+  <section class="order-success">
+    <a href="{% url 'menu:dish_list' %}" class="account-back-link order-success__back">
+      <span class="lang lang--ru">← В меню</span>
+      <span class="lang lang--en">← To menu</span>
+      <span class="lang lang--tr">← Menüye dön</span>
+    </a>
+
+    <div class="order-success__panel">
+      <div class="order-success__top">
+        <span class="order-history-status order-history-status--{{ order.status }}">
+          {{ order.get_status_display }}
+        </span>
+        <span class="order-success__date">{{ order.created_at|date:"d.m.Y, H:i" }}</span>
+      </div>
+
+      <h1>
+        <span class="lang lang--ru">Заказ №{{ order.id }} создан</span>
+        <span class="lang lang--en">Order #{{ order.id }} created</span>
+        <span class="lang lang--tr">Sipariş #{{ order.id }} oluşturuldu</span>
+      </h1>
+
+      <p class="order-success__text">
+        <span class="lang lang--ru">Мы приняли заказ и передали его в работу. Детали можно открыть ниже или повторить заказ в корзину.</span>
+        <span class="lang lang--en">We received the order. You can review the details or add the same items to the cart again.</span>
+        <span class="lang lang--tr">Siparişi aldık. Detayları inceleyebilir veya aynı ürünleri sepete tekrar ekleyebilirsiniz.</span>
+      </p>
+
+      <div class="order-success__summary">
+        {% for item in order.items.all %}
+          <div class="order-success__row">
+            <span>{{ item.dish_name }} × {{ item.quantity }}</span>
+            <strong>{{ item.line_total }} ₽</strong>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="order-success__total">
+        <span>
+          <span class="lang lang--ru">Итого</span>
+          <span class="lang lang--en">Total</span>
+          <span class="lang lang--tr">Toplam</span>
+        </span>
+        <strong>{{ order.total_amount }} ₽</strong>
+      </div>
+
+      <div class="order-success__actions">
+        <button
+          type="button"
+          class="primary-button"
+          data-repeat-order
+          data-items="{{ items_json }}"
+        >
+          <span class="lang lang--ru">Повторить заказ</span>
+          <span class="lang lang--en">Repeat order</span>
+          <span class="lang lang--tr">Siparişi tekrarla</span>
+        </button>
+        {% if request.user.is_authenticated %}
+          <a href="{% url 'orders:history' %}" class="secondary-button">
+            <span class="lang lang--ru">История заказов</span>
+            <span class="lang lang--en">Order history</span>
+            <span class="lang lang--tr">Sipariş geçmişi</span>
+          </a>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+{% endblock %}

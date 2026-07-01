@@ -234,6 +234,11 @@
               <span class="lang lang--en">Allergies</span>
               <span class="lang lang--tr">Alerjiler</span>
             </a>
+            <a class="profile-popover__secondary" href="{% url 'orders:history' %}">
+              <span class="lang lang--ru">История заказов</span>
+              <span class="lang lang--en">Order history</span>
+              <span class="lang lang--tr">Sipariş geçmişi</span>
+            </a>
           </div>
 
           <form class="profile-popover__logout" method="post" action="{% url 'account_logout' %}">

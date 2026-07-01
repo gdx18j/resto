@@ -1,0 +1,57 @@
+<template data-order-details-template="{{ order.id }}">
+  <div class="order-modal__head">
+    <span class="order-modal__id">
+      <span class="lang lang--ru">Заказ №{{ order.id }}</span>
+      <span class="lang lang--en">Order #{{ order.id }}</span>
+      <span class="lang lang--tr">Sipariş #{{ order.id }}</span>
+    </span>
+    <span class="order-history-status order-history-status--{{ order.status }}">
+      {{ order.get_status_display }}
+    </span>
+  </div>
+
+  <div class="order-modal__meta">
+    <span>{{ order.created_at|date:"d.m.Y, H:i" }}</span>
+    {% if order.table %}<span>Стол {{ order.table.number }}</span>{% endif %}
+    <span>{{ order.guests_count }} перс.</span>
+  </div>
+
+  <div class="order-history-item__dishes">
+    {% for item in order.items.all %}
+      <div class="order-history-item__dish-row">
+        <span>{{ item.dish_name }} × {{ item.quantity }}</span>
+        <span>{{ item.line_total }} ₽</span>
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="order-modal__total">
+    <span>Итого</span>
+    <span>{{ order.total_amount }} ₽</span>
+  </div>
+
+  <div class="order-history-item__info">
+    <span>Статус: {{ order.get_status_display }}</span>
+    <span>Персон: {{ order.guests_count }}</span>
+    {% if order.payments.first %}
+      <span>Оплата: {{ order.payments.first.get_method_display }}</span>
+    {% endif %}
+  </div>
+
+  {% if order.comment %}
+    <div class="order-history-item__comment">
+      <span class="order-history-item__comment-label">Комментарий:</span> {{ order.comment }}
+    </div>
+  {% endif %}
+
+  <button
+    type="button"
+    class="primary-button order-modal__repeat"
+    data-repeat-order
+    data-items="{{ order.items_json }}"
+  >
+    <span class="lang lang--ru">Повторить заказ</span>
+    <span class="lang lang--en">Repeat order</span>
+    <span class="lang lang--tr">Siparişi tekrarla</span>
+  </button>
+</template>

@@ -5,6 +5,7 @@
 
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'css/accounts.css' %}">
+  <link rel="stylesheet" href="{% static 'css/order_history.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -55,6 +56,69 @@
           <span class="lang lang--ru">Ограничения пока не указаны.</span>
           <span class="lang lang--en">No restrictions have been added yet.</span>
           <span class="lang lang--tr">Henüz kısıtlama eklenmedi.</span>
+        </p>
+      {% endif %}
+    </section>
+
+    <section class="account-section">
+      <div class="account-section-header">
+        <h2>
+          <span class="lang lang--ru">Заказы</span>
+          <span class="lang lang--en">Orders</span>
+          <span class="lang lang--tr">Siparişler</span>
+        </h2>
+        <a href="{% url 'orders:history' %}" class="account-link">
+          <span class="lang lang--ru">История</span>
+          <span class="lang lang--en">History</span>
+          <span class="lang lang--tr">Geçmiş</span>
+        </a>
+      </div>
+
+      {% if recent_orders %}
+        <div class="profile-recent-orders">
+          {% for order in recent_orders %}
+            <article
+              class="profile-recent-order"
+              data-order-trigger
+              data-order-id="{{ order.id }}"
+              tabindex="0"
+              role="button"
+              aria-haspopup="dialog"
+              aria-label="Подробности заказа №{{ order.id }}"
+            >
+              <div class="profile-recent-order__main">
+                <span class="profile-recent-order__id">
+                  <span class="lang lang--ru">Заказ №{{ order.id }}</span>
+                  <span class="lang lang--en">Order #{{ order.id }}</span>
+                  <span class="lang lang--tr">Sipariş #{{ order.id }}</span>
+                </span>
+                <span class="profile-recent-order__meta">
+                  {{ order.created_at|date:"d.m.Y, H:i" }} · {{ order.get_status_display }}
+                </span>
+              </div>
+              <div class="profile-recent-order__right">
+                <span class="profile-recent-order__total">{{ order.total_amount }} ₽</span>
+                <button
+                  type="button"
+                  class="profile-recent-order__repeat"
+                  data-repeat-order
+                  data-items="{{ order.items_json }}"
+                >
+                  <span class="lang lang--ru">Повторить</span>
+                  <span class="lang lang--en">Repeat</span>
+                  <span class="lang lang--tr">Tekrarla</span>
+                </button>
+              </div>
+            </article>
+
+            {% include "orders/_details_template.html" with order=order %}
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="account-muted">
+          <span class="lang lang--ru">Заказов пока не было.</span>
+          <span class="lang lang--en">No orders yet.</span>
+          <span class="lang lang--tr">Henüz sipariş yok.</span>
         </p>
       {% endif %}
     </section>

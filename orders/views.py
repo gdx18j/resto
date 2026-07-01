@@ -1,8 +1,13 @@
 import json
 
+from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
-from django.views.decorators.http import require_POST
+from django.shortcuts import get_object_or_404, render
+from django.urls import reverse
+from django.views.decorators.http import require_GET, require_POST
 
+from .models import Order
+from .presentation import decorate_orders, order_items_json
 from .services import (
     CartValidationError,
     create_order_from_payload,
@@ -31,6 +36,13 @@ def _error_response(error, status=400):
         },
         status=status,
     )
+
+
+def _order_visible_to_request(order, request):
+    if request.user.is_authenticated and order.user_id == request.user.id:
+        return True
+
+    return bool(order.session_key and order.session_key == request.session.session_key)
 
 
 @require_POST
@@ -64,7 +76,50 @@ def create(request):
                 "status": order.status,
                 "total": f"{order.total_amount:.2f}",
                 "currency": order.currency,
+                "confirmation_url": reverse("orders:success", args=[order.id]),
             },
+            "confirmation_url": reverse("orders:success", args=[order.id]),
         },
         status=201,
+    )
+
+
+@require_GET
+def success(request, order_id):
+    order = get_object_or_404(
+        Order.objects.select_related("table", "user").prefetch_related("items__dish", "payments"),
+        id=order_id,
+    )
+
+    if not _order_visible_to_request(order, request):
+        return JsonResponse({"ok": False, "error": "Заказ не найден."}, status=404)
+
+    order.items_json = order_items_json(order)
+
+    return render(
+        request,
+        "orders/success.html",
+        {
+            "order": order,
+            "items_json": order.items_json,
+        },
+    )
+
+
+@login_required
+@require_GET
+def history(request):
+    orders = list(
+        Order.objects.filter(user=request.user)
+        .select_related("table")
+        .prefetch_related("items__dish", "payments")
+        .order_by("-created_at")
+    )
+
+    return render(
+        request,
+        "orders/history.html",
+        {
+            "orders": decorate_orders(orders),
+        },
     )

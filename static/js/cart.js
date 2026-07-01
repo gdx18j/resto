@@ -572,6 +572,38 @@
     return true;
   };
 
+  window.CaesarCart.repeatOrder = function (items) {
+    if (!Array.isArray(items) || items.length === 0) {
+      return false;
+    }
+
+    items.forEach(function (item, index) {
+      var dishId = item.dish_id || item.dishId || '';
+      var id = item.id || (dishId ? 'dish-' + dishId : 'repeat-' + index);
+      var qty = Math.max(1, Math.min(99, parseInt(item.qty || item.quantity || 1, 10) || 1));
+      var existing = cart.items[id];
+
+      if (existing) {
+        existing.qty = Math.min(99, existing.qty + qty);
+      } else {
+        cart.items[id] = {
+          name: String(item.name || ''),
+          price: Number(item.price || item.unit_price) || 0,
+          qty: qty,
+          dishId: dishId,
+          modifiers: Array.isArray(item.modifiers) ? item.modifiers : [],
+        };
+      }
+    });
+
+    clearCartNote();
+    save();
+    renderAll();
+    scheduleQuote();
+    openPanel();
+    return true;
+  };
+
   function changeQty(id, delta, sourceControl) {
     if (!cart.items[id]) return;
     cart.items[id].qty += delta;
@@ -615,6 +647,7 @@
       .then(parseCartResponse)
       .then(function (data) {
         var order = data.order || {};
+        var confirmationUrl = data.confirmation_url || order.confirmation_url || '';
 
         cart.items = {};
         cart.persons = 1;
@@ -622,6 +655,12 @@
         cart.comment = '';
         save();
         renderAll();
+
+        if (confirmationUrl) {
+          window.location.href = confirmationUrl;
+          return;
+        }
+
         showCartNote(t('orderCreated') + (order.id ? ' #' + order.id : ''), 'success');
       })
       .catch(function (error) {
@@ -774,6 +813,49 @@
     if (shell) shell.classList.remove('cart-is-open');
   }
 
+  function openOrderModal(orderId) {
+    if (!els.orderModal || !els.orderModalBody || !orderId) {
+      return;
+    }
+
+    var template = qs('[data-order-details-template="' + orderId + '"]');
+    if (!template) {
+      return;
+    }
+
+    els.orderModalBody.innerHTML = '';
+    els.orderModalBody.appendChild(template.content.cloneNode(true));
+    els.orderModal.classList.add('order-modal--open');
+    if (els.orderBackdrop) els.orderBackdrop.classList.add('order-modal--open');
+    document.body.style.overflow = 'hidden';
+
+    setTimeout(function () {
+      var closeBtn = qs('[data-order-modal-close]', els.orderModal);
+      if (closeBtn) closeBtn.focus();
+    }, 60);
+  }
+
+  function closeOrderModal() {
+    if (!els.orderModal) {
+      return;
+    }
+
+    els.orderModal.classList.remove('order-modal--open');
+    if (els.orderBackdrop) els.orderBackdrop.classList.remove('order-modal--open');
+    if (!els.panel || !els.panel.classList.contains('cart-panel--open')) {
+      document.body.style.overflow = '';
+    }
+  }
+
+  function parseRepeatItems(raw) {
+    try {
+      var items = JSON.parse(raw || '[]');
+      return Array.isArray(items) ? items : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
 
   /* ─── Swipe-to-close на мобиле ───────────────────────────────── */
   function initSwipe() {
@@ -830,6 +912,27 @@
 
   function handleClicks(e) {
     var target = e.target;
+
+    if (target.closest('[data-order-modal-close]')) {
+      closeOrderModal();
+      return;
+    }
+
+    var repeatBtn = target.closest('[data-repeat-order]');
+    if (repeatBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (window.CaesarCart.repeatOrder(parseRepeatItems(repeatBtn.getAttribute('data-items')))) {
+        closeOrderModal();
+      }
+      return;
+    }
+
+    var orderTrigger = target.closest('[data-order-trigger]');
+    if (orderTrigger) {
+      openOrderModal(orderTrigger.getAttribute('data-order-id'));
+      return;
+    }
 
     // Закрываем языковое меню при клике вне него
     var langMenu = document.querySelector('.language-menu');
@@ -953,7 +1056,21 @@
   }
 
   function handleKeydown(e) {
-    if (e.key === 'Escape') closePanel();
+    var orderTrigger = e.target.closest('[data-order-trigger]');
+
+    if (e.key === 'Escape') {
+      if (els.orderModal && els.orderModal.classList.contains('order-modal--open')) {
+        closeOrderModal();
+      } else {
+        closePanel();
+      }
+      return;
+    }
+
+    if (orderTrigger && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      openOrderModal(orderTrigger.getAttribute('data-order-id'));
+    }
   }
 
   /* ─── Prepare price buttons on dish cards ─────────────────────── */
@@ -1099,6 +1216,12 @@
       '        <span class="lang lang--en">Card</span>',
       '        <span class="lang lang--tr">Kart</span>',
       '      </button>',
+      '      <button class="cart-pay-btn" data-pay="online">',
+      '        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4M9 6h6"/></svg>',
+      '        <span class="lang lang--ru">Онлайн</span>',
+      '        <span class="lang lang--en">Online</span>',
+      '        <span class="lang lang--tr">Online</span>',
+      '      </button>',
       '      <button class="cart-pay-btn" data-pay="cash">',
       '        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M6 7V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"/></svg>',
       '        <span class="lang lang--ru">Наличными</span>',
@@ -1153,6 +1276,30 @@
     els.extras = panel.querySelector('[data-cart-extras]');
     els.submitBtn = panel.querySelector('.cart-submit-btn');
     els.note = panel.querySelector('[data-cart-note]');
+
+    if (qs('[data-order-details-template]')) {
+      var orderBackdrop = document.createElement('div');
+      orderBackdrop.className = 'order-modal-backdrop';
+      orderBackdrop.setAttribute('data-order-modal-close', '');
+      orderBackdrop.setAttribute('aria-hidden', 'true');
+      shell.appendChild(orderBackdrop);
+      els.orderBackdrop = orderBackdrop;
+
+      var orderModal = document.createElement('div');
+      orderModal.className = 'order-modal';
+      orderModal.setAttribute('role', 'dialog');
+      orderModal.setAttribute('aria-modal', 'true');
+      orderModal.setAttribute('aria-label', 'Order details');
+      orderModal.innerHTML = [
+        '<button class="close-button order-modal__close" data-order-modal-close aria-label="Close order details">',
+        '  <svg viewBox="0 0 24 24"><path d="m5 5 14 14M19 5 5 19"/></svg>',
+        '</button>',
+        '<div class="order-modal__body" data-order-modal-body></div>',
+      ].join('\n');
+      shell.appendChild(orderModal);
+      els.orderModal = orderModal;
+      els.orderModalBody = orderModal.querySelector('[data-order-modal-body]');
+    }
   }
 
   /* ─── Submit button state ─────────────────────────────────────── */
@@ -1194,6 +1341,15 @@
     setCartTop();
     window.addEventListener('resize', setCartTop);
     window.addEventListener('cc:languagechange', renderAll);
+    window.addEventListener('pageshow', function (event) {
+      if (!event.persisted) {
+        return;
+      }
+
+      cartApi.submitting = false;
+      load();
+      renderAll();
+    });
     document.addEventListener('cc:dishdetailopen', function () {
       attachDishButtons();
       syncDishControls();
