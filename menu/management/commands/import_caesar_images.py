@@ -12,6 +12,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from menu.models import Dish
+from orders.models import Restaurant
 
 
 DEFAULT_SOURCE_URL = "https://www.caesarandcompany.com/"
@@ -133,11 +134,25 @@ class Command(BaseCommand):
             action="store_true",
             help="Only print matches without saving images.",
         )
+        parser.add_argument(
+            "--restaurant-slug",
+            default="caesar-company",
+            help="Restaurant slug whose dishes should receive images.",
+        )
 
     def handle(self, *args, **options):
         source_url = options["source_url"]
         overwrite = options["overwrite"]
         dry_run = options["dry_run"]
+        restaurant_slug = options["restaurant_slug"]
+        restaurant = Restaurant.objects.filter(
+            slug=restaurant_slug,
+            is_active=True,
+        ).first()
+
+        if restaurant is None:
+            self.stderr.write(f"Restaurant not found: {restaurant_slug}")
+            return
 
         session = build_session()
 
@@ -170,7 +185,7 @@ class Command(BaseCommand):
         downloaded = 0
         skipped = 0
 
-        for dish in Dish.objects.order_by("name"):
+        for dish in Dish.objects.filter(restaurant=restaurant).order_by("name"):
             dish_key = normalize_name(dish.name)
             product = products_by_name.get(dish_key)
 

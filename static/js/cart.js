@@ -44,6 +44,7 @@
       selectPayment: 'Выберите способ оплаты.',
       orderCreated: 'Заказ создан',
       orderFailed: 'Не удалось оформить заказ. Попробуйте еще раз.',
+      cartSyncFailed: 'Не удалось обновить корзину. Проверьте позиции.',
     },
     en: {
       itemOne: 'item',
@@ -60,6 +61,7 @@
       selectPayment: 'Choose a payment method.',
       orderCreated: 'Order created',
       orderFailed: 'Could not place the order. Please try again.',
+      cartSyncFailed: 'Could not update the cart. Check the items.',
     },
     tr: {
       itemOne: 'ürün',
@@ -76,6 +78,7 @@
       selectPayment: 'Ödeme yöntemini seçin.',
       orderCreated: 'Sipariş oluşturuldu',
       orderFailed: 'Sipariş verilemedi. Lütfen tekrar deneyin.',
+      cartSyncFailed: 'Sepet güncellenemedi. Ürünleri kontrol edin.',
     },
   };
 
@@ -110,6 +113,12 @@
   function withLanguage(url) {
     if (!url) return '';
     return url + (url.indexOf('?') === -1 ? '?' : '&') + 'language=' + encodeURIComponent(currentLanguage());
+  }
+
+  function normalizeDishId(id, item) {
+    var raw = item && item.dishId ? item.dishId : id;
+    var match = String(raw || '').match(/(\d+)$/);
+    return match ? match[1] : '';
   }
 
   /* ─── Cart math ───────────────────────────────────────────────── */
@@ -156,7 +165,14 @@
       item.price = Number(item.price) || 0;
       item.name = String(item.name || '');
       item.modifiers = Array.isArray(item.modifiers) ? item.modifiers : [];
+      item.dishId = normalizeDishId(id, item);
+
+      if (!item.dishId) {
+        delete cart.items[id];
+      }
     });
+
+    save();
   }
 
   /* ─── UI update helpers ───────────────────────────────────────── */
@@ -359,6 +375,7 @@
 
         return {
           id: id,
+          dish_id: item.dishId || normalizeDishId(id, item),
           quantity: item.qty,
           modifiers: Array.isArray(item.modifiers) ? item.modifiers : [],
         };
@@ -367,6 +384,50 @@
       payment_method: cart.payment,
       comment: cart.comment,
     };
+  }
+
+  function createIdempotencyKey() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return window.crypto.randomUUID();
+    }
+
+    return [
+      'cc',
+      Date.now().toString(36),
+      Math.random().toString(36).slice(2),
+      Math.random().toString(36).slice(2),
+    ].join(':');
+  }
+
+  function idempotencyFingerprint(payload) {
+    return JSON.stringify(payload);
+  }
+
+  function idempotencyKeyForPayload(payload) {
+    var fingerprint = idempotencyFingerprint(payload);
+    var storageKey = 'cc_order_idempotency';
+    var stored = null;
+
+    try {
+      stored = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
+    } catch (_) {
+      stored = null;
+    }
+
+    if (stored && stored.fingerprint === fingerprint && stored.key) {
+      return stored.key;
+    }
+
+    stored = {
+      key: createIdempotencyKey(),
+      fingerprint: fingerprint,
+    };
+
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify(stored));
+    } catch (_) {}
+
+    return stored.key;
   }
 
   function cartItemsKey() {
@@ -387,7 +448,9 @@
       .catch(function () { return {}; })
       .then(function (data) {
         if (!response.ok || data.ok === false) {
-          throw new Error(data.error || t('orderFailed'));
+          var error = new Error(data.error || t('orderFailed'));
+          error.code = data.code || '';
+          throw error;
         }
 
         return data;
@@ -441,6 +504,10 @@
         }
 
         return data;
+      })
+      .catch(function (error) {
+        showCartNote(error.message || t('cartSyncFailed'), 'error');
+        throw error;
       })
       .finally(function () {
         cartApi.quotePending = false;
@@ -536,6 +603,7 @@
         name: name,
         price: Number(price) || 0,
         qty: 1,
+        dishId: normalizeDishId(id, null),
         modifiers: [],
       };
     }
@@ -639,11 +707,18 @@
 
     requestQuote()
       .then(function () {
+        var payload = cartPayload();
+        var idempotencyKey = idempotencyKeyForPayload(payload);
+        var headers = cartHeaders();
+
+        headers['Idempotency-Key'] = idempotencyKey;
+        payload.idempotency_key = idempotencyKey;
+
         return fetch(withLanguage(cartApi.createUrl), {
           method: 'POST',
-          headers: cartHeaders(),
+          headers: headers,
           credentials: 'same-origin',
-          body: JSON.stringify(cartPayload()),
+          body: JSON.stringify(payload),
         });
       })
       .then(parseCartResponse)

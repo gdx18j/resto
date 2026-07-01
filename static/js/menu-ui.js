@@ -499,53 +499,6 @@
     openDishDetails(card);
   }
 
-  function hideDish(button) {
-    var card = button.closest("[data-dish-card]");
-    var url = button.dataset.hideUrl;
-
-    if (!card || !url || button.disabled) {
-      return;
-    }
-
-    button.disabled = true;
-    card.classList.add("dish-card--removing");
-
-    fetch(url, {
-      method: "POST",
-      headers: {
-        "X-CSRFToken": getCookie("csrftoken"),
-        "X-Requested-With": "XMLHttpRequest",
-      },
-      credentials: "same-origin",
-    })
-      .then(function (response) {
-        if (!response.ok) {
-          throw new Error("hide_failed");
-        }
-        return response.json();
-      })
-      .then(function (data) {
-        if (!data.ok) {
-          throw new Error("hide_failed");
-        }
-
-        card.dataset.menuRemoved = "1";
-
-        if (window.CaesarCart && window.CaesarCart.removeItem) {
-          window.CaesarCart.removeItem(card.id);
-        }
-
-        window.setTimeout(function () {
-          card.hidden = true;
-          filterMenu(activeQuery);
-        }, 180);
-      })
-      .catch(function () {
-        button.disabled = false;
-        card.classList.remove("dish-card--removing");
-      });
-  }
-
   function handleDishKeydown(event) {
     if (event.key === "Escape") {
       closeDishDetails();
@@ -1320,15 +1273,6 @@
   });
 
   document.addEventListener("click", function (event) {
-    var hideButton = event.target.closest("[data-hide-dish]");
-
-    if (hideButton) {
-      event.preventDefault();
-      event.stopPropagation();
-      hideDish(hideButton);
-      return;
-    }
-
     handleDishClick(event);
   });
   document.addEventListener("keydown", handleDishKeydown);

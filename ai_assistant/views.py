@@ -9,7 +9,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 from google.genai import errors
 
-from menu.models import Dish
+from menu.models import Dish, get_default_restaurant_id
 from menu.translations import (
     localized_category_values,
     localized_dish_string,
@@ -269,7 +269,11 @@ def _get_previous_mentioned_dish_ids(session, current_message_id=None):
 
     dish_ids = set()
 
-    for dish in Dish.objects.filter(is_active=True, is_available=True):
+    for dish in Dish.objects.filter(
+        restaurant_id=get_default_restaurant_id(),
+        is_active=True,
+        is_available=True,
+    ):
         if _normalize_match_text(dish.name) in previous_text:
             dish_ids.add(dish.id)
 
@@ -294,6 +298,7 @@ def _serialize_recommended_dishes(
 
     dishes = (
         Dish.objects.filter(
+            restaurant_id=get_default_restaurant_id(),
             is_active=True,
             is_available=True,
         )

@@ -34,7 +34,7 @@ def _error_response(error, status=400):
             "error": error.message,
             "code": error.code,
         },
-        status=status,
+        status=getattr(error, "status", status),
     )
 
 
@@ -68,9 +68,12 @@ def create(request):
     except CartValidationError as error:
         return _error_response(error)
 
+    is_replay = bool(getattr(order, "idempotency_replayed", False))
+
     return JsonResponse(
         {
             "ok": True,
+            "idempotency_replayed": is_replay,
             "order": {
                 "id": order.id,
                 "status": order.status,
@@ -80,7 +83,7 @@ def create(request):
             },
             "confirmation_url": reverse("orders:success", args=[order.id]),
         },
-        status=201,
+        status=200 if is_replay else 201,
     )
 
 

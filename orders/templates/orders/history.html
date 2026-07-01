@@ -37,7 +37,7 @@
         </div>
         {% if orders %}
           <span class="order-history-count">
-            <strong>{{ orders|length }}</strong>
+            <strong data-order-visible-count>{{ orders|length }}</strong>
             <span class="lang lang--ru">заказов</span>
             <span class="lang lang--en">orders</span>
             <span class="lang lang--tr">sipariş</span>
@@ -47,17 +47,55 @@
     </header>
 
     {% if orders %}
+      <div class="order-history-tools" aria-label="Фильтры истории заказов">
+        <label class="order-history-search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+          <input
+            type="search"
+            data-order-history-search
+            placeholder="Найти заказ или блюдо"
+            aria-label="Поиск по истории заказов"
+          >
+        </label>
+
+        <div class="order-history-filters" role="group" aria-label="Статус заказа">
+          <button type="button" class="order-history-filter is-active" data-order-filter="all">
+            <span class="lang lang--ru">Все</span>
+            <span class="lang lang--en">All</span>
+            <span class="lang lang--tr">Tümü</span>
+          </button>
+          <button type="button" class="order-history-filter" data-order-filter="active">
+            <span class="lang lang--ru">В работе</span>
+            <span class="lang lang--en">Active</span>
+            <span class="lang lang--tr">Aktif</span>
+          </button>
+          <button type="button" class="order-history-filter" data-order-filter="completed">
+            <span class="lang lang--ru">Завершены</span>
+            <span class="lang lang--en">Completed</span>
+            <span class="lang lang--tr">Tamamlandı</span>
+          </button>
+          <button type="button" class="order-history-filter" data-order-filter="canceled">
+            <span class="lang lang--ru">Отменены</span>
+            <span class="lang lang--en">Canceled</span>
+            <span class="lang lang--tr">İptal</span>
+          </button>
+        </div>
+      </div>
+
       <div class="order-history-list">
         {% regroup orders by created_at|date:"d E Y" as order_days %}
         {% for day in order_days %}
-          <section class="order-history-day" aria-label="{{ day.grouper }}">
+          <section class="order-history-day" data-order-day aria-label="{{ day.grouper }}">
             <div class="order-history-day__label">{{ day.grouper }}</div>
 
             {% for order in day.list %}
               <article
                 class="order-history-card"
+                data-order-card
                 data-order-trigger
                 data-order-id="{{ order.id }}"
+                data-order-state="{{ order.history_state }}"
+                data-order-search="заказ {{ order.id }} order {{ order.id }} {{ order.status_label }} {{ order.created_at|date:'d.m.Y H:i' }} {% if order.table %}стол {{ order.table.number }}{% endif %} {% if order.primary_payment %}{{ order.primary_payment.get_method_display }}{% endif %} {% for item in order.items.all %} {{ item.dish_name }}{% endfor %}"
                 tabindex="0"
                 role="button"
                 aria-haspopup="dialog"
@@ -129,6 +167,19 @@
           </section>
         {% endfor %}
       </div>
+
+      <div class="order-empty order-empty--filtered" data-order-history-empty hidden>
+        <h2>
+          <span class="lang lang--ru">Ничего не найдено</span>
+          <span class="lang lang--en">Nothing found</span>
+          <span class="lang lang--tr">Sonuç bulunamadı</span>
+        </h2>
+        <p>
+          <span class="lang lang--ru">Попробуйте другой статус, номер заказа или название блюда.</span>
+          <span class="lang lang--en">Try another status, order number, or dish name.</span>
+          <span class="lang lang--tr">Başka bir durum, sipariş numarası veya yemek adı deneyin.</span>
+        </p>
+      </div>
     {% else %}
       <div class="order-empty">
         <div class="order-empty__mark" aria-hidden="true">
@@ -152,4 +203,8 @@
       </div>
     {% endif %}
   </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'js/order-history.js' %}" defer></script>
 {% endblock %}

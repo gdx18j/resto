@@ -1,13 +1,14 @@
 from decimal import Decimal
 
-from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+
+from orders.models import Restaurant
 
 from .models import Category, Dish
 
 
-class DishManagementTests(TestCase):
+class MenuRenderingTests(TestCase):
     def setUp(self):
         category = Category.objects.create(name="Меню")
         self.dish = Dish.objects.create(
@@ -17,24 +18,6 @@ class DishManagementTests(TestCase):
             is_active=True,
             is_available=True,
         )
-        self.staff = get_user_model().objects.create_user(
-            email="staff@example.com",
-            password="pass12345",
-            is_staff=True,
-        )
-
-    def test_staff_can_hide_dish_from_menu(self):
-        self.client.force_login(self.staff)
-
-        response = self.client.post(
-            reverse("menu:hide_dish", args=[self.dish.id]),
-            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.dish.refresh_from_db()
-        self.assertFalse(self.dish.is_active)
-
     def test_menu_uses_single_detail_payload_instead_of_per_dish_templates(self):
         Dish.objects.create(
             category=self.dish.category,
@@ -51,3 +34,30 @@ class DishManagementTests(TestCase):
         self.assertNotIn("dish-detail-template-", html)
         self.assertEqual(html.count('id="dish-detail-data"'), 1)
         self.assertEqual(html.count("data-dish-modal hidden"), 1)
+
+    def test_menu_is_scoped_to_selected_restaurant(self):
+        second_restaurant = Restaurant.objects.create(
+            name="Second Caesar",
+            slug="second-caesar",
+        )
+        second_category = Category.objects.create(
+            restaurant=second_restaurant,
+            name="Меню",
+        )
+        second_dish = Dish.objects.create(
+            restaurant=second_restaurant,
+            category=second_category,
+            name="Only second restaurant",
+            price=Decimal("300.00"),
+            is_active=True,
+            is_available=True,
+        )
+
+        response = self.client.get(
+            reverse("menu:dish_list"),
+            {"restaurant": second_restaurant.slug},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'id="dish-{second_dish.id}"')
+        self.assertNotContains(response, f'id="dish-{self.dish.id}"')

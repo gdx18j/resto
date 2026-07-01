@@ -69,6 +69,101 @@
   gap: 14px;
 }
 
+.order-history-page [hidden],
+.order-history-page .is-hidden {
+  display: none !important;
+}
+
+.order-history-tools {
+  margin-bottom: 16px;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.order-history-search {
+  min-height: 46px;
+  padding: 0 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--text-soft);
+  background: var(--surface);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.order-history-search:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.order-history-search svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.order-history-search input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.order-history-search input::placeholder {
+  color: var(--muted);
+}
+
+.order-history-filters {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.order-history-filters::-webkit-scrollbar {
+  display: none;
+}
+
+.order-history-filter {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-soft);
+  background: var(--surface);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 160ms ease, border-color 160ms ease, background-color 160ms ease, transform 120ms ease;
+}
+
+.order-history-filter:hover,
+.order-history-filter.is-active {
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  background: var(--accent);
+}
+
+.order-history-filter:active {
+  transform: scale(0.97);
+}
+
 .order-history-day {
   display: grid;
   gap: 10px;
@@ -543,6 +638,11 @@
   box-shadow: none;
 }
 
+.order-empty--filtered {
+  margin-top: 16px;
+  box-shadow: none;
+}
+
 .order-empty__mark {
   width: 46px;
   height: 46px;
@@ -597,6 +697,10 @@
     grid-template-columns: auto 1fr;
     align-items: baseline;
     text-align: left;
+  }
+
+  .order-history-tools {
+    grid-template-columns: 1fr;
   }
 
   .order-history-card,

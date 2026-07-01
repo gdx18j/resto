@@ -500,16 +500,16 @@ body.cart-bar-suppressed .cart-bar.cart-bar--visible {
 }
 
 /* Кнопки оплаты */
-.cart-pay-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cart-pay-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .cart-pay-btn {
-  min-height: 52px; padding: 0 14px;
-  display: flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 52px; padding: 0 10px;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
   border: 1px solid var(--line); border-radius: 12px;
   color: var(--text-soft); background: var(--surface);
-  font-size: 14px; font-weight: 700; cursor: pointer;
+  font-size: 13px; font-weight: 800; cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  transition: color 160ms ease, border-color 160ms ease, background-color 200ms ease;
+  transition: color 160ms ease, border-color 160ms ease, background-color 200ms ease, box-shadow 160ms ease;
 }
 .cart-pay-btn svg {
   width: 17px; height: 17px; stroke: currentColor; fill: none;
@@ -520,6 +520,17 @@ body.cart-bar-suppressed .cart-bar.cart-bar--visible {
   color: var(--accent-contrast);
   border-color: var(--accent);
   background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+@media (max-width: 390px) {
+  .cart-pay-btn {
+    min-height: 60px;
+    padding: 8px 6px;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+  }
 }
 
 /* Комментарий */

@@ -1,8 +1,24 @@
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import Q
+
+
+def get_default_restaurant_id():
+    from orders.models import Restaurant
+
+    restaurant, _ = Restaurant.objects.get_or_create(
+        slug="caesar-company",
+        defaults={"name": "Caesar & Company"},
+    )
+
+    if not restaurant.is_active:
+        restaurant.is_active = True
+        restaurant.save(update_fields=["is_active"])
+
+    return restaurant.id
 
 
 class Category(models.Model):
@@ -11,16 +27,29 @@ class Category(models.Model):
     супы, салаты, горячее, десерты, напитки и т. д.
     """
 
+    restaurant = models.ForeignKey(
+        "orders.Restaurant",
+        on_delete=models.CASCADE,
+        related_name="menu_categories",
+        default=get_default_restaurant_id,
+        verbose_name="Ресторан",
+    )
+
     name = models.CharField(
         max_length=100,
-        unique=True,
         verbose_name="Название",
     )
 
     class Meta:
         verbose_name = "Категория"
         verbose_name_plural = "Категории"
-        ordering = ["name"]
+        ordering = ["restaurant__name", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["restaurant", "name"],
+                name="unique_category_name_per_restaurant",
+            ),
+        ]
 
     def __str__(self):
         return self.name
@@ -99,6 +128,14 @@ class Dish(models.Model):
     Блюдо ресторана.
     Все значения КБЖУ указываются на одну порцию.
     """
+
+    restaurant = models.ForeignKey(
+        "orders.Restaurant",
+        on_delete=models.CASCADE,
+        related_name="dishes",
+        default=get_default_restaurant_id,
+        verbose_name="Ресторан",
+    )
 
     category = models.ForeignKey(
         Category,
@@ -217,13 +254,25 @@ class Dish(models.Model):
         ordering = ["name"]
         indexes = [
             models.Index(
-                fields=["is_active", "is_available"],
-                name="dish_active_available_idx",
+                fields=["restaurant", "is_active", "is_available"],
+                name="dish_rest_active_avail_idx",
             ),
         ]
 
     def __str__(self):
         return self.name
+
+    def clean(self):
+        super().clean()
+
+        if (
+            self.category_id
+            and self.restaurant_id
+            and self.category.restaurant_id != self.restaurant_id
+        ):
+            raise ValidationError(
+                {"category": "Категория должна принадлежать тому же ресторану, что и блюдо."}
+            )
 
     def get_allergens(self):
         """
