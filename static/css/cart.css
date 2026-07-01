@@ -52,18 +52,39 @@
 }
 .cart-add--flash { animation: cartAddFlash 460ms ease forwards; }
 
-@keyframes priceAddFlash {
-  0% { background: var(--safe-soft); color: var(--text); border-color: var(--safe); }
-  100% { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
-}
 .dish-price-button.cart-add--flash {
-  animation: priceAddFlash 460ms ease forwards;
+  position: relative;
+  overflow: hidden;
+  animation: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.dish-price-button,
+.dish-qty-stepper {
+  transition: box-shadow 180ms ease, border-color 180ms ease, transform 120ms ease, background-color 160ms ease;
 }
 .dish-cart-control.cart-add--flash {
   animation: none;
 }
 .dish-cart-control.cart-add--flash .dish-qty-stepper {
-  animation: priceAddFlash 460ms ease forwards;
+  position: relative;
+  animation: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.dish-card.cart-frame--pulse {
+  border-color: color-mix(in srgb, var(--accent) 68%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 44%),
+    var(--surface);
+  box-shadow:
+    0 18px 38px rgba(0, 0, 0, 0.2),
+    0 0 0 2px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.ai-assistant__dish-card.cart-frame--pulse {
+  border-color: color-mix(in srgb, var(--accent) 76%, var(--line));
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface-raised));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 /* ── Desktop header cart button ─────────────────────────────── */
@@ -574,6 +595,37 @@
 .cart-submit-btn:disabled { opacity: .38; cursor: not-allowed; }
 .cart-submit-btn:not(:disabled):hover { transform: translateY(-1px); }
 .cart-submit-btn:not(:disabled):active { transform: scale(0.98); }
+.cart-submit-btn[aria-busy="true"] {
+  cursor: progress;
+}
+
+.cart-submit-note {
+  min-height: 34px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text-soft);
+  background: color-mix(in srgb, var(--surface-soft) 82%, transparent);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.cart-submit-note[hidden] {
+  display: none !important;
+}
+
+.cart-submit-note--success {
+  border-color: color-mix(in srgb, var(--safe) 42%, var(--line));
+  color: color-mix(in srgb, var(--safe) 74%, var(--text));
+  background: color-mix(in srgb, var(--safe-soft) 72%, var(--surface));
+}
+
+.cart-submit-note--error {
+  border-color: color-mix(in srgb, var(--danger) 44%, var(--line));
+  color: color-mix(in srgb, var(--danger) 76%, var(--text));
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+}
 
 /* ── Кнопка закрытия ─────────────────────────────────────────── */
 .cart-panel .close-button {

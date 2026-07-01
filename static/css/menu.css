@@ -442,7 +442,7 @@ label[for="theme-toggle"] {
   padding-bottom: 148px;
 }
 
-.app-shell:has(.menu-hero) {
+#theme-toggle:not(:checked) ~ .app-shell:has(.menu-hero) {
   --page: #11120f;
   --surface: #1b1a16;
   --surface-raised: #222018;
@@ -614,30 +614,12 @@ label[for="theme-toggle"] {
   animation-delay: 230ms;
 }
 
-@supports (animation-timeline: view()) {
-  .menu-hero {
-    animation: heroFrameLeave both ease-out;
-    animation-timeline: view();
-    animation-range: exit 0% exit 88%;
-  }
-
-  .menu-hero__content {
-    animation: heroContentLeave both ease-out;
-    animation-timeline: view();
-    animation-range: exit 0% exit 62%;
-  }
-
-  .menu-hero::after {
-    animation: heroShadeLeave both linear;
-    animation-timeline: view();
-    animation-range: exit 0% exit 72%;
-  }
-}
-
 .menu-hero + .menu-controls {
   margin-top: -34px;
   position: sticky;
   z-index: 42;
+  animation: none;
+  animation-delay: 0ms;
 }
 .menu-controls {
   position: sticky;
@@ -650,6 +632,7 @@ label[for="theme-toggle"] {
   background: color-mix(in srgb, var(--page) 94%, transparent);
   backdrop-filter: blur(14px);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.14);
+  overflow-anchor: none;
   animation: riseIn 520ms ease both;
   animation-delay: 80ms;
 }
@@ -717,6 +700,21 @@ label[for="theme-toggle"] {
   color: var(--muted);
 }
 
+.search-box input::-webkit-search-cancel-button,
+.search-box input::-webkit-search-decoration,
+.search-box input::-webkit-search-results-button,
+.search-box input::-webkit-search-results-decoration {
+  display: none;
+  -webkit-appearance: none;
+}
+
+.search-box input::-ms-clear,
+.search-box input::-ms-reveal {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 .search-clear-button {
   width: 34px;
   height: 34px;
@@ -776,6 +774,8 @@ label[for="theme-toggle"] {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
+  transition: transform 220ms ease;
+  will-change: transform;
 }
 
 .category-strip {
@@ -918,8 +918,36 @@ label[for="theme-toggle"] {
     right: auto;
     width: 100%;
     margin: -22px 0 14px;
+    animation: none;
     transform: none;
     contain: none;
+    overflow: hidden;
+    clip-path: inset(0 0 0 0 round 18px);
+    transition: border-color 180ms ease, background-color 260ms ease;
+  }
+
+  .app-shell.search-hidden .menu-hero + .menu-controls {
+    clip-path: inset(0 0 58px 0 round 18px);
+  }
+
+  .app-shell.search-hidden .menu-hero + .menu-controls .search-section {
+    grid-template-rows: 1fr;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-8px);
+    transition: opacity 120ms ease, transform 120ms ease;
+  }
+
+  .app-shell.search-hidden .menu-hero + .menu-controls .search-box {
+    height: auto;
+    min-height: 50px;
+    padding-block: 0;
+    border-color: transparent;
+  }
+
+  .app-shell.search-hidden .menu-hero + .menu-controls .category-row {
+    transform: translateY(-60px);
+    transition-duration: 140ms;
   }
 
   .menu-hero + .menu-controls + .preference-note,
@@ -1020,6 +1048,7 @@ label[for="theme-toggle"] {
 }
 
 .dish-card {
+  position: relative;
   min-width: 0;
   min-height: 0;
   align-self: stretch;
@@ -1036,6 +1065,55 @@ label[for="theme-toggle"] {
   transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease, background-color 260ms ease;
   animation: cardIn 520ms ease both;
   animation-delay: calc(min(var(--card-index, 1), 8) * 42ms);
+}
+
+.dish-card--removing {
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--line));
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px) scale(0.985);
+}
+
+.dish-menu-action {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
+  border-radius: 12px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    border-color 160ms ease,
+    background-color 200ms ease,
+    transform 160ms ease,
+    opacity 160ms ease;
+}
+
+.dish-menu-action svg {
+  width: 17px;
+  height: 17px;
+}
+
+.dish-menu-action:hover {
+  color: var(--accent-contrast);
+  border-color: var(--accent);
+  background: var(--accent);
+  transform: translateY(-1px);
+}
+
+.dish-menu-action:disabled {
+  opacity: 0.58;
+  cursor: wait;
+  transform: none;
 }
 
 .dish-card:hover {
@@ -1267,21 +1345,34 @@ label[for="theme-toggle"] {
 }
 .dish-price-button {
   min-height: 36px;
-  padding: 0;
+  padding: 0 12px 0 7px;
   border: 0;
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 7px;
   color: var(--accent-contrast);
   background: var(--accent);
   cursor: pointer;
   transition: background-color 180ms ease, transform 160ms ease, box-shadow 180ms ease;
 }
 
+.dish-price-button__icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  color: currentColor;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}
+
 .dish-price-button strong {
   min-height: 36px;
-  padding: 0 12px;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2164,7 +2255,12 @@ body.dish-detail-open {
 
   .dish-price-button strong {
     font-size: 18px;
-    padding-inline: 14px;
+  }
+
+  .dish-price-button__icon {
+    width: 18px;
+    height: 18px;
+    flex-basis: 18px;
   }
 
   .footer__grid {
@@ -2291,8 +2387,13 @@ body.dish-detail-open {
   }
   .dish-price-button strong {
     min-height: 34px;
-    padding-inline: 10px;
     font-size: 13px;
+  }
+
+  .dish-price-button__icon {
+    width: 15px;
+    height: 15px;
+    flex-basis: 15px;
   }
 
 }

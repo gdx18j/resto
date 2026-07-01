@@ -25,6 +25,16 @@
     ? dishModal.querySelector(".dish-detail-shell")
     : null;
   var lastDishTrigger = null;
+  var menuControls = document.querySelector(".menu-controls");
+  var menuHero = document.querySelector(".menu-hero");
+  var mobileControlsMedia = window.matchMedia
+    ? window.matchMedia("(max-width: 619px)")
+    : null;
+  var controlsFixedStart = 0;
+  var scrollIntentDirection = 0;
+  var scrollIntentDistance = 0;
+  var lastSearchToggleAt = 0;
+  var lastViewportWidth = document.documentElement.clientWidth;
 
   if (!shell || !search) {
     return;
@@ -40,6 +50,11 @@
   var revealThreshold = 8;
   var activeQuery = "";
   var totalDishes = dishCards.length;
+
+  dishCards.forEach(function (card, index) {
+    card.dataset.searchIndex = String(index);
+  });
+
   var translations = {
     ru: {
       found: "Найдено",
@@ -60,6 +75,50 @@
       dishMany: "yemek",
     },
   };
+  var ruLayout = "йцукенгшщзхъфывапролджэячсмитьбю";
+  var enLayout = "qwertyuiop[]asdfghjkl;'zxcvbnm,.";
+  var layoutMap = {};
+
+  ruLayout.split("").forEach(function (char, index) {
+    layoutMap[char] = enLayout[index];
+    layoutMap[enLayout[index]] = char;
+  });
+  layoutMap.ё = "`";
+  layoutMap["`"] = "ё";
+  var ruToLatinMap = {
+    а: "a",
+    б: "b",
+    в: "v",
+    г: "g",
+    д: "d",
+    е: "e",
+    ж: "zh",
+    з: "z",
+    и: "i",
+    й: "i",
+    к: "k",
+    л: "l",
+    м: "m",
+    н: "n",
+    о: "o",
+    п: "p",
+    р: "r",
+    с: "s",
+    т: "t",
+    у: "u",
+    ф: "f",
+    х: "h",
+    ц: "c",
+    ч: "ch",
+    ш: "sh",
+    щ: "sh",
+    ы: "y",
+    э: "e",
+    ю: "yu",
+    я: "ya",
+    ь: "",
+    ъ: "",
+  };
 
   function currentLanguage() {
     var language = document.documentElement.dataset.language || document.documentElement.lang || "ru";
@@ -69,6 +128,17 @@
   function t(key) {
     var language = currentLanguage();
     return translations[language][key] || translations.ru[key] || "";
+  }
+
+  function getCookie(name) {
+    var value = "; " + document.cookie;
+    var parts = value.split("; " + name + "=");
+
+    if (parts.length === 2) {
+      return parts.pop().split(";").shift();
+    }
+
+    return "";
   }
 
   function isInteractiveElement(target) {
@@ -151,6 +221,53 @@
     openDishDetails(card);
   }
 
+  function hideDish(button) {
+    var card = button.closest("[data-dish-card]");
+    var url = button.dataset.hideUrl;
+
+    if (!card || !url || button.disabled) {
+      return;
+    }
+
+    button.disabled = true;
+    card.classList.add("dish-card--removing");
+
+    fetch(url, {
+      method: "POST",
+      headers: {
+        "X-CSRFToken": getCookie("csrftoken"),
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      credentials: "same-origin",
+    })
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error("hide_failed");
+        }
+        return response.json();
+      })
+      .then(function (data) {
+        if (!data.ok) {
+          throw new Error("hide_failed");
+        }
+
+        card.dataset.menuRemoved = "1";
+
+        if (window.CaesarCart && window.CaesarCart.removeItem) {
+          window.CaesarCart.removeItem(card.id);
+        }
+
+        window.setTimeout(function () {
+          card.hidden = true;
+          filterMenu(activeQuery);
+        }, 180);
+      })
+      .catch(function () {
+        button.disabled = false;
+        card.classList.remove("dish-card--removing");
+      });
+  }
+
   function handleDishKeydown(event) {
     if (event.key === "Escape") {
       closeDishDetails();
@@ -166,19 +283,145 @@
     }
   }
 
+  function isMobileMenuViewport() {
+    return mobileControlsMedia
+      ? mobileControlsMedia.matches
+      : document.documentElement.clientWidth < 620;
+  }
+
+  function isHeroMenuControls() {
+    return Boolean(menuControls && menuHero);
+  }
+
+  function getHeaderHeight() {
+    var rawHeight = window
+      .getComputedStyle(shell)
+      .getPropertyValue("--header-height");
+    var parsedHeight = parseFloat(rawHeight);
+
+    return Number.isFinite(parsedHeight) ? parsedHeight : 68;
+  }
+
+  function controlsStickyTop() {
+    return Math.max(0, getHeaderHeight() - 1);
+  }
+
+  function resetScrollIntent() {
+    scrollIntentDirection = 0;
+    scrollIntentDistance = 0;
+  }
+
+  function getControlsFixedStart() {
+    if (!isHeroMenuControls()) {
+      return 0;
+    }
+
+    if (!controlsFixedStart) {
+      controlsFixedStart = Math.max(
+        0,
+        window.scrollY + menuControls.getBoundingClientRect().top - controlsStickyTop()
+      );
+    }
+
+    return controlsFixedStart;
+  }
+
+  function hasControlsReachedStickyPoint(currentScrollY) {
+    if (!isHeroMenuControls()) {
+      return true;
+    }
+
+    return currentScrollY >= getControlsFixedStart() + 2
+      || menuControls.getBoundingClientRect().top <= controlsStickyTop() + 1;
+  }
+
+  function syncMenuControlsPin(currentScrollY) {
+    if (!isHeroMenuControls()) {
+      return true;
+    }
+
+    var hasReachedStickyPoint = hasControlsReachedStickyPoint(currentScrollY);
+
+    if (!hasReachedStickyPoint) {
+      shell.classList.remove("search-hidden");
+    }
+
+    return hasReachedStickyPoint;
+  }
+
+  function shouldKeepSearchVisibleBeforeSticky(hasReachedStickyPoint) {
+    return isHeroMenuControls() && !hasReachedStickyPoint;
+  }
+
+  function canToggleSearchVisibility() {
+    var cooldown = isMobileMenuViewport() ? 420 : 260;
+
+    return window.performance.now() - lastSearchToggleAt > cooldown;
+  }
+
+  function setSearchHidden(isHidden) {
+    if (shell.classList.contains("search-hidden") === isHidden) {
+      return;
+    }
+
+    shell.classList.toggle("search-hidden", isHidden);
+    lastSearchToggleAt = window.performance.now();
+    resetScrollIntent();
+  }
+
+  function forceSearchVisible() {
+    setSearchHidden(false);
+    resetScrollIntent();
+  }
+
   function updateSearchVisibility() {
     var currentScrollY = window.scrollY;
+    var isPinnedHeroControls = syncMenuControlsPin(currentScrollY);
+    var keepVisibleBeforeSticky = shouldKeepSearchVisibleBeforeSticky(isPinnedHeroControls);
     var delta = currentScrollY - lastScrollY;
+    var direction = delta > 0 ? 1 : -1;
+    var mobileViewport = isMobileMenuViewport();
+    var hideDistance = mobileViewport ? 48 : 108;
+    var showDistance = mobileViewport ? 86 : 72;
+    var minPinnedDistance = mobileViewport ? 64 : 64;
     var activeElement = document.activeElement;
     var isSearchActive =
       activeElement && activeElement.classList.contains("menu-search-input");
+    var readyToHideAfterPin = !isHeroMenuControls()
+      || (
+        isPinnedHeroControls
+        && currentScrollY >= getControlsFixedStart() + minPinnedDistance
+      );
 
-    if (activeQuery || isSearchActive || currentScrollY < 80) {
-      shell.classList.remove("search-hidden");
-    } else if (delta > threshold) {
-      shell.classList.add("search-hidden");
-    } else if (delta < -revealThreshold) {
-      shell.classList.remove("search-hidden");
+    if (
+      keepVisibleBeforeSticky
+      || activeQuery
+      || isSearchActive
+      || currentScrollY < 80
+    ) {
+      forceSearchVisible();
+    } else if (Math.abs(delta) >= 0.5) {
+      if (direction !== scrollIntentDirection) {
+        scrollIntentDirection = direction;
+        scrollIntentDistance = 0;
+      }
+
+      scrollIntentDistance += Math.abs(delta);
+
+      if (
+        direction > 0
+        && readyToHideAfterPin
+        && scrollIntentDistance >= hideDistance
+        && canToggleSearchVisibility()
+      ) {
+        setSearchHidden(true);
+      } else if (
+        direction < 0
+        && scrollIntentDistance >= showDistance
+        && canToggleSearchVisibility()
+      ) {
+        setSearchHidden(false);
+      }
     }
 
     lastScrollY = currentScrollY;
@@ -196,6 +439,34 @@
     { passive: true }
   );
 
+  window.addEventListener(
+    "resize",
+    function () {
+      var currentViewportWidth = document.documentElement.clientWidth;
+      var widthChanged = Math.abs(currentViewportWidth - lastViewportWidth) > 2;
+
+      lastViewportWidth = currentViewportWidth;
+
+      if (!widthChanged) {
+        resetScrollIntent();
+        lastScrollY = window.scrollY;
+        return;
+      }
+
+      controlsFixedStart = 0;
+      shell.classList.remove("search-hidden");
+
+      resetScrollIntent();
+      lastScrollY = window.scrollY;
+
+      if (!ticking) {
+        window.requestAnimationFrame(updateSearchVisibility);
+        ticking = true;
+      }
+    },
+    { passive: true }
+  );
+
   function normalize(value) {
     return (value || "")
       .toString()
@@ -204,6 +475,11 @@
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/ё/g, "е")
       .replace(/ı/g, "i")
+      .replace(/ğ/g, "g")
+      .replace(/ş/g, "s")
+      .replace(/ç/g, "c")
+      .replace(/[^a-z0-9а-я\s]+/g, " ")
+      .replace(/\s+/g, " ")
       .trim();
   }
 
@@ -211,6 +487,261 @@
     return normalize(value)
       .split(/\s+/)
       .filter(Boolean);
+  }
+
+  function unique(values) {
+    var seen = {};
+
+    return values.filter(function (value) {
+      if (!value || seen[value]) {
+        return false;
+      }
+
+      seen[value] = true;
+      return true;
+    });
+  }
+
+  function swapKeyboardLayout(value) {
+    return (value || "")
+      .toString()
+      .toLowerCase()
+      .split("")
+      .map(function (char) {
+        return layoutMap[char] || char;
+      })
+      .join("");
+  }
+
+  function queryVariants(query) {
+    var normalized = normalize(query);
+    var swapped = normalize(swapKeyboardLayout(query));
+    var normalizedTokens = tokenize(normalized);
+    var transliterated = normalize(transliterateRuToLatin(normalized));
+    var swappedTransliterated = normalize(transliterateRuToLatin(swapped));
+
+    if (
+      normalizedTokens.length === 1
+      && normalizedTokens[0].length <= 3
+      && /[а-я]/.test(normalizedTokens[0])
+    ) {
+      return unique([normalized, swapped]);
+    }
+
+    return unique([normalized, swapped, transliterated, swappedTransliterated]);
+  }
+
+  function transliterateRuToLatin(value) {
+    return (value || "")
+      .toString()
+      .split("")
+      .map(function (char) {
+        return Object.prototype.hasOwnProperty.call(ruToLatinMap, char)
+          ? ruToLatinMap[char]
+          : char;
+      })
+      .join("");
+  }
+
+  function wordList(value) {
+    return tokenize(value).filter(function (token) {
+      return token.length > 1;
+    });
+  }
+
+  function getSearchDoc(card) {
+    if (card._searchDoc) {
+      return card._searchDoc;
+    }
+
+    var name = normalize(card.dataset.searchName);
+    var ingredients = normalize(card.dataset.searchIngredients);
+    var combined = normalize(card.dataset.searchText);
+
+    card._searchDoc = {
+      name: name,
+      ingredients: ingredients,
+      combined: combined,
+      nameWords: wordList(name),
+      ingredientWords: wordList(ingredients),
+      combinedWords: wordList(combined),
+      index: Number(card.dataset.searchIndex) || 0,
+    };
+
+    return card._searchDoc;
+  }
+
+  function maxDistanceFor(token) {
+    if (token.length <= 3) {
+      return 0;
+    }
+
+    if (token.length <= 5) {
+      return 1;
+    }
+
+    return 2;
+  }
+
+  function boundedDistance(a, b, limit) {
+    var i;
+    var j;
+    var prev;
+    var prevPrev;
+    var curr;
+    var next;
+    var minInRow;
+    var cost;
+
+    if (a === b) {
+      return 0;
+    }
+
+    if (Math.abs(a.length - b.length) > limit) {
+      return limit + 1;
+    }
+
+    prevPrev = null;
+    prev = [];
+    for (j = 0; j <= b.length; j += 1) {
+      prev[j] = j;
+    }
+
+    for (i = 1; i <= a.length; i += 1) {
+      curr = [i];
+      minInRow = curr[0];
+
+      for (j = 1; j <= b.length; j += 1) {
+        cost = a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1;
+        next = Math.min(
+          prev[j] + 1,
+          curr[j - 1] + 1,
+          prev[j - 1] + cost
+        );
+
+        if (
+          prevPrev
+          && i > 1
+          && j > 1
+          && a.charAt(i - 1) === b.charAt(j - 2)
+          && a.charAt(i - 2) === b.charAt(j - 1)
+        ) {
+          next = Math.min(next, prevPrev[j - 2] + 1);
+        }
+
+        curr[j] = next;
+        minInRow = Math.min(minInRow, next);
+      }
+
+      if (minInRow > limit) {
+        return limit + 1;
+      }
+
+      prevPrev = prev;
+      prev = curr;
+    }
+
+    return prev[b.length];
+  }
+
+  function tokenScore(token, words, phrase) {
+    var best = 0;
+    var limit = maxDistanceFor(token);
+
+    if (!token) {
+      return 0;
+    }
+
+    if (phrase.indexOf(token) !== -1) {
+      best = Math.max(best, token.length <= 2 ? 70 : 92);
+    }
+
+    words.forEach(function (word) {
+      var distance;
+      var prefix;
+
+      if (word === token) {
+        best = Math.max(best, 120);
+        return;
+      }
+
+      if (word.indexOf(token) === 0) {
+        best = Math.max(best, 108);
+        return;
+      }
+
+      if (word.indexOf(token) !== -1) {
+        best = Math.max(best, token.length <= 2 ? 62 : 86);
+      }
+
+      if (limit === 0) {
+        return;
+      }
+
+      distance = boundedDistance(token, word, limit);
+      if (distance <= limit) {
+        best = Math.max(best, 82 - distance * 14);
+      }
+
+      prefix = word.slice(0, Math.min(word.length, token.length));
+      distance = boundedDistance(token, prefix, limit);
+      if (distance <= limit) {
+        best = Math.max(best, 76 - distance * 12);
+      }
+    });
+
+    return best;
+  }
+
+  function scoreField(tokens, words, phrase, weight) {
+    var total = 0;
+
+    if (!tokens.length) {
+      return 0;
+    }
+
+    for (var index = 0; index < tokens.length; index += 1) {
+      var score = tokenScore(tokens[index], words, phrase);
+
+      if (score <= 0) {
+        return 0;
+      }
+
+      total += score;
+    }
+
+    return (total / tokens.length) * weight;
+  }
+
+  function scoreCardForTokens(card, tokens, phrase) {
+    var doc = getSearchDoc(card);
+    var nameScore = scoreField(tokens, doc.nameWords, doc.name, 1.28);
+    var ingredientScore = scoreField(tokens, doc.ingredientWords, doc.ingredients, 0.96);
+    var combinedScore = scoreField(tokens, doc.combinedWords, doc.combined, 0.78);
+    var score = Math.max(nameScore, ingredientScore, combinedScore);
+    var matchType = "";
+
+    if (!score) {
+      return { score: 0, matchType: "" };
+    }
+
+    if (nameScore >= ingredientScore && nameScore >= combinedScore) {
+      matchType = "name";
+    } else if (ingredientScore >= combinedScore) {
+      matchType = "ingredients";
+    } else {
+      matchType = "mixed";
+    }
+
+    if (doc.name.indexOf(phrase) !== -1) {
+      score += 28;
+      matchType = "name";
+    } else if (doc.ingredients.indexOf(phrase) !== -1) {
+      score += 16;
+      matchType = "ingredients";
+    }
+
+    return { score: score, matchType: matchType };
   }
 
   function syncInputs(value, sourceInput) {
@@ -233,37 +764,50 @@
     });
   }
 
-  function getMatchType(card, tokens) {
-    if (tokens.length === 0) {
-      return "all";
-    }
+  function searchCard(card, query) {
+    var variants = queryVariants(query);
+    var best = { score: 0, matchType: "" };
 
-    var name = normalize(card.dataset.searchName);
-    var ingredients = normalize(card.dataset.searchIngredients);
-    var combined = normalize(card.dataset.searchText);
-    var matchesName = tokens.every(function (token) {
-      return name.indexOf(token) !== -1;
+    variants.forEach(function (variant) {
+      var tokens = tokenize(variant);
+      var result;
+
+      if (!tokens.length) {
+        best = { score: 1, matchType: "all" };
+        return;
+      }
+
+      result = scoreCardForTokens(card, tokens, variant);
+
+      if (result.score > best.score) {
+        best = result;
+      }
     });
-    var matchesIngredients = tokens.every(function (token) {
-      return ingredients.indexOf(token) !== -1;
+
+    return best;
+  }
+
+  function sortSectionCards(section, hasQuery) {
+    var grid = section.querySelector(".dish-grid");
+    var cards;
+
+    if (!grid) {
+      return;
+    }
+
+    cards = Array.prototype.slice.call(grid.querySelectorAll(".dish-card"));
+    cards.sort(function (a, b) {
+      if (!hasQuery) {
+        return getSearchDoc(a).index - getSearchDoc(b).index;
+      }
+
+      return (Number(b.dataset.searchScore) || 0) - (Number(a.dataset.searchScore) || 0)
+        || getSearchDoc(a).index - getSearchDoc(b).index;
     });
-    var matchesCombined = tokens.every(function (token) {
-      return combined.indexOf(token) !== -1;
+
+    cards.forEach(function (card) {
+      grid.appendChild(card);
     });
-
-    if (matchesName) {
-      return "name";
-    }
-
-    if (matchesIngredients) {
-      return "ingredients";
-    }
-
-    if (matchesCombined) {
-      return "mixed";
-    }
-
-    return "";
   }
 
   function dishWord(count) {
@@ -306,17 +850,25 @@
 
   function filterMenu(query) {
     var normalizedQuery = normalize(query);
-    var tokens = tokenize(query);
+    var hasQuery = normalizedQuery.length > 0;
     var visibleTotal = 0;
 
-    activeQuery = normalizedQuery;
+    activeQuery = query;
 
     dishCards.forEach(function (card) {
-      var matchType = getMatchType(card, tokens);
-      var isVisible = normalizedQuery.length === 0 || Boolean(matchType);
+      if (card.dataset.menuRemoved === "1") {
+        card.hidden = true;
+        card.dataset.matchType = "";
+        card.dataset.searchScore = "0";
+        return;
+      }
+
+      var result = hasQuery ? searchCard(card, query) : { score: 1, matchType: "all" };
+      var isVisible = !hasQuery || result.score > 0;
 
       card.hidden = !isVisible;
-      card.dataset.matchType = matchType || "";
+      card.dataset.matchType = result.matchType || "";
+      card.dataset.searchScore = String(result.score || 0);
 
       if (isVisible) {
         visibleTotal += 1;
@@ -332,6 +884,7 @@
       var isVisible = visibleCards.length > 0;
       var count = section.querySelector(".section-count");
 
+      sortSectionCards(section, hasQuery);
       section.hidden = !isVisible;
       setCategoryVisibility(section, isVisible);
 
@@ -385,7 +938,18 @@
     filterMenu(activeQuery);
   });
 
-  document.addEventListener("click", handleDishClick);
+  document.addEventListener("click", function (event) {
+    var hideButton = event.target.closest("[data-hide-dish]");
+
+    if (hideButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      hideDish(hideButton);
+      return;
+    }
+
+    handleDishClick(event);
+  });
   document.addEventListener("keydown", handleDishKeydown);
 
   updateSearchStatus("", totalDishes);

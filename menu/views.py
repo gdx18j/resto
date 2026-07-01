@@ -1,4 +1,8 @@
-from django.shortcuts import render
+from django.contrib.admin.views.decorators import staff_member_required
+from django.http import JsonResponse
+from django.shortcuts import get_object_or_404, render
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.http import require_POST
 
 from .models import Category, Dish
 from .services import (
@@ -8,6 +12,7 @@ from .services import (
 from .translations import localized_category_html
 
 
+@ensure_csrf_cookie
 def dish_list(request):
     dishes = (
         Dish.objects.filter(
@@ -76,4 +81,22 @@ def dish_list(request):
         request,
         "menu/dish_list.html",
         context,
+    )
+
+
+@staff_member_required
+@require_POST
+def hide_dish(request, dish_id):
+    dish = get_object_or_404(Dish, id=dish_id)
+
+    if dish.is_active:
+        dish.is_active = False
+        dish.save(update_fields=["is_active"])
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "dish_id": dish.id,
+            "message": "Блюдо убрано из меню.",
+        }
     )

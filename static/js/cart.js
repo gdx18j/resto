@@ -8,7 +8,7 @@
 
   /* ─── State ─────────────────────────────────────────────────── */
   var cart = {
-    items: {},      // { dishId: { name, price, qty } }
+    items: {},      // { dishId: { name, price, qty, modifiers } }
     persons: 1,
     payment: null,  // 'card' | 'cash'
     comment: '',
@@ -16,6 +16,14 @@
 
   /* ─── DOM refs (resolved after DOMContentLoaded) ─────────────── */
   var els = {};
+  var cartApi = {
+    quoteUrl: '',
+    createUrl: '',
+    quoteTimer: null,
+    quotePending: false,
+    submitting: false,
+    noteTimer: null,
+  };
 
   function qs(sel, root) { return (root || document).querySelector(sel); }
   function qsa(sel, root) { return Array.from((root || document).querySelectorAll(sel)); }
@@ -33,6 +41,9 @@
       increaseItem: 'Добавить еще: ',
       decreaseItem: 'Убрать одно: ',
       commentPlaceholder: 'Аллергии, пожелания к сервировке, особые просьбы…',
+      selectPayment: 'Выберите способ оплаты.',
+      orderCreated: 'Заказ создан',
+      orderFailed: 'Не удалось оформить заказ. Попробуйте еще раз.',
     },
     en: {
       itemOne: 'item',
@@ -46,6 +57,9 @@
       increaseItem: 'Add one more: ',
       decreaseItem: 'Remove one: ',
       commentPlaceholder: 'Allergies, serving wishes, special requests…',
+      selectPayment: 'Choose a payment method.',
+      orderCreated: 'Order created',
+      orderFailed: 'Could not place the order. Please try again.',
     },
     tr: {
       itemOne: 'ürün',
@@ -59,6 +73,9 @@
       increaseItem: 'Bir tane daha ekle: ',
       decreaseItem: 'Bir tane çıkar: ',
       commentPlaceholder: 'Alerjiler, servis istekleri, özel notlar…',
+      selectPayment: 'Ödeme yöntemini seçin.',
+      orderCreated: 'Sipariş oluşturuldu',
+      orderFailed: 'Sipariş verilemedi. Lütfen tekrar deneyin.',
     },
   };
 
@@ -79,13 +96,31 @@
     return element.dataset[key] || element.dataset.name || '';
   }
 
+  function getCookie(name) {
+    var value = '; ' + document.cookie;
+    var parts = value.split('; ' + name + '=');
+
+    if (parts.length === 2) {
+      return parts.pop().split(';').shift();
+    }
+
+    return '';
+  }
+
+  function withLanguage(url) {
+    if (!url) return '';
+    return url + (url.indexOf('?') === -1 ? '?' : '&') + 'language=' + encodeURIComponent(currentLanguage());
+  }
+
   /* ─── Cart math ───────────────────────────────────────────────── */
   function totalItems() {
     return Object.values(cart.items).reduce(function (s, i) { return s + i.qty; }, 0);
   }
 
   function totalPrice() {
-    return Object.values(cart.items).reduce(function (s, i) { return s + i.price * i.qty; }, 0);
+    return Object.values(cart.items).reduce(function (s, i) {
+      return s + (Number(i.price) || 0) * i.qty;
+    }, 0);
   }
 
   function fmt(n) {
@@ -108,6 +143,20 @@
         if (stored && stored.items) Object.assign(cart, stored);
       }
     } catch (_) {}
+
+    Object.keys(cart.items).forEach(function (id) {
+      var item = cart.items[id];
+
+      if (!item || !item.qty) {
+        delete cart.items[id];
+        return;
+      }
+
+      item.qty = Math.max(1, Math.min(99, parseInt(item.qty, 10) || 1));
+      item.price = Number(item.price) || 0;
+      item.name = String(item.name || '');
+      item.modifiers = Array.isArray(item.modifiers) ? item.modifiers : [];
+    });
   }
 
   /* ─── UI update helpers ───────────────────────────────────────── */
@@ -293,6 +342,148 @@
       .replace(/"/g, '&quot;');
   }
 
+  function readCartApi() {
+    var shell = qs('.app-shell');
+
+    cartApi.quoteUrl = shell ? shell.dataset.cartQuoteUrl || '' : '';
+    cartApi.createUrl = shell ? shell.dataset.cartCreateUrl || '' : '';
+  }
+
+  function cartPayload() {
+    return {
+      items: Object.entries(cart.items).map(function (entry) {
+        var id = entry[0];
+        var item = entry[1];
+
+        return {
+          id: id,
+          quantity: item.qty,
+          modifiers: Array.isArray(item.modifiers) ? item.modifiers : [],
+        };
+      }),
+      guests_count: cart.persons,
+      payment_method: cart.payment,
+      comment: cart.comment,
+    };
+  }
+
+  function cartItemsKey() {
+    return JSON.stringify(cartPayload().items);
+  }
+
+  function cartHeaders() {
+    return {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': getCookie('csrftoken'),
+      'X-Language': currentLanguage(),
+      'X-Requested-With': 'XMLHttpRequest',
+    };
+  }
+
+  function parseCartResponse(response) {
+    return response.json()
+      .catch(function () { return {}; })
+      .then(function (data) {
+        if (!response.ok || data.ok === false) {
+          throw new Error(data.error || t('orderFailed'));
+        }
+
+        return data;
+      });
+  }
+
+  function applyQuote(data) {
+    var serverItems = Array.isArray(data.items) ? data.items : [];
+    var nextItems = {};
+
+    serverItems.forEach(function (serverItem) {
+      var id = serverItem.id || ('dish-' + serverItem.dish_id);
+      var existing = cart.items[id] || cart.items[String(serverItem.dish_id)] || {};
+
+      nextItems[id] = {
+        name: serverItem.name || existing.name || '',
+        price: Number(serverItem.unit_price) || 0,
+        qty: Number(serverItem.quantity) || existing.qty || 1,
+        dishId: serverItem.dish_id,
+        modifiers: Array.isArray(existing.modifiers) ? existing.modifiers : [],
+      };
+    });
+
+    cart.items = nextItems;
+    save();
+    renderAll();
+  }
+
+  function requestQuote() {
+    var requestKey = cartItemsKey();
+
+    if (!cartApi.quoteUrl || totalItems() === 0) {
+      return Promise.resolve(null);
+    }
+
+    cartApi.quotePending = true;
+    updateSubmit();
+
+    return fetch(withLanguage(cartApi.quoteUrl), {
+      method: 'POST',
+      headers: cartHeaders(),
+      credentials: 'same-origin',
+      body: JSON.stringify(cartPayload()),
+    })
+      .then(parseCartResponse)
+      .then(function (data) {
+        if (cartItemsKey() === requestKey) {
+          applyQuote(data);
+        } else {
+          scheduleQuote();
+        }
+
+        return data;
+      })
+      .finally(function () {
+        cartApi.quotePending = false;
+        renderAll();
+      });
+  }
+
+  function scheduleQuote() {
+    clearTimeout(cartApi.quoteTimer);
+
+    if (totalItems() === 0) {
+      cartApi.quotePending = false;
+      return;
+    }
+
+    cartApi.quoteTimer = setTimeout(function () {
+      requestQuote().catch(function () {});
+    }, 120);
+  }
+
+  function showCartNote(message, kind) {
+    if (!els.note) return;
+
+    clearTimeout(cartApi.noteTimer);
+    els.note.hidden = false;
+    els.note.textContent = message;
+    els.note.classList.toggle('cart-submit-note--success', kind === 'success');
+    els.note.classList.toggle('cart-submit-note--error', kind === 'error');
+
+    if (kind === 'success') {
+      cartApi.noteTimer = setTimeout(function () {
+        els.note.hidden = true;
+      }, 4200);
+    }
+  }
+
+  function clearCartNote() {
+    if (!els.note) return;
+
+    clearTimeout(cartApi.noteTimer);
+    els.note.hidden = true;
+    els.note.textContent = '';
+    els.note.classList.remove('cart-submit-note--success', 'cart-submit-note--error');
+  }
+
   /* ─── Persons / payment / comment sync ───────────────────────── */
   function syncPersonsUI() {
     qsa('[data-persons-count]').forEach(function (el) {
@@ -335,25 +526,32 @@
   }
 
   /* ─── Public API (used by dish cards) ────────────────────────── */
-  function addItem(id, name, price) {
+  function addItem(id, name, price, sourceControl) {
     if (cart.items[id]) {
       cart.items[id].qty += 1;
     } else {
-      cart.items[id] = { name: name, price: Number(price), qty: 1 };
+      cart.items[id] = {
+        name: name,
+        price: Number(price) || 0,
+        qty: 1,
+        modifiers: [],
+      };
     }
+    clearCartNote();
     save();
     renderAll();
-    animateAdd(id);
+    scheduleQuote();
+    animateAdd(id, sourceControl);
     showToast(name);
   }
 
   window.CaesarCart = window.CaesarCart || {};
   window.CaesarCart.addItem = function (item) {
-    if (!item || !item.id || !item.name || item.price === undefined) {
+    if (!item || !item.id || !item.name) {
       return false;
     }
 
-    addItem(String(item.id), String(item.name), Number(item.price));
+    addItem(String(item.id), String(item.name), Number(item.price) || 0, item.sourceControl || null);
     return true;
   };
 
@@ -361,31 +559,135 @@
     renderAll();
   };
 
-  function changeQty(id, delta) {
+  window.CaesarCart.removeItem = function (id) {
+    if (!id || !cart.items[String(id)]) {
+      return false;
+    }
+
+    delete cart.items[String(id)];
+    clearCartNote();
+    save();
+    renderAll();
+    scheduleQuote();
+    return true;
+  };
+
+  function changeQty(id, delta, sourceControl) {
     if (!cart.items[id]) return;
     cart.items[id].qty += delta;
     if (cart.items[id].qty <= 0) delete cart.items[id];
+    clearCartNote();
     save();
     renderAll();
+    scheduleQuote();
+    animateCardFrame(sourceControl);
   }
 
-  function animateAdd(id) {
-    var controls = qsa('[data-dish-cart-control]').filter(function (control) {
-      return control.dataset.id === id;
-    });
-
-    if (controls.length > 0) {
-      controls.forEach(function (control) {
-        control.classList.add('cart-add--flash');
-        setTimeout(function () { control.classList.remove('cart-add--flash'); }, 460);
-      });
+  function submitOrder() {
+    if (cartApi.submitting || totalItems() === 0) {
       return;
     }
 
-    var btn = qs('[data-add-btn][data-id="' + id + '"]');
-    if (!btn) return;
-    btn.classList.add('cart-add--flash');
-    setTimeout(function () { btn.classList.remove('cart-add--flash'); }, 460);
+    if (!cart.payment) {
+      showCartNote(t('selectPayment'), 'error');
+      updateSubmit();
+      return;
+    }
+
+    if (!cartApi.createUrl) {
+      showCartNote(t('orderFailed'), 'error');
+      return;
+    }
+
+    cartApi.submitting = true;
+    clearCartNote();
+    renderAll();
+
+    requestQuote()
+      .then(function () {
+        return fetch(withLanguage(cartApi.createUrl), {
+          method: 'POST',
+          headers: cartHeaders(),
+          credentials: 'same-origin',
+          body: JSON.stringify(cartPayload()),
+        });
+      })
+      .then(parseCartResponse)
+      .then(function (data) {
+        var order = data.order || {};
+
+        cart.items = {};
+        cart.persons = 1;
+        cart.payment = null;
+        cart.comment = '';
+        save();
+        renderAll();
+        showCartNote(t('orderCreated') + (order.id ? ' #' + order.id : ''), 'success');
+      })
+      .catch(function (error) {
+        showCartNote(error.message || t('orderFailed'), 'error');
+      })
+      .finally(function () {
+        cartApi.submitting = false;
+        renderAll();
+      });
+  }
+
+  function restartAddAnimation(target) {
+    if (!target) {
+      return;
+    }
+
+    target.classList.remove('cart-add--flash');
+    target.offsetWidth;
+    target.classList.add('cart-add--flash');
+    setTimeout(function () { target.classList.remove('cart-add--flash'); }, 240);
+  }
+
+  function restartFrameAnimation(target) {
+    if (!target) {
+      return;
+    }
+
+    target.classList.remove('cart-frame--pulse');
+    target.offsetWidth;
+    target.classList.add('cart-frame--pulse');
+    setTimeout(function () { target.classList.remove('cart-frame--pulse'); }, 260);
+  }
+
+  function animateCardFrame(sourceControl) {
+    var card;
+
+    if (!sourceControl) {
+      return;
+    }
+
+    if (sourceControl.closest('.dish-detail')) {
+      restartAddAnimation(sourceControl.closest('[data-dish-cart-control]') || sourceControl);
+      return;
+    }
+
+    card = sourceControl.closest(
+      '.dish-card, .ai-assistant__dish-card'
+    );
+    restartFrameAnimation(card);
+  }
+
+  function animateAdd(id, sourceControl) {
+    var control = sourceControl || null;
+    var btn;
+
+    if (control && !control.matches('[data-dish-cart-control]')) {
+      control = control.closest('[data-dish-cart-control]');
+    }
+
+    if (control) {
+      restartAddAnimation(control);
+      return;
+    }
+
+    btn = qs('[data-add-btn][data-id="' + id + '"]');
+    restartAddAnimation(btn);
   }
 
   /* ─── Desktop toast ───────────────────────────────────────────── */
@@ -550,14 +852,23 @@
     // Dish card quantity +/-
     var dishQtyBtn = target.closest('[data-dish-qty-action][data-id]');
     if (dishQtyBtn) {
-      changeQty(dishQtyBtn.dataset.id, dishQtyBtn.dataset.dishQtyAction === 'inc' ? 1 : -1);
+      changeQty(
+        dishQtyBtn.dataset.id,
+        dishQtyBtn.dataset.dishQtyAction === 'inc' ? 1 : -1,
+        dishQtyBtn.closest('[data-dish-cart-control]') || dishQtyBtn
+      );
       return;
     }
 
     // Add to cart (dish cards)
     var addBtn = target.closest('[data-add-btn]');
     if (addBtn) {
-      addItem(addBtn.dataset.id, localizedDatasetName(addBtn), addBtn.dataset.price);
+      addItem(
+        addBtn.dataset.id,
+        localizedDatasetName(addBtn),
+        addBtn.dataset.price,
+        addBtn.closest('[data-dish-cart-control]') || addBtn
+      );
       return;
     }
 
@@ -565,6 +876,12 @@
     var qtyBtn = target.closest('[data-action][data-id]');
     if (qtyBtn && els.panel && els.panel.contains(qtyBtn)) {
       changeQty(qtyBtn.dataset.id, qtyBtn.dataset.action === 'inc' ? 1 : -1);
+      return;
+    }
+
+    // Submit order
+    if (target.closest('.cart-submit-btn')) {
+      submitOrder();
       return;
     }
 
@@ -578,6 +895,7 @@
     // Очистить корзину
     if (target.closest('[data-cart-clear]')) {
       cart.items = {};
+      clearCartNote();
       save();
       var clearBtn = document.querySelector('.cart-clear-btn');
       if (clearBtn) clearBtn.remove();
@@ -621,7 +939,8 @@
     var payBtn = target.closest('[data-pay]');
     if (payBtn) {
       cart.payment = payBtn.dataset.pay;
-      save(); syncPaymentUI();
+      clearCartNote();
+      save(); syncPaymentUI(); updateSubmit();
       return;
     }
   }
@@ -669,7 +988,7 @@
   function buildHTML() {
     // ── Cart icon for symbol sprite ──────────────────────────────
     var sprite = qs('.icon-sprite');
-    if (sprite) {
+    if (sprite && !document.getElementById('i-cart')) {
       var sym = document.createElementNS('http://www.w3.org/2000/svg', 'symbol');
       sym.setAttribute('id', 'i-cart');
       sym.setAttribute('viewBox', '0 0 24 24');
@@ -824,6 +1143,7 @@
       '      <span class="lang lang--tr">Sipariş ver</span>',
       '    </button>',
       '  </div>',
+      '  <div class="cart-submit-note" data-cart-note role="status" aria-live="polite" hidden></div>',
       '</div>',
     ].join('\n');
 
@@ -832,12 +1152,19 @@
     els.lineList = panel.querySelector('[data-lines]');
     els.extras = panel.querySelector('[data-cart-extras]');
     els.submitBtn = panel.querySelector('.cart-submit-btn');
+    els.note = panel.querySelector('[data-cart-note]');
   }
 
   /* ─── Submit button state ─────────────────────────────────────── */
   function updateSubmit() {
     if (!els.submitBtn) return;
-    els.submitBtn.disabled = totalItems() === 0;
+    var needsPayment = totalItems() > 0 && !cart.payment;
+    els.submitBtn.disabled = totalItems() === 0
+      || cartApi.quotePending
+      || cartApi.submitting
+      || !cartApi.createUrl;
+    els.submitBtn.setAttribute('aria-busy', cartApi.submitting ? 'true' : 'false');
+    els.submitBtn.title = needsPayment ? t('selectPayment') : '';
   }
 
   var _renderAll = renderAll;
@@ -849,10 +1176,12 @@
   /* ─── Init ────────────────────────────────────────────────────── */
   function init() {
     load();
+    readCartApi();
     buildHTML();
     buildToast();
     attachDishButtons();
     renderAll();
+    scheduleQuote();
 
     // Обычная делегация на document — работает везде включая iOS
     // (iOS требует cursor:pointer или onclick на промежуточных div-ах,

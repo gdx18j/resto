@@ -24,7 +24,12 @@
     var csrfInput = form ? form.querySelector("[name=csrfmiddlewaretoken]") : null;
     var closeTimer = null;
     var shouldAutoScroll = true;
+    var userPausedAutoScroll = false;
     var lastTouchY = 0;
+    var lastScrollTop = 0;
+    var pausedScrollTop = 0;
+    var isRestoringPausedScroll = false;
+    var userScrollIntentUntil = 0;
 
     if (!endpoint || !form || !inputs.length || !sendButton || !messagesNode) {
       return;
@@ -272,8 +277,10 @@
     messagesNode.addEventListener(
       "wheel",
       function (event) {
+        markUserScrollIntent();
+
         if (event.deltaY < 0) {
-          shouldAutoScroll = false;
+          pauseAutoScroll();
         }
       },
       { passive: true }
@@ -299,9 +306,10 @@
         }
 
         currentTouchY = event.touches[0].clientY;
+        markUserScrollIntent();
 
         if (currentTouchY - lastTouchY > 2) {
-          shouldAutoScroll = false;
+          pauseAutoScroll();
         }
 
         lastTouchY = currentTouchY;
@@ -312,7 +320,38 @@
     messagesNode.addEventListener(
       "scroll",
       function () {
+        var isScrollingUp = messagesNode.scrollTop < lastScrollTop - 1;
+
+        if (isRestoringPausedScroll) {
+          lastScrollTop = messagesNode.scrollTop;
+          isRestoringPausedScroll = false;
+          return;
+        }
+
+        if (isBusy && isScrollingUp) {
+          pauseAutoScroll();
+        }
+
+        lastScrollTop = messagesNode.scrollTop;
+
+        if (userPausedAutoScroll) {
+          if (isMessagesAtBottom()) {
+            userPausedAutoScroll = false;
+            shouldAutoScroll = true;
+          } else {
+            shouldAutoScroll = false;
+            if (hasRecentUserScrollIntent() || isScrollingUp) {
+              pausedScrollTop = messagesNode.scrollTop;
+            }
+          }
+          return;
+        }
+
         shouldAutoScroll = isMessagesNearBottom();
+
+        if (isMessagesAtBottom()) {
+          userPausedAutoScroll = false;
+        }
       },
       { passive: true }
     );
@@ -324,6 +363,14 @@
         setOpen(false);
       }
     });
+
+    messagesNode.addEventListener(
+      "pointerdown",
+      function () {
+        markUserScrollIntent();
+      },
+      { passive: true }
+    );
 
     document.addEventListener("keydown", function (event) {
       if (
@@ -631,6 +678,18 @@
       return timeNode;
     }
 
+    function createCartIconNode() {
+      var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      var use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+
+      svg.setAttribute("class", "dish-price-button__icon");
+      svg.setAttribute("aria-hidden", "true");
+      use.setAttribute("href", "#i-cart");
+      svg.appendChild(use);
+
+      return svg;
+    }
+
     function refreshCartControlsSoon() {
       window.requestAnimationFrame(function () {
         if (window.CaesarCart && window.CaesarCart.refreshControls) {
@@ -680,6 +739,7 @@
       function tick() {
         index = Math.min(index + 2, cleanText.length);
         textNode.textContent = cleanText.slice(0, index);
+        preservePausedScrollPosition();
         scrollMessagesToBottom();
 
         if (index < cleanText.length) {
@@ -689,6 +749,7 @@
 
         if (dishes && dishes.length) {
           article.appendChild(createDishCardsNode(dishes));
+          preservePausedScrollPosition();
           scrollMessagesToBottom();
         }
       }
@@ -778,6 +839,7 @@
           addButton.dataset.price = dish.price;
           addButton.setAttribute("aria-label", t("add") + ": " + dish.name);
           price.textContent = dish.price + " ₽";
+          addButton.appendChild(createCartIconNode());
           addButton.appendChild(price);
 
           stepper.className = "dish-qty-stepper ai-assistant__dish-qty-stepper";
@@ -877,15 +939,66 @@
       scrollMessagesToBottom(true);
     }
 
-    function isMessagesNearBottom() {
+    function pauseAutoScroll() {
+      shouldAutoScroll = false;
+
+      if (isBusy) {
+        userPausedAutoScroll = true;
+        pausedScrollTop = messagesNode.scrollTop;
+      }
+    }
+
+    function markUserScrollIntent() {
+      userScrollIntentUntil = Date.now() + 300;
+    }
+
+    function hasRecentUserScrollIntent() {
+      return Date.now() <= userScrollIntentUntil;
+    }
+
+    function preservePausedScrollPosition() {
+      if (!userPausedAutoScroll) {
+        return;
+      }
+
+      window.requestAnimationFrame(function () {
+        if (!userPausedAutoScroll) {
+          return;
+        }
+
+        isRestoringPausedScroll = true;
+        messagesNode.scrollTop = pausedScrollTop;
+        lastScrollTop = messagesNode.scrollTop;
+      });
+    }
+
+    function getDistanceFromMessagesBottom() {
       return (
         messagesNode.scrollHeight -
         messagesNode.scrollTop -
         messagesNode.clientHeight
-      ) < 72;
+      );
+    }
+
+    function isMessagesAtBottom() {
+      return getDistanceFromMessagesBottom() <= 1;
+    }
+
+    function isMessagesNearBottom(threshold) {
+      return getDistanceFromMessagesBottom() < (threshold === undefined ? 72 : threshold);
     }
 
     function scrollMessagesToBottom(force) {
+      if (force && !isBusy) {
+        userPausedAutoScroll = false;
+        isRestoringPausedScroll = false;
+      }
+
+      if (userPausedAutoScroll) {
+        preservePausedScrollPosition();
+        return;
+      }
+
       if (force) {
         shouldAutoScroll = true;
       }
@@ -895,15 +1008,24 @@
       }
 
       window.requestAnimationFrame(function () {
-        if (!shouldAutoScroll) {
+        if (!shouldAutoScroll || userPausedAutoScroll) {
           return;
         }
 
         messagesNode.scrollTop = messagesNode.scrollHeight;
+        lastScrollTop = messagesNode.scrollTop;
       });
     }
 
     function setBusy(nextBusy) {
+      if (nextBusy) {
+        userPausedAutoScroll = false;
+        isRestoringPausedScroll = false;
+      } else if (isMessagesAtBottom()) {
+        userPausedAutoScroll = false;
+        isRestoringPausedScroll = false;
+      }
+
       isBusy = nextBusy;
       inputs.forEach(function (input) {
         input.disabled = nextBusy;
@@ -936,6 +1058,9 @@
       }
 
       hasUserInteracted = true;
+      userPausedAutoScroll = false;
+      isRestoringPausedScroll = false;
+      shouldAutoScroll = true;
       inputs.forEach(function (input) {
         input.value = "";
       });
@@ -1003,6 +1128,7 @@
 
         if (finishedDishes.length) {
           article.appendChild(createDishCardsNode(finishedDishes));
+          preservePausedScrollPosition();
         }
 
         message = {
@@ -1029,6 +1155,7 @@
         displayedText += queuedText.charAt(0);
         queuedText = queuedText.slice(1);
         textNode.textContent = stripSimpleMarkdown(displayedText);
+        preservePausedScrollPosition();
         scrollMessagesToBottom();
         window.setTimeout(typeNextCharacter, TYPEWRITER_STEP_MS);
       }

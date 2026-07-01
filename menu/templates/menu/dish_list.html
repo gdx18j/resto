@@ -133,6 +133,18 @@
                 {% endif %}
               </div>
 
+              {% if request.user.is_staff %}
+                <button
+                  class="dish-menu-action"
+                  type="button"
+                  data-hide-dish
+                  data-hide-url="{% url 'menu:hide_dish' dish.id %}"
+                  aria-label="Убрать из меню: {{ dish.name }}"
+                >
+                  <svg aria-hidden="true"><use href="#i-eye-off"/></svg>
+                </button>
+              {% endif %}
+
               <div class="dish-body">
                 <div class="dish-copy">
                   <h2>{{ dish.localized_name_html }}</h2>
@@ -211,6 +223,7 @@
                       data-price="{{ dish.price }}"
                       aria-label="Add to cart: {{ dish.name }}"
                     >
+                      <svg class="dish-price-button__icon" aria-hidden="true"><use href="#i-cart"/></svg>
                       <strong>{{ dish.price }} ₽</strong>
                     </button>
 
@@ -420,6 +433,7 @@
                       <span class="lang lang--ru">Добавить</span>
                       <span class="lang lang--en">Add</span>
                       <span class="lang lang--tr">Ekle</span>
+                      <svg class="dish-price-button__icon" aria-hidden="true"><use href="#i-cart"/></svg>
                       <strong>{{ dish.price }} ₽</strong>
                     </button>
 

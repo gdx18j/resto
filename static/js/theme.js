@@ -18,9 +18,10 @@
 
   function applyStoredTheme() {
     try {
-      themeToggle.checked = window.localStorage.getItem(storageKey) === "light";
+      var storedTheme = window.localStorage.getItem(storageKey);
+      themeToggle.checked = storedTheme ? storedTheme === "light" : true;
     } catch (error) {
-      themeToggle.checked = false;
+      themeToggle.checked = true;
     }
   }
 
