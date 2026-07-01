@@ -20,11 +20,16 @@
           <span class="lang lang--en">Choose dishes, check details, and add your order to the cart.</span>
           <span class="lang lang--tr">Yemekleri seçin, detayları kontrol edin ve siparişinizi sepete ekleyin.</span>
         </p>
-        <span class="menu-hero__scroll" aria-hidden="true"></span>
+        <a class="menu-hero__menu-link" href="#menu-search">
+          <span class="lang lang--ru">Открыть меню</span>
+          <span class="lang lang--en">Open menu</span>
+          <span class="lang lang--tr">Menüyü aç</span>
+          <span class="menu-hero__menu-link-icon" aria-hidden="true">↓</span>
+        </a>
       </div>
     </section>
   {% endif %}
-  <div class="menu-controls">
+  <div class="menu-controls" id="menu-search">
     <section class="search-section" aria-label="Поиск по меню">
       <label class="search-box">
         <svg><use href="#i-search"/></svg>

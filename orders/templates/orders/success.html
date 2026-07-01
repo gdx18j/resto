@@ -94,6 +94,13 @@
         <div class="order-receipt">
           {% for item in order.items.all %}
             <div class="order-receipt__row">
+              <span class="order-receipt__thumb" aria-hidden="true">
+                {% if item.dish.image %}
+                  <img src="{{ item.dish.image.url }}" alt="">
+                {% else %}
+                  <span>{{ item.dish_name|first }}</span>
+                {% endif %}
+              </span>
               <span class="order-receipt__name">{{ item.dish_name }}</span>
               <span class="order-receipt__qty">× {{ item.quantity }}</span>
               <strong>{{ item.line_total }} ₽</strong>
