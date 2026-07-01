@@ -34,3 +34,20 @@ class DishManagementTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.dish.refresh_from_db()
         self.assertFalse(self.dish.is_active)
+
+    def test_menu_uses_single_detail_payload_instead_of_per_dish_templates(self):
+        Dish.objects.create(
+            category=self.dish.category,
+            name="Latte",
+            price=Decimal("220.00"),
+            is_active=True,
+            is_available=True,
+        )
+
+        response = self.client.get(reverse("menu:dish_list"))
+
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode("utf-8")
+        self.assertNotIn("dish-detail-template-", html)
+        self.assertEqual(html.count('id="dish-detail-data"'), 1)
+        self.assertEqual(html.count("data-dish-modal hidden"), 1)

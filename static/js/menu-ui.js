@@ -24,13 +24,15 @@
   var dishModalShell = dishModal
     ? dishModal.querySelector(".dish-detail-shell")
     : null;
+  var dishDetails = readDishDetails();
   var lastDishTrigger = null;
   var menuControls = document.querySelector(".menu-controls");
+  var menuControlsPlaceholder = null;
   var menuHero = document.querySelector(".menu-hero");
   var mobileControlsMedia = window.matchMedia
     ? window.matchMedia("(max-width: 619px)")
     : null;
-  var controlsFixedStart = 0;
+  var controlsFixedStart = null;
   var scrollIntentDirection = 0;
   var scrollIntentDistance = 0;
   var lastSearchToggleAt = 0;
@@ -42,6 +44,12 @@
 
   if (categoryStrip) {
     categoryStrip.scrollLeft = 0;
+  }
+
+  if (menuControls) {
+    menuControlsPlaceholder = document.createElement("div");
+    menuControlsPlaceholder.className = "menu-controls-placeholder";
+    menuControls.insertAdjacentElement("afterend", menuControlsPlaceholder);
   }
 
   var lastScrollY = window.scrollY;
@@ -149,21 +157,291 @@
     );
   }
 
+  function readDishDetails() {
+    var dataNode = document.getElementById("dish-detail-data");
+
+    if (!dataNode) {
+      return {};
+    }
+
+    try {
+      return JSON.parse(dataNode.textContent) || {};
+    } catch (error) {
+      return {};
+    }
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function escapeAttr(value) {
+    return escapeHtml(value);
+  }
+
+  function langSpans(values) {
+    values = values || {};
+
+    return ["ru", "en", "tr"].map(function (language) {
+      return '<span class="lang lang--' + language + '">'
+        + escapeHtml(values[language] || values.ru || values.en || values.tr || "")
+        + "</span>";
+    }).join("");
+  }
+
+  function unitSpans(ru, en, tr) {
+    return langSpans({ ru: ru, en: en, tr: tr });
+  }
+
+  function detailLabel(key) {
+    var labels = {
+      kicker: {
+        ru: "Описание блюда",
+        en: "Dish details",
+        tr: "Yemek detayı",
+      },
+      weight: {
+        ru: "Вес",
+        en: "Weight",
+        tr: "Ağırlık",
+      },
+      time: {
+        ru: "Время",
+        en: "Time",
+        tr: "Süre",
+      },
+      nutrition: {
+        ru: "КБЖУ на порцию",
+        en: "Nutrition per serving",
+        tr: "Porsiyon besin değeri",
+      },
+      calories: {
+        ru: "Калории",
+        en: "Calories",
+        tr: "Kalori",
+      },
+      proteins: {
+        ru: "Белки",
+        en: "Protein",
+        tr: "Protein",
+      },
+      fats: {
+        ru: "Жиры",
+        en: "Fat",
+        tr: "Yağ",
+      },
+      carbs: {
+        ru: "Углеводы",
+        en: "Carbs",
+        tr: "Karbonhidrat",
+      },
+      estimated: {
+        ru: "КБЖУ указано ориентировочно. Точные значения можно уточнить у ресторана.",
+        en: "Nutrition values are approximate. Exact values can be confirmed with the restaurant.",
+        tr: "Besin değerleri yaklaşık verilmiştir. Kesin değerler restoranla teyit edilebilir.",
+      },
+      ingredients: {
+        ru: "Состав",
+        en: "Ingredients",
+        tr: "İçindekiler",
+      },
+      andMore: {
+        ru: "и другое",
+        en: "and more",
+        tr: "ve fazlası",
+      },
+      allergens: {
+        ru: "Аллергены",
+        en: "Allergens",
+        tr: "Alerjenler",
+      },
+      add: {
+        ru: "Добавить",
+        en: "Add",
+        tr: "Ekle",
+      },
+    };
+
+    return langSpans(labels[key]);
+  }
+
+  function nutritionItem(labelKey, value, unitHtml) {
+    if (value == null || value === "") {
+      return "";
+    }
+
+    return [
+      "<span>",
+      "<small>", detailLabel(labelKey), "</small>",
+      "<strong>", escapeHtml(value), unitHtml || "", "</strong>",
+      "</span>",
+    ].join("");
+  }
+
+  function buildDishDetailHtml(dish) {
+    var nutrition = dish.nutrition || {};
+    var facts = [];
+    var nutritionItems = [];
+    var ingredientsHtml = "";
+    var allergensHtml = "";
+    var mediaHtml;
+    var hasNutrition;
+
+    if (dish.serving_weight_g) {
+      facts.push([
+        "<span>",
+        "<small>", detailLabel("weight"), "</small>",
+        "<strong>",
+        escapeHtml(dish.serving_weight_g),
+        unitSpans(" г", " g", " g"),
+        "</strong>",
+        "</span>",
+      ].join(""));
+    }
+
+    if (dish.preparation_time_minutes) {
+      facts.push([
+        "<span>",
+        "<small>", detailLabel("time"), "</small>",
+        "<strong>",
+        escapeHtml(dish.preparation_time_minutes),
+        unitSpans(" мин", " min", " dk"),
+        "</strong>",
+        "</span>",
+      ].join(""));
+    }
+
+    nutritionItems.push(
+      nutritionItem(
+        "calories",
+        dish.calories_kcal_per_serving,
+        unitSpans(" ккал", " kcal", " kcal")
+      )
+    );
+    nutritionItems.push(nutritionItem("proteins", nutrition.proteins_g, " г"));
+    nutritionItems.push(nutritionItem("fats", nutrition.fats_g, " г"));
+    nutritionItems.push(nutritionItem("carbs", nutrition.carbohydrates_g, " г"));
+    nutritionItems = nutritionItems.filter(Boolean);
+    hasNutrition = nutritionItems.length > 0;
+
+    if (dish.image_url) {
+      mediaHtml = [
+        '<div class="dish-detail__media">',
+        '<img src="', escapeAttr(dish.image_url), '" alt="">',
+        "</div>",
+      ].join("");
+    } else {
+      mediaHtml = [
+        '<div class="dish-detail__media dish-detail__media--placeholder">',
+        '<span class="dish-placeholder">', escapeHtml(dish.placeholder), "</span>",
+        "</div>",
+      ].join("");
+    }
+
+    if (Array.isArray(dish.ingredients) && dish.ingredients.length) {
+      ingredientsHtml = [
+        '<section class="dish-detail__section">',
+        "<h3>", detailLabel("ingredients"), "</h3>",
+        '<p class="dish-detail__composition">',
+        dish.ingredients.map(function (ingredient, index) {
+          return '<span>' + escapeHtml(ingredient) + '</span>'
+            + (index < dish.ingredients.length - 1 ? '<span class="dish-detail__comma">, </span>' : "");
+        }).join(""),
+        dish.has_more_ingredients
+          ? '<span class="dish-detail__comma">, </span>' + detailLabel("andMore")
+          : "",
+        "</p>",
+        "</section>",
+      ].join("");
+    }
+
+    if (Array.isArray(dish.allergens) && dish.allergens.length) {
+      allergensHtml = [
+        '<section class="dish-detail__section">',
+        "<h3>", detailLabel("allergens"), "</h3>",
+        '<div class="dish-detail__allergens">',
+        dish.allergens.map(function (allergen) {
+          return "<span>" + langSpans(allergen) + "</span>";
+        }).join(""),
+        "</div>",
+        "</section>",
+      ].join("");
+    }
+
+    return [
+      '<article class="dish-detail">',
+      mediaHtml,
+      '<div class="dish-detail__body">',
+      '<p class="dish-detail__kicker">', detailLabel("kicker"), "</p>",
+      '<h2 id="', escapeAttr(dish.title_id), '">', langSpans(dish.names), "</h2>",
+      dish.has_description
+        ? '<p class="dish-detail__description">' + langSpans(dish.descriptions) + "</p>"
+        : "",
+      facts.length ? '<div class="dish-detail__facts">' + facts.join("") + "</div>" : "",
+      hasNutrition
+        ? [
+          '<section class="dish-detail__section">',
+          "<h3>", detailLabel("nutrition"), "</h3>",
+          '<div class="dish-detail__nutrition">', nutritionItems.join(""), "</div>",
+          nutrition.is_estimated
+            ? '<p class="dish-detail__note">' + detailLabel("estimated") + "</p>"
+            : "",
+          "</section>",
+        ].join("")
+        : "",
+      ingredientsHtml,
+      allergensHtml,
+      '<div class="dish-cart-control dish-cart-control--detail"',
+      ' data-id="', escapeAttr(dish.cart_id), '"',
+      ' data-name="', escapeAttr(dish.name), '"',
+      ' data-name-ru="', escapeAttr(dish.names && dish.names.ru), '"',
+      ' data-name-en="', escapeAttr(dish.names && dish.names.en), '"',
+      ' data-name-tr="', escapeAttr(dish.names && dish.names.tr), '"',
+      ' data-price="', escapeAttr(dish.price), '"',
+      ' data-dish-cart-control>',
+      '<button class="dish-detail__add" type="button" data-add-btn',
+      ' data-id="', escapeAttr(dish.cart_id), '"',
+      ' data-name="', escapeAttr(dish.name), '"',
+      ' data-name-ru="', escapeAttr(dish.names && dish.names.ru), '"',
+      ' data-name-en="', escapeAttr(dish.names && dish.names.en), '"',
+      ' data-name-tr="', escapeAttr(dish.names && dish.names.tr), '"',
+      ' data-price="', escapeAttr(dish.price), '"',
+      ' aria-label="Add to cart: ', escapeAttr(dish.name), '">',
+      detailLabel("add"),
+      '<svg class="dish-price-button__icon" aria-hidden="true"><use href="#i-cart"/></svg>',
+      "<strong>", escapeHtml(dish.price), " ₽</strong>",
+      "</button>",
+      '<div class="dish-qty-stepper dish-qty-stepper--detail" data-dish-qty-stepper hidden>',
+      '<button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="dec"',
+      ' data-id="', escapeAttr(dish.cart_id), '" aria-label="Уменьшить количество">−</button>',
+      '<span class="dish-qty-stepper__count" data-dish-qty-count aria-live="polite">0</span>',
+      '<button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="inc"',
+      ' data-id="', escapeAttr(dish.cart_id), '" aria-label="Увеличить количество">+</button>',
+      "</div>",
+      "</div>",
+      "</div>",
+      "</article>",
+    ].join("");
+  }
+
   function openDishDetails(card) {
     if (!dishModal || !dishModalContent || !card) {
       return;
     }
 
-    var templateId = card.dataset.dishTemplate;
-    var template = templateId ? document.getElementById(templateId) : null;
+    var dish = dishDetails[card.id];
 
-    if (!template) {
+    if (!dish) {
       return;
     }
 
     lastDishTrigger = card;
-    dishModalContent.innerHTML = "";
-    dishModalContent.appendChild(template.content.cloneNode(true));
+    dishModalContent.innerHTML = buildDishDetailHtml(dish);
     document.dispatchEvent(new CustomEvent("cc:dishdetailopen"));
     dishModal.hidden = false;
     document.body.classList.add("dish-detail-open");
@@ -311,15 +589,92 @@
     scrollIntentDistance = 0;
   }
 
+  function controlsOuterHeight() {
+    var styles;
+    var marginTop;
+    var marginBottom;
+
+    if (!menuControls) {
+      return 0;
+    }
+
+    styles = window.getComputedStyle(menuControls);
+    marginTop = parseFloat(styles.marginTop) || 0;
+    marginBottom = parseFloat(styles.marginBottom) || 0;
+
+    return menuControls.offsetHeight + marginTop + marginBottom;
+  }
+
+  function setMobileControlsFixed(isFixed) {
+    if (!menuControls || !menuControlsPlaceholder) {
+      return;
+    }
+
+    if (!isMobileMenuViewport() || !isHeroMenuControls()) {
+      menuControls.classList.remove("menu-controls--mobile-fixed");
+      menuControlsPlaceholder.classList.remove("is-active");
+      menuControlsPlaceholder.style.height = "";
+      return;
+    }
+
+    if (menuControls.classList.contains("menu-controls--mobile-fixed") === isFixed) {
+      return;
+    }
+
+    if (isFixed) {
+      menuControlsPlaceholder.style.height = controlsOuterHeight() + "px";
+      menuControlsPlaceholder.classList.add("is-active");
+      menuControls.classList.add("menu-controls--mobile-fixed");
+    } else {
+      menuControls.classList.remove("menu-controls--mobile-fixed");
+      menuControlsPlaceholder.classList.remove("is-active");
+      menuControlsPlaceholder.style.height = "";
+    }
+  }
+
+  function refreshControlsFixedStart() {
+    var shouldRestoreFixed = false;
+
+    if (menuControls && menuControls.classList.contains("menu-controls--mobile-fixed")) {
+      shouldRestoreFixed = true;
+      setMobileControlsFixed(false);
+    }
+
+    controlsFixedStart = null;
+
+    if (isHeroMenuControls()) {
+      getControlsFixedStart();
+    }
+
+    if (
+      shouldRestoreFixed
+      && isMobileMenuViewport()
+      && window.scrollY >= getControlsFixedStart() + 4
+    ) {
+      setMobileControlsFixed(true);
+    }
+  }
+
+  function documentOffsetTop(element) {
+    var top = 0;
+
+    while (element) {
+      top += element.offsetTop || 0;
+      element = element.offsetParent;
+    }
+
+    return top;
+  }
+
   function getControlsFixedStart() {
     if (!isHeroMenuControls()) {
       return 0;
     }
 
-    if (!controlsFixedStart) {
+    if (controlsFixedStart === null) {
       controlsFixedStart = Math.max(
         0,
-        window.scrollY + menuControls.getBoundingClientRect().top - controlsStickyTop()
+        documentOffsetTop(menuControls) - controlsStickyTop()
       );
     }
 
@@ -327,8 +682,20 @@
   }
 
   function hasControlsReachedStickyPoint(currentScrollY) {
+    var fixedStart;
+    var isMobileFixed;
+
     if (!isHeroMenuControls()) {
       return true;
+    }
+
+    if (isMobileMenuViewport()) {
+      fixedStart = getControlsFixedStart();
+      isMobileFixed = menuControls.classList.contains("menu-controls--mobile-fixed");
+
+      return isMobileFixed
+        ? currentScrollY >= fixedStart - 18
+        : currentScrollY >= fixedStart + 8;
     }
 
     return currentScrollY >= getControlsFixedStart() + 2
@@ -342,6 +709,12 @@
 
     var hasReachedStickyPoint = hasControlsReachedStickyPoint(currentScrollY);
 
+    if (isMobileMenuViewport()) {
+      setMobileControlsFixed(hasReachedStickyPoint);
+    } else {
+      setMobileControlsFixed(false);
+    }
+
     if (!hasReachedStickyPoint) {
       shell.classList.remove("search-hidden");
     }
@@ -354,7 +727,7 @@
   }
 
   function canToggleSearchVisibility() {
-    var cooldown = isMobileMenuViewport() ? 420 : 260;
+    var cooldown = isMobileMenuViewport() ? 220 : 260;
 
     return window.performance.now() - lastSearchToggleAt > cooldown;
   }
@@ -381,20 +754,22 @@
     var delta = currentScrollY - lastScrollY;
     var direction = delta > 0 ? 1 : -1;
     var mobileViewport = isMobileMenuViewport();
-    var hideDistance = mobileViewport ? 48 : 108;
-    var showDistance = mobileViewport ? 86 : 72;
-    var minPinnedDistance = mobileViewport ? 64 : 64;
+    var hideDistance = mobileViewport ? 38 : 108;
+    var showDistance = mobileViewport ? 58 : 72;
+    var minPinnedDistance = mobileViewport ? 72 : 64;
+    var stickyStart = isHeroMenuControls() ? getControlsFixedStart() : 0;
     var activeElement = document.activeElement;
     var isSearchActive =
       activeElement && activeElement.classList.contains("menu-search-input");
     var readyToHideAfterPin = !isHeroMenuControls()
       || (
         isPinnedHeroControls
-        && currentScrollY >= getControlsFixedStart() + minPinnedDistance
+        && currentScrollY >= stickyStart + minPinnedDistance
       );
 
     if (
       keepVisibleBeforeSticky
+      || (isHeroMenuControls() && currentScrollY < stickyStart + minPinnedDistance)
       || activeQuery
       || isSearchActive
       || currentScrollY < 80
@@ -453,7 +828,7 @@
         return;
       }
 
-      controlsFixedStart = 0;
+      refreshControlsFixedStart();
       shell.classList.remove("search-hidden");
 
       resetScrollIntent();
@@ -466,6 +841,12 @@
     },
     { passive: true }
   );
+
+  window.requestAnimationFrame(function () {
+    refreshControlsFixedStart();
+    lastScrollY = window.scrollY;
+    updateSearchVisibility();
+  });
 
   function normalize(value) {
     return (value || "")

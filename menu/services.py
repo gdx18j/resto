@@ -9,6 +9,58 @@ from .translations import (
 )
 
 
+def _decimal_display(value):
+    if value is None:
+        return None
+
+    return f"{value:g}"
+
+
+def _dish_image_url(dish):
+    if not dish.image:
+        return ""
+
+    try:
+        return dish.image.url
+    except ValueError:
+        return ""
+
+
+def build_dish_detail_payload(dishes):
+    details = {}
+
+    for dish in dishes:
+        details[f"dish-{dish.id}"] = {
+            "id": dish.id,
+            "cart_id": f"dish-{dish.id}",
+            "title_id": f"dish-detail-title-{dish.id}",
+            "name": dish.name,
+            "names": dish.name_translations,
+            "descriptions": dish.description_translations,
+            "has_description": dish.has_description,
+            "image_url": _dish_image_url(dish),
+            "placeholder": dish.name[:1],
+            "price": _decimal_display(dish.price),
+            "serving_weight_g": dish.serving_weight_g,
+            "preparation_time_minutes": dish.preparation_time_minutes,
+            "calories_kcal_per_serving": dish.calories_kcal_per_serving,
+            "nutrition": {
+                "proteins_g": _decimal_display(dish.nutrition.get("proteins_g")),
+                "fats_g": _decimal_display(dish.nutrition.get("fats_g")),
+                "carbohydrates_g": _decimal_display(dish.nutrition.get("carbohydrates_g")),
+                "is_estimated": dish.nutrition.get("is_estimated", False),
+            },
+            "ingredients": dish.display_ingredients,
+            "has_more_ingredients": dish.has_more_ingredients,
+            "allergens": [
+                localized_allergen_values(allergen)
+                for allergen in dish.display_allergens
+            ],
+        }
+
+    return details
+
+
 def get_confirmed_user_allergen_ids(user):
     """
     Возвращает ID подтверждённых аллергенов пользователя.

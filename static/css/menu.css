@@ -836,6 +836,16 @@ label[for="theme-toggle"] {
   display: none !important;
 }
 
+.menu-controls-placeholder {
+  display: none;
+}
+
+.menu-controls-placeholder.is-active {
+  display: block;
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+
 @media (max-width: 619px) {
   .menu-controls {
     position: fixed;
@@ -849,7 +859,9 @@ label[for="theme-toggle"] {
   }
 
   .menu-controls + .preference-note,
-  .menu-controls + .menu-section {
+  .menu-controls + .menu-section,
+  .menu-controls + .menu-controls-placeholder + .preference-note,
+  .menu-controls + .menu-controls-placeholder + .menu-section {
     margin-top: 126px;
   }
   .menu-hero {
@@ -912,8 +924,8 @@ label[for="theme-toggle"] {
   }
 
   .menu-hero + .menu-controls {
-    position: sticky;
-    top: calc(var(--header-height) - 1px);
+    position: relative;
+    top: auto;
     left: auto;
     right: auto;
     width: 100%;
@@ -923,19 +935,30 @@ label[for="theme-toggle"] {
     contain: none;
     overflow: hidden;
     clip-path: inset(0 0 0 0 round 18px);
-    transition: border-color 180ms ease, background-color 260ms ease;
+    transition: border-color 180ms ease, background-color 260ms ease, box-shadow 180ms ease;
+  }
+
+  .menu-hero + .menu-controls.menu-controls--mobile-fixed {
+    position: fixed;
+    top: calc(var(--header-height) - 1px);
+    left: max(14px, env(safe-area-inset-left));
+    right: max(14px, env(safe-area-inset-right));
+    width: auto;
+    margin: 0;
+    z-index: 42;
   }
 
   .app-shell.search-hidden .menu-hero + .menu-controls {
     clip-path: inset(0 0 58px 0 round 18px);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.12);
   }
 
   .app-shell.search-hidden .menu-hero + .menu-controls .search-section {
     grid-template-rows: 1fr;
     opacity: 0;
     pointer-events: none;
-    transform: translateY(-8px);
-    transition: opacity 120ms ease, transform 120ms ease;
+    transform: translateY(-10px) scale(0.985);
+    transition: opacity 130ms ease, transform 150ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .app-shell.search-hidden .menu-hero + .menu-controls .search-box {
@@ -946,12 +969,15 @@ label[for="theme-toggle"] {
   }
 
   .app-shell.search-hidden .menu-hero + .menu-controls .category-row {
-    transform: translateY(-60px);
-    transition-duration: 140ms;
+    transform: translateY(-58px);
+    transition-duration: 150ms;
+    transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .menu-hero + .menu-controls + .preference-note,
-  .menu-hero + .menu-controls + .menu-section {
+  .menu-hero + .menu-controls + .menu-section,
+  .menu-hero + .menu-controls + .menu-controls-placeholder + .preference-note,
+  .menu-hero + .menu-controls + .menu-controls-placeholder + .menu-section {
     margin-top: 16px;
   }
 }

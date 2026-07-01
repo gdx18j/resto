@@ -7,6 +7,7 @@ from django.views.decorators.http import require_POST
 from .models import Category, Dish
 from .services import (
     add_allergy_conflicts_to_dishes,
+    build_dish_detail_payload,
     get_confirmed_user_allergens,
 )
 from .translations import localized_category_html
@@ -73,6 +74,7 @@ def dish_list(request):
 
     context = {
         "dishes": dishes,
+        "dish_details": build_dish_detail_payload(dishes),
         "menu_sections": menu_sections,
         "user_allergens": get_confirmed_user_allergens(request.user),
     }
