@@ -61,6 +61,8 @@ INSTALLED_APPS = [
     "accounts.apps.AccountsConfig",
     "menu.apps.MenuConfig",
     "ai_assistant",
+    "tables.apps.TablesConfig",
+    "orders.apps.OrdersConfig",
 
     "allauth",
     "allauth.account",
@@ -253,3 +255,13 @@ AI_HISTORY_LIMIT = int(
 AI_MENU_CONTEXT_LIMIT = int(
     os.getenv("AI_MENU_CONTEXT_LIMIT", "80")
 )
+
+# Оплата ЮKassa пока не подключена (нет оформленной самозанятости/ИП).
+# Заказ в orders/views.py сразу помечается оплаченным вручную —
+# см. create_order(). Когда появятся настоящие ключи ЮKassa, тут
+# нужно будет вернуть YOOKASSA_SHOP_ID/YOOKASSA_SECRET_KEY и вызов
+# create_payment() перед тем, как считать заказ оплаченным.
+
+# Полный URL сайта — нужен для генерации ссылок в QR и return_url платежа.
+# Для локальной разработки оставьте localhost:8000, для прода поставьте реальный домен.
+SITE_URL = os.getenv("SITE_URL", "http://localhost:8000")

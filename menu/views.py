@@ -1,4 +1,6 @@
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
+
+from tables.models import Table
 
 from .models import Category, Dish
 from .services import (
@@ -8,7 +10,19 @@ from .services import (
 from .translations import localized_category_html
 
 
-def dish_list(request):
+def dish_list(request, qr_token=None):
+    if qr_token:
+        # Открыто по QR стола — запоминаем стол в сессии
+        table = get_object_or_404(Table, qr_token=qr_token, is_active=True)
+        request.session["table_id"] = table.id
+        request.session["table_number"] = table.number
+    else:
+        # Обычный переход на главную (логотип, прямой URL) — сбрасываем стол
+        request.session.pop("table_id", None)
+        request.session.pop("table_number", None)
+
+    current_table_number = request.session.get("table_number")
+
     dishes = (
         Dish.objects.filter(
             is_active=True,
@@ -70,6 +84,7 @@ def dish_list(request):
         "dishes": dishes,
         "menu_sections": menu_sections,
         "user_allergens": get_confirmed_user_allergens(request.user),
+        "current_table_number": current_table_number,
     }
 
     return render(

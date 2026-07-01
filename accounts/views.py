@@ -3,6 +3,8 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 
 from menu.translations import localized_allergen_html
+from orders.models import Order
+from orders.views import _order_items_json
 
 from .forms import AllergyPreferencesForm
 from .models import UserAllergy
@@ -23,8 +25,18 @@ def profile(request):
             record.allergen
         )
 
+    recent_orders = list(
+        Order.objects.filter(user=request.user)
+        .exclude(status=Order.STATUS_DRAFT)
+        .prefetch_related("items")
+        .order_by("-created_at")[:2]
+    )
+    for order in recent_orders:
+        order.items_json = _order_items_json(order)
+
     context = {
         "allergy_records": allergy_records,
+        "recent_orders": recent_orders,
     }
 
     return render(

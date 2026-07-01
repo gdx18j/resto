@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}{% if order.status == "paid" or order.status == "sent_to_kitchen" %}Заказ оплачен{% else %}Статус заказа{% endif %} | Caesar &amp; Company{% endblock %}
+
+{% block content %}
+<div class="order-success">
+  {% if order.status == "paid" or order.status == "sent_to_kitchen" %}
+    <div class="order-success__icon order-success__icon--ok">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <span class="order-success__badge">Заказ №{{ order.id }}</span>
+    <h1>Спасибо за оплату!</h1>
+    <p class="order-success__sub">
+      Заказ{% if order.table %} со стола {{ order.table.number }}{% endif %} передан на кухню.<br>
+      Ожидайте, пожалуйста — официант скоро подойдёт.
+    </p>
+  {% elif order.status == "pending" %}
+    <div class="order-success__icon order-success__icon--pending">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
+        <path d="M12 7v5l3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <span class="order-success__badge">Заказ №{{ order.id }}</span>
+    <h1>Платёж обрабатывается</h1>
+    <p class="order-success__sub">
+      Заказ ещё не подтверждён банком. Обновите страницу через несколько секунд.
+    </p>
+  {% else %}
+    <div class="order-success__icon order-success__icon--error">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <span class="order-success__badge">Заказ №{{ order.id }}</span>
+    <h1>Оплата не прошла</h1>
+    <p class="order-success__sub">
+      Заказ не был оплачен. Вернитесь в меню и попробуйте оформить заказ ещё раз.
+    </p>
+  {% endif %}
+
+  <div class="order-success__items">
+    {% for item in order.items.all %}
+      <div class="order-success__item">
+        <span>{{ item.dish_name }} × {{ item.qty }}</span>
+        <span>{{ item.subtotal }} ₽</span>
+      </div>
+    {% endfor %}
+    <div class="order-success__total">
+      <span>Итого</span>
+      <span>{{ order.total }} ₽</span>
+    </div>
+  </div>
+
+  <div class="order-success__actions">
+    <button type="button" class="secondary-button" data-repeat-order data-items="{{ items_json }}">
+      Повторить заказ
+    </button>
+    <a class="primary-button order-success__back" href="{% url 'menu:dish_list' %}">Вернуться в меню</a>
+  </div>
+</div>
+{% endblock %}

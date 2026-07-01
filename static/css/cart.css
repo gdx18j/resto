@@ -474,13 +474,13 @@
 }
 
 /* Кнопки оплаты */
-.cart-pay-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cart-pay-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 .cart-pay-btn {
-  min-height: 52px; padding: 0 14px;
-  display: flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 52px; padding: 0 8px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
   border: 1px solid var(--line); border-radius: 12px;
   color: var(--text-soft); background: var(--surface);
-  font-size: 14px; font-weight: 700; cursor: pointer;
+  font-size: 13px; font-weight: 700; cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition: color 160ms ease, border-color 160ms ease, background-color 200ms ease;
@@ -756,4 +756,58 @@
                 opacity 210ms ease,
                 transform 260ms cubic-bezier(0.22,1,0.36,1);
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ORDER DETAILS MODAL (профиль / история заказов)
+   ═══════════════════════════════════════════════════════════════ */
+.order-modal-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 299;
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+.order-modal-backdrop.is-open {
+  display: block;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.order-modal {
+  position: fixed;
+  z-index: 300;
+  left: 50%;
+  top: 50%;
+  width: min(440px, calc(100vw - 32px));
+  max-height: min(640px, 86dvh);
+  overflow-y: auto;
+  transform: translate(-50%, -46%) scale(0.96);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  background: var(--surface);
+  border-radius: calc(var(--radius) + 6px);
+  border: 1px solid var(--line);
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.4);
+  padding: 22px 20px 24px;
+  transition: opacity 220ms ease, transform 220ms ease, visibility 0ms linear 220ms;
+}
+.order-modal.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+  transition: opacity 220ms ease, transform 220ms ease, visibility 0ms linear 0ms;
+}
+.order-modal__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+.order-modal__body {
+  padding-top: 4px;
 }

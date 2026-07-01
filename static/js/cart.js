@@ -20,6 +20,60 @@
   function qs(sel, root) { return (root || document).querySelector(sel); }
   function qsa(sel, root) { return Array.from((root || document).querySelectorAll(sel)); }
 
+  function getCsrfToken() {
+    var meta = document.querySelector('[name=csrfmiddlewaretoken]');
+    if (meta) return meta.value;
+    var cookie = document.cookie.split(';').find(function (c) { return c.trim().startsWith('csrftoken='); });
+    return cookie ? cookie.trim().split('=')[1] : '';
+  }
+
+  function submitOrder() {
+    var btn = els.submitBtn;
+    if (!btn || btn.disabled) return;
+
+    var originalHtml = els.submitBtnDefaultHTML || btn.innerHTML;
+    btn.disabled = true;
+    btn.textContent = 'Создаём заказ...';
+
+    var payload = {
+      items: cart.items,
+      comment: cart.comment || '',
+      guests_count: cart.persons || 1,
+      payment_method: cart.payment || 'card',
+    };
+
+    fetch('/orders/create/', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCsrfToken(),
+      },
+      body: JSON.stringify(payload),
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.confirmation_url) {
+          cart.items = {};
+          save();
+          window.location.href = data.confirmation_url;
+        } else {
+          btn.textContent = data.error || 'Ошибка, попробуйте снова';
+          btn.disabled = false;
+          setTimeout(function () {
+            btn.innerHTML = originalHtml;
+          }, 3000);
+        }
+      })
+      .catch(function () {
+        btn.textContent = 'Ошибка сети';
+        btn.disabled = false;
+        setTimeout(function () {
+          btn.innerHTML = originalHtml;
+        }, 3000);
+      });
+  }
+
   var translations = {
     ru: {
       itemOne: 'товар',
@@ -361,6 +415,23 @@
     renderAll();
   };
 
+  window.CaesarCart.repeatOrder = function (items) {
+    if (!Array.isArray(items) || items.length === 0) return false;
+
+    var stamp = Date.now();
+    items.forEach(function (item, index) {
+      if (!item || !item.name || item.price === undefined) return;
+      var qty = Math.max(1, parseInt(item.qty, 10) || 1);
+      var id = 'repeat-' + stamp + '-' + index;
+      cart.items[id] = { name: String(item.name), price: Number(item.price), qty: qty };
+    });
+
+    save();
+    renderAll();
+    openPanel();
+    return true;
+  };
+
   function changeQty(id, delta) {
     if (!cart.items[id]) return;
     cart.items[id].qty += delta;
@@ -561,6 +632,35 @@
       return;
     }
 
+    // Закрыть модалку с деталями заказа
+    if (target.closest('[data-order-modal-close]')) {
+      closeOrderModal();
+      return;
+    }
+
+    // Клик по строке заказа (профиль / история) — открыть детали
+    var orderTrigger = target.closest('[data-order-trigger]');
+    if (orderTrigger && !target.closest('[data-repeat-order]')) {
+      openOrderModal(orderTrigger.dataset.orderId);
+      return;
+    }
+
+    // Повторить заказ (история заказов / профиль / страница успеха)
+    var repeatBtn = target.closest('[data-repeat-order]');
+    if (repeatBtn) {
+      e.preventDefault();
+      var items;
+      try {
+        items = JSON.parse(repeatBtn.dataset.items || '[]');
+      } catch (err) {
+        items = null;
+      }
+      if (items) {
+        window.CaesarCart && window.CaesarCart.repeatOrder(items);
+      }
+      return;
+    }
+
     // Quantity +/-
     var qtyBtn = target.closest('[data-action][data-id]');
     if (qtyBtn && els.panel && els.panel.contains(qtyBtn)) {
@@ -621,7 +721,7 @@
     var payBtn = target.closest('[data-pay]');
     if (payBtn) {
       cart.payment = payBtn.dataset.pay;
-      save(); syncPaymentUI();
+      save(); syncPaymentUI(); updateSubmit();
       return;
     }
   }
@@ -634,7 +734,21 @@
   }
 
   function handleKeydown(e) {
-    if (e.key === 'Escape') closePanel();
+    if (e.key === 'Escape') {
+      if (els.orderModal && els.orderModal.classList.contains('is-open')) {
+        closeOrderModal();
+        return;
+      }
+      closePanel();
+      return;
+    }
+    if (e.key === 'Enter' || e.key === ' ') {
+      var trigger = e.target.closest && e.target.closest('[data-order-trigger]');
+      if (trigger) {
+        e.preventDefault();
+        openOrderModal(trigger.dataset.orderId);
+      }
+    }
   }
 
   /* ─── Prepare price buttons on dish cards ─────────────────────── */
@@ -780,6 +894,12 @@
       '        <span class="lang lang--en">Card</span>',
       '        <span class="lang lang--tr">Kart</span>',
       '      </button>',
+      '      <button class="cart-pay-btn" data-pay="online">',
+      '        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4"/></svg>',
+      '        <span class="lang lang--ru">Онлайн</span>',
+      '        <span class="lang lang--en">Online</span>',
+      '        <span class="lang lang--tr">Online</span>',
+      '      </button>',
       '      <button class="cart-pay-btn" data-pay="cash">',
       '        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M6 7V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"/></svg>',
       '        <span class="lang lang--ru">Наличными</span>',
@@ -832,12 +952,60 @@
     els.lineList = panel.querySelector('[data-lines]');
     els.extras = panel.querySelector('[data-cart-extras]');
     els.submitBtn = panel.querySelector('.cart-submit-btn');
+    if (els.submitBtn) {
+      els.submitBtnDefaultHTML = els.submitBtn.innerHTML;
+      els.submitBtn.addEventListener('click', submitOrder);
+    }
+
+    // ── Модалка с деталями заказа (профиль / история заказов) ─────
+    var orderModalBackdrop = document.createElement('div');
+    orderModalBackdrop.className = 'order-modal-backdrop';
+    orderModalBackdrop.setAttribute('data-order-modal-close', '');
+    shell.appendChild(orderModalBackdrop);
+    els.orderModalBackdrop = orderModalBackdrop;
+
+    var orderModal = document.createElement('div');
+    orderModal.className = 'order-modal';
+    orderModal.setAttribute('role', 'dialog');
+    orderModal.setAttribute('aria-modal', 'true');
+    orderModal.setAttribute('aria-label', 'Детали заказа');
+    orderModal.innerHTML = [
+      '<button type="button" class="close-button order-modal__close" data-order-modal-close aria-label="Закрыть">',
+      '  <svg viewBox="0 0 24 24"><path d="m5 5 14 14M19 5 5 19"/></svg>',
+      '</button>',
+      '<div class="order-modal__body" data-order-modal-body></div>',
+    ].join('');
+    shell.appendChild(orderModal);
+    els.orderModal = orderModal;
+    els.orderModalBody = orderModal.querySelector('[data-order-modal-body]');
+  }
+
+  function openOrderModal(orderId) {
+    var tpl = document.querySelector('[data-order-details-template="' + orderId + '"]');
+    if (!tpl || !els.orderModal || !els.orderModalBody) return;
+    els.orderModalBody.innerHTML = '';
+    els.orderModalBody.appendChild(tpl.content.cloneNode(true));
+    els.orderModal.classList.add('is-open');
+    if (els.orderModalBackdrop) els.orderModalBackdrop.classList.add('is-open');
+    document.body.style.overflow = 'hidden';
+    setTimeout(function () {
+      var f = qs('button, [tabindex="0"]', els.orderModal);
+      if (f) f.focus();
+    }, 80);
+  }
+
+  function closeOrderModal() {
+    if (!els.orderModal) return;
+    els.orderModal.classList.remove('is-open');
+    if (els.orderModalBackdrop) els.orderModalBackdrop.classList.remove('is-open');
+    var panelOpen = els.panel && els.panel.classList.contains('cart-panel--open');
+    if (!panelOpen) document.body.style.overflow = '';
   }
 
   /* ─── Submit button state ─────────────────────────────────────── */
   function updateSubmit() {
     if (!els.submitBtn) return;
-    els.submitBtn.disabled = totalItems() === 0;
+    els.submitBtn.disabled = totalItems() === 0 || !cart.payment;
   }
 
   var _renderAll = renderAll;
@@ -869,6 +1037,19 @@
       attachDishButtons();
       syncDishControls();
       syncLocalizedText();
+    });
+
+    // Страница может быть восстановлена браузером из bfcache — например,
+    // если гость нажал «Назад» со страницы «Спасибо за заказ». Без этого
+    // кнопка «Оформить заказ» могла остаться в состоянии
+    // "Создаём заказ..." / disabled, будто заказ всё ещё загружается.
+    window.addEventListener('pageshow', function (event) {
+      if (!event.persisted) return;
+      load();
+      if (els.submitBtn && els.submitBtnDefaultHTML) {
+        els.submitBtn.innerHTML = els.submitBtnDefaultHTML;
+      }
+      renderAll();
     });
   }
 

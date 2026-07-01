@@ -35,6 +35,10 @@ done
 echo "Applying database migrations..."
 python manage.py migrate --noinput
 
+echo "Importing menu data (if empty)..."
+python manage.py import_caesar_menu --skip-if-exists 2>/dev/null || python manage.py import_caesar_menu || echo "Menu import skipped or already done."
+python manage.py import_caesar_images 2>/dev/null || echo "Image import skipped."
+
 echo "Collecting static files..."
 python manage.py collectstatic --noinput --clear
 

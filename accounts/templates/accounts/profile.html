@@ -5,6 +5,7 @@
 
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'css/accounts.css' %}">
+  <link rel="stylesheet" href="{% static 'css/order_history.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -56,6 +57,97 @@
           <span class="lang lang--en">No restrictions have been added yet.</span>
           <span class="lang lang--tr">Henüz kısıtlama eklenmedi.</span>
         </p>
+      {% endif %}
+    </section>
+
+    <section class="account-section">
+      <div class="account-section-header">
+        <h2>
+          <span class="lang lang--ru">Заказы</span>
+          <span class="lang lang--en">Orders</span>
+          <span class="lang lang--tr">Siparişler</span>
+        </h2>
+        <a href="{% url 'orders:history' %}" class="account-link">
+          <span class="lang lang--ru">История заказов</span>
+          <span class="lang lang--en">Order history</span>
+          <span class="lang lang--tr">Sipariş geçmişi</span>
+        </a>
+      </div>
+
+      {% if recent_orders %}
+        <div class="profile-recent-orders">
+          {% for order in recent_orders %}
+            <div
+              class="profile-recent-order"
+              data-order-trigger
+              data-order-id="{{ order.id }}"
+              tabindex="0"
+              role="button"
+              aria-haspopup="dialog"
+              aria-label="Подробности заказа №{{ order.id }}"
+            >
+              <div class="profile-recent-order__main">
+                <span class="profile-recent-order__id">Заказ №{{ order.id }}</span>
+                <span class="profile-recent-order__meta">{{ order.created_at|date:"d.m.Y, H:i" }} · {{ order.get_status_display }}</span>
+              </div>
+              <div class="profile-recent-order__right">
+                <span class="profile-recent-order__total">{{ order.total }} ₽</span>
+                <button
+                  type="button"
+                  class="profile-recent-order__repeat"
+                  data-repeat-order
+                  data-items="{{ order.items_json }}"
+                >
+                  Повторить
+                </button>
+              </div>
+            </div>
+            <template data-order-details-template="{{ order.id }}">
+              <div class="order-modal__head">
+                <span class="order-modal__id">Заказ №{{ order.id }}</span>
+                <span class="order-history-status order-history-status--{{ order.status }}">
+                  {{ order.get_status_display }}
+                </span>
+              </div>
+              <div class="order-modal__meta">
+                <span>{{ order.created_at|date:"d.m.Y, H:i" }}</span>
+                {% if order.table %}<span>Стол {{ order.table.number }}</span>{% endif %}
+                <span>{{ order.guests_count }} перс.</span>
+              </div>
+              <div class="order-history-item__dishes">
+                {% for item in order.items.all %}
+                  <div class="order-history-item__dish-row">
+                    <span>{{ item.dish_name }} × {{ item.qty }}</span>
+                    <span>{{ item.subtotal }} ₽</span>
+                  </div>
+                {% endfor %}
+              </div>
+              <div class="order-modal__total">
+                <span>Итого</span>
+                <span>{{ order.total }} ₽</span>
+              </div>
+              <div class="order-history-item__info">
+                <span>Способ оплаты: {{ order.get_payment_method_display|default:"—" }}</span>
+                {% if order.paid_at %}<span>Оплачен: {{ order.paid_at|date:"d.m.Y, H:i" }}</span>{% endif %}
+              </div>
+              {% if order.comment %}
+                <div class="order-history-item__comment">
+                  <span class="order-history-item__comment-label">Комментарий:</span> {{ order.comment }}
+                </div>
+              {% endif %}
+              <button
+                type="button"
+                class="primary-button order-modal__repeat"
+                data-repeat-order
+                data-items="{{ order.items_json }}"
+              >
+                Повторить заказ
+              </button>
+            </template>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="account-muted">Заказов пока не было.</p>
       {% endif %}
     </section>
   </section>

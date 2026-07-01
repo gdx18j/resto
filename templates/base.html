@@ -77,6 +77,13 @@
           </span>
         </a>
 
+        {% if request.session.table_number %}
+          <span class="table-badge" title="Ваш стол">
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14"><path d="M3 9h18M3 9l1.5 11h15L21 9M3 9l1-5h16l1 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Стол {{ request.session.table_number }}
+          </span>
+        {% endif %}
+
         <div class="header-actions">
           <label class="nav-button waiter-button" for="waiter-toggle" aria-label="Позвать официанта">
             <svg><use href="#i-bell"/></svg>
@@ -227,6 +234,11 @@
               <span class="lang lang--ru">Аллергии</span>
               <span class="lang lang--en">Allergies</span>
               <span class="lang lang--tr">Alerjiler</span>
+            </a>
+            <a class="profile-popover__secondary" href="{% url 'orders:history' %}">
+              <span class="lang lang--ru">История заказов</span>
+              <span class="lang lang--en">Order history</span>
+              <span class="lang lang--tr">Sipariş geçmişi</span>
             </a>
           </div>
 
