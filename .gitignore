@@ -1,47 +1,78 @@
-# Environment variables and secrets
+# ── Environment variables and secrets ───────────────────────────
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+secrets.json
 
-# Python
+# ── Python ───────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+*.egg-info/
+.eggs/
+build/
+dist/
 
-# Virtual environments
+# ── Virtual environments ────────────────────────────────────────
 .venv/
 venv/
 env/
+ENV/
 
-# Django
+# ── Django ───────────────────────────────────────────────────────
 *.log
-db.sqlite3
-db.sqlite3-journal
+local_settings.py
 staticfiles/
 media/
 mediafiles/
 
-# Testing and coverage
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Type checking and linters
-.mypy_cache/
-.ruff_cache/
-
-# IDE
-.idea/
-.vscode/
-
-# Operating systems
-.DS_Store
-Thumbs.db
-
-# Local PostgreSQL data
-postgres_data/
-
-# Local SQLite database
+# ── SQLite (на случай если где-то используется вместо Postgres) ──
 db.sqlite3
 db.sqlite3-journal
+*.sqlite3
+
+# ── Postgres / Docker volumes ───────────────────────────────────
+postgres_data/
+pgdata/
+docker-compose.override.yml
+
+# ── Celery (если появится в проекте) ────────────────────────────
+celerybeat-schedule
+celerybeat.pid
+
+# ── Testing and coverage ────────────────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+nosetests.xml
+coverage.xml
+
+# ── Type checking and linters ───────────────────────────────────
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+
+# ── Node / фронтенд-тулинг (на будущее, если появится) ──────────
+node_modules/
+npm-debug.log*
+
+# ── IDE ──────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Operating systems ────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Разное ─────────────────────────────────────────────────────
+*.bak
+*.tmp
+.cache/
