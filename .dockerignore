@@ -22,5 +22,8 @@ env
 .DS_Store
 node_modules
 npm-debug.log
+*.log
+.tmp-*
+tmp-*.png
 staticfiles
 mediafiles

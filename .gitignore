@@ -22,6 +22,10 @@ staticfiles/
 media/
 mediafiles/
 
+# Browser/test scratch data
+.tmp-*/
+tmp-*.png
+
 # Testing and coverage
 .pytest_cache/
 .coverage

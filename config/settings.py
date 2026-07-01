@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     "accounts.apps.AccountsConfig",
     "menu.apps.MenuConfig",
     "ai_assistant",
+    "orders.apps.OrdersConfig",
 
     "allauth",
     "allauth.account",
