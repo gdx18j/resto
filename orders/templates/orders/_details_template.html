@@ -1,48 +1,67 @@
 <template data-order-details-template="{{ order.id }}">
   <div class="order-modal__head">
-    <span class="order-modal__id">
-      <span class="lang lang--ru">Заказ №{{ order.id }}</span>
-      <span class="lang lang--en">Order #{{ order.id }}</span>
-      <span class="lang lang--tr">Sipariş #{{ order.id }}</span>
-    </span>
+    <div>
+      <span class="order-modal__kicker">
+        <span class="lang lang--ru">Детали заказа</span>
+        <span class="lang lang--en">Order details</span>
+        <span class="lang lang--tr">Sipariş detayları</span>
+      </span>
+      <strong class="order-modal__id">
+        <span class="lang lang--ru">Заказ №{{ order.id }}</span>
+        <span class="lang lang--en">Order #{{ order.id }}</span>
+        <span class="lang lang--tr">Sipariş #{{ order.id }}</span>
+      </strong>
+    </div>
     <span class="order-history-status order-history-status--{{ order.status }}">
-      {{ order.get_status_display }}
+      {{ order.status_label }}
     </span>
   </div>
 
-  <div class="order-modal__meta">
-    <span>{{ order.created_at|date:"d.m.Y, H:i" }}</span>
+  <div class="order-progress" aria-label="Статус заказа">
+    {% for step in order.status_steps %}
+      <span class="order-progress__step order-progress__step--{{ step.state }}">
+        <span class="order-progress__dot"></span>
+        <span>{{ step.label }}</span>
+      </span>
+    {% endfor %}
+  </div>
+
+  <div class="order-facts">
+    <span>{{ order.created_at|date:"d.m.Y" }} · {{ order.created_at|date:"H:i" }}</span>
     {% if order.table %}<span>Стол {{ order.table.number }}</span>{% endif %}
     <span>{{ order.guests_count }} перс.</span>
+    {% if order.primary_payment %}<span>{{ order.primary_payment.get_method_display }}</span>{% endif %}
   </div>
 
-  <div class="order-history-item__dishes">
+  <div class="order-receipt">
     {% for item in order.items.all %}
-      <div class="order-history-item__dish-row">
-        <span>{{ item.dish_name }} × {{ item.quantity }}</span>
-        <span>{{ item.line_total }} ₽</span>
+      <div class="order-receipt__row">
+        <span class="order-receipt__name">{{ item.dish_name }}</span>
+        <span class="order-receipt__qty">× {{ item.quantity }}</span>
+        <strong>{{ item.line_total }} ₽</strong>
       </div>
     {% endfor %}
   </div>
 
-  <div class="order-modal__total">
-    <span>Итого</span>
-    <span>{{ order.total_amount }} ₽</span>
-  </div>
-
-  <div class="order-history-item__info">
-    <span>Статус: {{ order.get_status_display }}</span>
-    <span>Персон: {{ order.guests_count }}</span>
-    {% if order.payments.first %}
-      <span>Оплата: {{ order.payments.first.get_method_display }}</span>
-    {% endif %}
-  </div>
-
   {% if order.comment %}
-    <div class="order-history-item__comment">
-      <span class="order-history-item__comment-label">Комментарий:</span> {{ order.comment }}
+    <div class="order-note">
+      <span class="order-note__label">
+        <span class="lang lang--ru">Комментарий</span>
+        <span class="lang lang--en">Comment</span>
+        <span class="lang lang--tr">Not</span>
+      </span>
+      <p>{{ order.comment }}</p>
     </div>
   {% endif %}
+
+  <div class="order-modal__total">
+    <span>
+      <span class="lang lang--ru">Итого</span>
+      <span class="lang lang--en">Total</span>
+      <span class="lang lang--tr">Toplam</span>
+    </span>
+    <strong>{{ order.total_amount }} ₽</strong>
+  </div>
 
   <button
     type="button"

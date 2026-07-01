@@ -9,70 +9,135 @@
 {% endblock %}
 
 {% block content %}
-  <section class="account-page">
+  <section class="order-history-page">
     <a href="{% url 'accounts:profile' %}" class="account-back-link">
       <span class="lang lang--ru">← В профиль</span>
       <span class="lang lang--en">← To profile</span>
       <span class="lang lang--tr">← Profile dön</span>
     </a>
 
-    <header class="account-hero">
-      <h1>
-        <span class="lang lang--ru">История заказов</span>
-        <span class="lang lang--en">Order history</span>
-        <span class="lang lang--tr">Sipariş geçmişi</span>
-      </h1>
+    <header class="order-history-hero">
+      <p class="order-history-kicker">
+        <span class="lang lang--ru">Аккаунт</span>
+        <span class="lang lang--en">Account</span>
+        <span class="lang lang--tr">Hesap</span>
+      </p>
+      <div class="order-history-hero__main">
+        <div>
+          <h1>
+            <span class="lang lang--ru">История заказов</span>
+            <span class="lang lang--en">Order history</span>
+            <span class="lang lang--tr">Sipariş geçmişi</span>
+          </h1>
+          <p>
+            <span class="lang lang--ru">Все ваши заказы, статусы и быстрый повтор любимых позиций.</span>
+            <span class="lang lang--en">Your orders, statuses, and quick repeats in one place.</span>
+            <span class="lang lang--tr">Siparişleriniz, durumları ve hızlı tekrar burada.</span>
+          </p>
+        </div>
+        {% if orders %}
+          <span class="order-history-count">
+            <strong>{{ orders|length }}</strong>
+            <span class="lang lang--ru">заказов</span>
+            <span class="lang lang--en">orders</span>
+            <span class="lang lang--tr">sipariş</span>
+          </span>
+        {% endif %}
+      </div>
     </header>
 
     {% if orders %}
       <div class="order-history-list">
-        {% for order in orders %}
-          <article
-            class="order-history-item"
-            data-order-trigger
-            data-order-id="{{ order.id }}"
-            tabindex="0"
-            role="button"
-            aria-haspopup="dialog"
-            aria-label="Подробности заказа №{{ order.id }}"
-          >
-            <div class="order-history-item__top">
-              <span class="order-history-item__id">
-                <span class="lang lang--ru">Заказ №{{ order.id }}</span>
-                <span class="lang lang--en">Order #{{ order.id }}</span>
-                <span class="lang lang--tr">Sipariş #{{ order.id }}</span>
-              </span>
-              <span class="order-history-status order-history-status--{{ order.status }}">
-                {{ order.get_status_display }}
-              </span>
-            </div>
+        {% regroup orders by created_at|date:"d E Y" as order_days %}
+        {% for day in order_days %}
+          <section class="order-history-day" aria-label="{{ day.grouper }}">
+            <div class="order-history-day__label">{{ day.grouper }}</div>
 
-            <div class="order-history-item__meta">
-              <span>{{ order.created_at|date:"d.m.Y, H:i" }}</span>
-              {% if order.table %}<span>· Стол {{ order.table.number }}</span>{% endif %}
-              <span>· {{ order.items.count }} поз.</span>
-            </div>
+            {% for order in day.list %}
+              <article
+                class="order-history-card"
+                data-order-trigger
+                data-order-id="{{ order.id }}"
+                tabindex="0"
+                role="button"
+                aria-haspopup="dialog"
+                aria-label="Подробности заказа №{{ order.id }}"
+              >
+                <div class="order-history-card__main">
+                  <div class="order-history-card__head">
+                    <div>
+                      <span class="order-history-card__eyebrow">
+                        <span class="lang lang--ru">Заказ №{{ order.id }}</span>
+                        <span class="lang lang--en">Order #{{ order.id }}</span>
+                        <span class="lang lang--tr">Sipariş #{{ order.id }}</span>
+                      </span>
+                      <strong class="order-history-card__title">
+                        {% for item in order.preview_items %}
+                          {{ item.dish_name }}{% if not forloop.last %}, {% endif %}
+                        {% endfor %}
+                        {% if order.hidden_items_count %}+{{ order.hidden_items_count }}{% endif %}
+                      </strong>
+                    </div>
+                    <span class="order-history-status order-history-status--{{ order.status }}">
+                      {{ order.status_label }}
+                    </span>
+                  </div>
 
-            <div class="order-history-item__bottom">
-              <span class="order-history-item__total">{{ order.total_amount }} ₽</span>
-              <span class="order-history-item__chevron" aria-hidden="true"></span>
-            </div>
-          </article>
+                  <div class="order-history-card__meta">
+                    <span>{{ order.created_at|date:"H:i" }}</span>
+                    {% if order.table %}<span>Стол {{ order.table.number }}</span>{% endif %}
+                    <span>{{ order.items_count }} поз.</span>
+                    {% if order.primary_payment %}<span>{{ order.primary_payment.get_method_display }}</span>{% endif %}
+                  </div>
 
-          {% include "orders/_details_template.html" with order=order %}
+                  <div class="order-history-mini">
+                    {% for item in order.preview_items %}
+                      <span>{{ item.dish_name }} × {{ item.quantity }}</span>
+                    {% endfor %}
+                  </div>
+                </div>
+
+                <div class="order-history-card__side">
+                  <strong class="order-history-card__total">{{ order.total_amount }} ₽</strong>
+                  <button
+                    type="button"
+                    class="order-history-repeat"
+                    data-repeat-order
+                    data-items="{{ order.items_json }}"
+                  >
+                    <span class="lang lang--ru">Повторить</span>
+                    <span class="lang lang--en">Repeat</span>
+                    <span class="lang lang--tr">Tekrarla</span>
+                  </button>
+                </div>
+              </article>
+
+              {% include "orders/_details_template.html" with order=order %}
+            {% endfor %}
+          </section>
         {% endfor %}
       </div>
     {% else %}
-      <p class="account-muted">
-        <span class="lang lang--ru">Пока нет ни одного заказа.</span>
-        <span class="lang lang--en">There are no orders yet.</span>
-        <span class="lang lang--tr">Henüz sipariş yok.</span>
-      </p>
-      <a href="{% url 'menu:dish_list' %}" class="primary-button">
-        <span class="lang lang--ru">В меню</span>
-        <span class="lang lang--en">Open menu</span>
-        <span class="lang lang--tr">Menüyü aç</span>
-      </a>
+      <div class="order-empty">
+        <div class="order-empty__mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4ZM3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+        </div>
+        <h2>
+          <span class="lang lang--ru">Заказов пока нет</span>
+          <span class="lang lang--en">No orders yet</span>
+          <span class="lang lang--tr">Henüz sipariş yok</span>
+        </h2>
+        <p>
+          <span class="lang lang--ru">Когда вы оформите первый заказ, здесь появятся его статус, состав и быстрый повтор.</span>
+          <span class="lang lang--en">Once you place an order, its status, items, and repeat action will appear here.</span>
+          <span class="lang lang--tr">İlk siparişten sonra durum, ürünler ve tekrar işlemi burada görünür.</span>
+        </p>
+        <a href="{% url 'menu:dish_list' %}" class="primary-button">
+          <span class="lang lang--ru">Открыть меню</span>
+          <span class="lang lang--en">Open menu</span>
+          <span class="lang lang--tr">Menüyü aç</span>
+        </a>
+      </div>
     {% endif %}
   </section>
 {% endblock %}

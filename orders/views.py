@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
 from .models import Order
-from .presentation import decorate_orders, order_items_json
+from .presentation import decorate_order, decorate_orders
 from .services import (
     CartValidationError,
     create_order_from_payload,
@@ -94,7 +94,7 @@ def success(request, order_id):
     if not _order_visible_to_request(order, request):
         return JsonResponse({"ok": False, "error": "Заказ не найден."}, status=404)
 
-    order.items_json = order_items_json(order)
+    decorate_order(order)
 
     return render(
         request,

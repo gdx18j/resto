@@ -1,5 +1,18 @@
 import json
 
+from .models import Order
+
+
+STATUS_LABELS = {
+    Order.Status.CREATED: "Создан",
+    Order.Status.CONFIRMED: "Подтвержден",
+    Order.Status.COOKING: "Готовится",
+    Order.Status.READY: "Готов",
+    Order.Status.SERVED: "Подан",
+    Order.Status.COMPLETED: "Завершен",
+    Order.Status.CANCELED: "Отменен",
+}
+
 
 def order_items_json(order):
     items = []
@@ -18,8 +31,58 @@ def order_items_json(order):
     return json.dumps(items, ensure_ascii=False).replace("</", "<\\/")
 
 
+def _status_steps(order):
+    if order.status == Order.Status.CANCELED:
+        return [
+            {
+                "key": Order.Status.CANCELED,
+                "label": STATUS_LABELS[Order.Status.CANCELED],
+                "state": "current",
+            }
+        ]
+
+    try:
+        current_index = Order.FLOW.index(order.status)
+    except ValueError:
+        current_index = 0
+
+    steps = []
+    for index, status in enumerate(Order.FLOW):
+        if index < current_index:
+            state = "done"
+        elif index == current_index:
+            state = "current"
+        else:
+            state = "future"
+
+        steps.append(
+            {
+                "key": status,
+                "label": STATUS_LABELS.get(status, status),
+                "state": state,
+            }
+        )
+
+    return steps
+
+
+def decorate_order(order):
+    items = list(order.items.all())
+    payments = list(order.payments.all())
+
+    order.items_json = order_items_json(order)
+    order.items_count = sum(item.quantity for item in items)
+    order.preview_items = items[:2]
+    order.hidden_items_count = max(0, len(items) - len(order.preview_items))
+    order.primary_payment = payments[0] if payments else None
+    order.status_label = STATUS_LABELS.get(order.status, order.get_status_display())
+    order.status_steps = _status_steps(order)
+
+    return order
+
+
 def decorate_orders(orders):
     for order in orders:
-        order.items_json = order_items_json(order)
+        decorate_order(order)
 
     return orders

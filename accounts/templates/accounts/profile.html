@@ -68,9 +68,9 @@
           <span class="lang lang--tr">Siparişler</span>
         </h2>
         <a href="{% url 'orders:history' %}" class="account-link">
-          <span class="lang lang--ru">История</span>
-          <span class="lang lang--en">History</span>
-          <span class="lang lang--tr">Geçmiş</span>
+          <span class="lang lang--ru">Все заказы</span>
+          <span class="lang lang--en">All orders</span>
+          <span class="lang lang--tr">Tüm siparişler</span>
         </a>
       </div>
 
@@ -93,10 +93,19 @@
                   <span class="lang lang--tr">Sipariş #{{ order.id }}</span>
                 </span>
                 <span class="profile-recent-order__meta">
-                  {{ order.created_at|date:"d.m.Y, H:i" }} · {{ order.get_status_display }}
+                  {{ order.created_at|date:"d.m.Y, H:i" }} · {{ order.status_label }}
+                </span>
+                <span class="profile-recent-order__items">
+                  {% for item in order.preview_items %}
+                    {{ item.dish_name }}{% if not forloop.last %}, {% endif %}
+                  {% endfor %}
+                  {% if order.hidden_items_count %}+{{ order.hidden_items_count }}{% endif %}
                 </span>
               </div>
               <div class="profile-recent-order__right">
+                <span class="order-history-status order-history-status--{{ order.status }}">
+                  {{ order.status_label }}
+                </span>
                 <span class="profile-recent-order__total">{{ order.total_amount }} ₽</span>
                 <button
                   type="button"
@@ -115,11 +124,18 @@
           {% endfor %}
         </div>
       {% else %}
-        <p class="account-muted">
-          <span class="lang lang--ru">Заказов пока не было.</span>
-          <span class="lang lang--en">No orders yet.</span>
-          <span class="lang lang--tr">Henüz sipariş yok.</span>
-        </p>
+        <div class="order-empty order-empty--compact">
+          <h3>
+            <span class="lang lang--ru">Заказов пока не было</span>
+            <span class="lang lang--en">No orders yet</span>
+            <span class="lang lang--tr">Henüz sipariş yok</span>
+          </h3>
+          <p>
+            <span class="lang lang--ru">После первого заказа здесь появится быстрый доступ к деталям и повтору.</span>
+            <span class="lang lang--en">After your first order, quick details and repeat actions will appear here.</span>
+            <span class="lang lang--tr">İlk siparişten sonra detaylar ve tekrar işlemi burada görünür.</span>
+          </p>
+        </div>
       {% endif %}
     </section>
   </section>

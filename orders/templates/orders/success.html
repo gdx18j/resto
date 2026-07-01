@@ -15,63 +15,101 @@
       <span class="lang lang--tr">← Menüye dön</span>
     </a>
 
-    <div class="order-success__panel">
-      <div class="order-success__top">
-        <span class="order-history-status order-history-status--{{ order.status }}">
-          {{ order.get_status_display }}
-        </span>
-        <span class="order-success__date">{{ order.created_at|date:"d.m.Y, H:i" }}</span>
-      </div>
+    <div class="order-success__layout">
+      <section class="order-success__panel">
+        <div class="order-success__top">
+          <span class="order-success__mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>
+          </span>
+          <span class="order-history-status order-history-status--{{ order.status }}">
+            {{ order.status_label }}
+          </span>
+        </div>
 
-      <h1>
-        <span class="lang lang--ru">Заказ №{{ order.id }} создан</span>
-        <span class="lang lang--en">Order #{{ order.id }} created</span>
-        <span class="lang lang--tr">Sipariş #{{ order.id }} oluşturuldu</span>
-      </h1>
+        <div>
+          <p class="order-history-kicker">
+            <span class="lang lang--ru">Заказ принят</span>
+            <span class="lang lang--en">Order received</span>
+            <span class="lang lang--tr">Sipariş alındı</span>
+          </p>
+          <h1>
+            <span class="lang lang--ru">№{{ order.id }} уже в работе</span>
+            <span class="lang lang--en">#{{ order.id }} is in progress</span>
+            <span class="lang lang--tr">#{{ order.id }} hazırlanıyor</span>
+          </h1>
+          <p class="order-success__text">
+            <span class="lang lang--ru">Мы сохранили заказ в истории. Статус и состав можно проверить здесь или в личном кабинете.</span>
+            <span class="lang lang--en">We saved the order to your history. You can review its status and items here or in your account.</span>
+            <span class="lang lang--tr">Sipariş geçmişe kaydedildi. Durumu ve ürünleri burada veya hesabınızda kontrol edebilirsiniz.</span>
+          </p>
+        </div>
 
-      <p class="order-success__text">
-        <span class="lang lang--ru">Мы приняли заказ и передали его в работу. Детали можно открыть ниже или повторить заказ в корзину.</span>
-        <span class="lang lang--en">We received the order. You can review the details or add the same items to the cart again.</span>
-        <span class="lang lang--tr">Siparişi aldık. Detayları inceleyebilir veya aynı ürünleri sepete tekrar ekleyebilirsiniz.</span>
-      </p>
+        <div class="order-progress order-progress--success" aria-label="Статус заказа">
+          {% for step in order.status_steps %}
+            <span class="order-progress__step order-progress__step--{{ step.state }}">
+              <span class="order-progress__dot"></span>
+              <span>{{ step.label }}</span>
+            </span>
+          {% endfor %}
+        </div>
 
-      <div class="order-success__summary">
-        {% for item in order.items.all %}
-          <div class="order-success__row">
-            <span>{{ item.dish_name }} × {{ item.quantity }}</span>
-            <strong>{{ item.line_total }} ₽</strong>
-          </div>
-        {% endfor %}
-      </div>
+        <div class="order-success__actions">
+          <button
+            type="button"
+            class="primary-button"
+            data-repeat-order
+            data-items="{{ items_json }}"
+          >
+            <span class="lang lang--ru">Повторить заказ</span>
+            <span class="lang lang--en">Repeat order</span>
+            <span class="lang lang--tr">Siparişi tekrarla</span>
+          </button>
+          {% if request.user.is_authenticated %}
+            <a href="{% url 'orders:history' %}" class="secondary-button">
+              <span class="lang lang--ru">История заказов</span>
+              <span class="lang lang--en">Order history</span>
+              <span class="lang lang--tr">Sipariş geçmişi</span>
+            </a>
+          {% endif %}
+        </div>
+      </section>
 
-      <div class="order-success__total">
-        <span>
-          <span class="lang lang--ru">Итого</span>
-          <span class="lang lang--en">Total</span>
-          <span class="lang lang--tr">Toplam</span>
-        </span>
-        <strong>{{ order.total_amount }} ₽</strong>
-      </div>
+      <aside class="order-success__receipt" aria-label="Состав заказа">
+        <div class="order-success__receipt-head">
+          <span>
+            <span class="lang lang--ru">Состав заказа</span>
+            <span class="lang lang--en">Order items</span>
+            <span class="lang lang--tr">Sipariş içeriği</span>
+          </span>
+          <strong>{{ order.created_at|date:"H:i" }}</strong>
+        </div>
 
-      <div class="order-success__actions">
-        <button
-          type="button"
-          class="primary-button"
-          data-repeat-order
-          data-items="{{ items_json }}"
-        >
-          <span class="lang lang--ru">Повторить заказ</span>
-          <span class="lang lang--en">Repeat order</span>
-          <span class="lang lang--tr">Siparişi tekrarla</span>
-        </button>
-        {% if request.user.is_authenticated %}
-          <a href="{% url 'orders:history' %}" class="secondary-button">
-            <span class="lang lang--ru">История заказов</span>
-            <span class="lang lang--en">Order history</span>
-            <span class="lang lang--tr">Sipariş geçmişi</span>
-          </a>
-        {% endif %}
-      </div>
+        <div class="order-facts">
+          <span>{{ order.created_at|date:"d.m.Y" }}</span>
+          {% if order.table %}<span>Стол {{ order.table.number }}</span>{% endif %}
+          <span>{{ order.guests_count }} перс.</span>
+          {% if order.primary_payment %}<span>{{ order.primary_payment.get_method_display }}</span>{% endif %}
+        </div>
+
+        <div class="order-receipt">
+          {% for item in order.items.all %}
+            <div class="order-receipt__row">
+              <span class="order-receipt__name">{{ item.dish_name }}</span>
+              <span class="order-receipt__qty">× {{ item.quantity }}</span>
+              <strong>{{ item.line_total }} ₽</strong>
+            </div>
+          {% endfor %}
+        </div>
+
+        <div class="order-modal__total">
+          <span>
+            <span class="lang lang--ru">Итого</span>
+            <span class="lang lang--en">Total</span>
+            <span class="lang lang--tr">Toplam</span>
+          </span>
+          <strong>{{ order.total_amount }} ₽</strong>
+        </div>
+      </aside>
     </div>
   </section>
 {% endblock %}
