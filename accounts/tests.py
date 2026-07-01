@@ -7,6 +7,7 @@ from django.db import IntegrityError
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
+from ai_assistant.models import ChatMessage, ChatSession
 from menu.models import Allergen
 
 
@@ -191,6 +192,83 @@ class AccountViewTests(TestCase):
         self.assertContains(response, "allergen-chip__icon")
         self.assertContains(response, "allergen-chip__icon--milk")
         self.assertContains(response, "<svg viewBox=\"0 0 24 24\">")
+
+    def test_allergy_editor_saves_ai_sharing_consent(self):
+        user = User.objects.create_user(
+            email="allergy-consent@example.com",
+            password="StrongPass123!",
+        )
+        allergen = Allergen.objects.create(
+            code="test-milk-consent",
+            name="Тестовое молоко consent",
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("accounts:edit_allergies"),
+            {
+                "allergens": [str(allergen.id)],
+                "share_allergies_with_ai": "on",
+            },
+        )
+
+        self.assertRedirects(response, reverse("accounts:profile"))
+        user.refresh_from_db()
+        self.assertTrue(user.share_allergies_with_ai)
+
+    def test_profile_links_data_export_and_ai_history_delete(self):
+        user = User.objects.create_user(
+            email="ai-data-profile@example.com",
+            password="StrongPass123!",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("accounts:profile"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("accounts:export_data"))
+        self.assertContains(response, reverse("ai_assistant:delete_history"))
+
+    def test_export_data_includes_allergies_consent_and_ai_history(self):
+        user = User.objects.create_user(
+            email="export-data@example.com",
+            password="StrongPass123!",
+            share_allergies_with_ai=True,
+        )
+        allergen = Allergen.objects.create(
+            code="test-milk-export",
+            name="Тестовое молоко export",
+        )
+        user.allergy_records.create(allergen=allergen)
+        session = ChatSession.objects.create(
+            user=user,
+            session_key="account-export",
+            title="Диалог",
+        )
+        ChatMessage.objects.create(
+            session=session,
+            role=ChatMessage.Role.USER,
+            content="Что без молока?",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("accounts:export_data"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            'attachment; filename="caesar-account-data.json"',
+            response["Content-Disposition"],
+        )
+        payload = response.json()
+        self.assertTrue(payload["account"]["share_allergies_with_ai"])
+        self.assertEqual(
+            payload["allergy_profile"][0]["allergen"],
+            "Тестовое молоко export",
+        )
+        self.assertEqual(
+            payload["ai_history"]["sessions"][0]["messages"][0]["text"],
+            "Что без молока?",
+        )
 
 
 class GoogleAuthTests(TestCase):

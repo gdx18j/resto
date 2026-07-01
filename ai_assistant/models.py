@@ -91,3 +91,98 @@ class ChatMessage(models.Model):
 
     def __str__(self):
         return f"{self.get_role_display()}: {self.content[:50]}"
+
+
+class AIUsageEvent(models.Model):
+    """
+    Audit trail for AI budget, throttling and abuse analysis.
+    """
+
+    class Status(models.TextChoices):
+        STARTED = "started", "Начат"
+        COMPLETED = "completed", "Завершен"
+        FAILED = "failed", "Ошибка"
+        THROTTLED = "throttled", "Ограничен"
+        FALLBACK = "fallback", "Локальный fallback"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="ai_usage_events",
+        null=True,
+        blank=True,
+    )
+
+    chat_session = models.ForeignKey(
+        ChatSession,
+        on_delete=models.SET_NULL,
+        related_name="usage_events",
+        null=True,
+        blank=True,
+    )
+
+    session_key = models.CharField(
+        max_length=64,
+        blank=True,
+        db_index=True,
+    )
+
+    actor_kind = models.CharField(
+        max_length=20,
+        blank=True,
+    )
+
+    ip_address_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        db_index=True,
+    )
+
+    prompt_chars = models.PositiveIntegerField(default=0)
+    response_chars = models.PositiveIntegerField(default=0)
+    estimated_prompt_tokens = models.PositiveIntegerField(default=0)
+    estimated_response_tokens = models.PositiveIntegerField(default=0)
+    estimated_total_tokens = models.PositiveIntegerField(default=0)
+    estimated_cost_micros = models.PositiveBigIntegerField(default=0)
+
+    model_name = models.CharField(
+        max_length=100,
+        blank=True,
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.STARTED,
+        db_index=True,
+    )
+
+    limit_reason = models.CharField(
+        max_length=120,
+        blank=True,
+    )
+
+    is_stream = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["status", "created_at"],
+                name="ai_usage_status_created_idx",
+            ),
+            models.Index(
+                fields=["user", "created_at"],
+                name="ai_usage_user_created_idx",
+            ),
+            models.Index(
+                fields=["ip_address_hash", "created_at"],
+                name="ai_usage_ip_created_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.status}: {self.estimated_total_tokens} tokens"

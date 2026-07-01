@@ -2,8 +2,11 @@ import json
 import logging
 import unicodedata
 
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.http import JsonResponse, StreamingHttpResponse
+from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
@@ -16,12 +19,21 @@ from menu.translations import (
     normalize_language,
 )
 
-from .models import ChatMessage, ChatSession
+from .models import AIUsageEvent, ChatMessage, ChatSession
+from .privacy import get_ai_history_retention_days, prune_expired_ai_history
 from .services import (
     AIServiceError,
     detect_response_language,
     generate_ai_answer,
     generate_ai_answer_stream,
+)
+from .throttling import (
+    acquire_ai_stream_slot,
+    check_ai_request_allowed,
+    create_ai_usage_event,
+    finish_ai_usage_event,
+    record_throttled_ai_request,
+    release_ai_stream_slot,
 )
 
 
@@ -114,6 +126,16 @@ def _error_response(message, status, session=None):
         payload["session_id"] = str(session.id)
 
     return JsonResponse(payload, status=status)
+
+
+def _rate_limited_response(decision, session=None):
+    response = _error_response(
+        decision.message,
+        status=429,
+        session=session,
+    )
+    response["Retry-After"] = str(decision.retry_after)
+    return response
 
 
 def _get_session_key(request):
@@ -526,8 +548,53 @@ def _serialize_chat_messages(session, request, language=""):
     return serialized
 
 
+def _serialize_chat_messages_for_export(session):
+    return [
+        {
+            "id": message.id,
+            "role": message.role,
+            "text": message.content,
+            "model": message.model_name,
+            "created_at": _serialize_timestamp(message.created_at),
+        }
+        for message in session.messages.order_by("created_at", "id")
+    ]
+
+
+def _serialize_usage_events_for_export(session):
+    return [
+        {
+            "id": event.id,
+            "status": event.status,
+            "model": event.model_name,
+            "limit_reason": event.limit_reason,
+            "is_stream": event.is_stream,
+            "prompt_chars": event.prompt_chars,
+            "response_chars": event.response_chars,
+            "estimated_prompt_tokens": event.estimated_prompt_tokens,
+            "estimated_response_tokens": event.estimated_response_tokens,
+            "estimated_total_tokens": event.estimated_total_tokens,
+            "estimated_cost_micros": event.estimated_cost_micros,
+            "created_at": _serialize_timestamp(event.created_at),
+        }
+        for event in session.usage_events.order_by("created_at", "id")
+    ]
+
+
+def _wants_json_response(request):
+    return (
+        request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or "application/json" in request.headers.get("Accept", "")
+    )
+
+
 @require_GET
 def history(request):
+    if request.user.is_authenticated:
+        prune_expired_ai_history(user=request.user)
+    elif request.session.session_key:
+        prune_expired_ai_history(session_key=request.session.session_key)
+
     language_value = request.GET.get("language")
     language = normalize_language(language_value) if language_value else ""
     session_id = request.GET.get("session_id")
@@ -562,6 +629,87 @@ def history(request):
     )
 
 
+@login_required
+@require_GET
+def export_history(request):
+    prune_expired_ai_history(user=request.user)
+    sessions = (
+        ChatSession.objects.filter(user=request.user)
+        .prefetch_related("messages", "usage_events")
+        .order_by("created_at", "id")
+    )
+    payload = {
+        "exported_at": _serialize_timestamp(timezone.now()),
+        "history_retention_days": get_ai_history_retention_days(),
+        "provider": "Gemini",
+        "sessions": [
+            {
+                "id": str(session.id),
+                "title": session.title,
+                "created_at": _serialize_timestamp(session.created_at),
+                "updated_at": _serialize_timestamp(session.updated_at),
+                "messages": _serialize_chat_messages_for_export(session),
+                "usage_events": _serialize_usage_events_for_export(session),
+            }
+            for session in sessions
+        ],
+    }
+    response = JsonResponse(
+        payload,
+        json_dumps_params={
+            "ensure_ascii": False,
+            "indent": 2,
+        },
+    )
+    response["Content-Disposition"] = 'attachment; filename="caesar-ai-history.json"'
+    return response
+
+
+@login_required
+@require_POST
+def delete_history(request):
+    session_id = request.POST.get("session_id") or request.GET.get("session_id")
+    sessions = ChatSession.objects.filter(user=request.user)
+
+    if session_id:
+        try:
+            sessions = sessions.filter(id=session_id)
+        except (ValidationError, ValueError, TypeError):
+            if _wants_json_response(request):
+                return JsonResponse(
+                    {
+                        "error": "Диалог не найден.",
+                    },
+                    status=404,
+                )
+
+            messages.error(request, "Диалог не найден.")
+            return redirect("accounts:profile")
+
+    session_ids = list(sessions.values_list("id", flat=True))
+    deleted_count = len(session_ids)
+
+    if session_id:
+        AIUsageEvent.objects.filter(
+            user=request.user,
+            chat_session_id__in=session_ids,
+        ).delete()
+    else:
+        AIUsageEvent.objects.filter(user=request.user).delete()
+
+    sessions.delete()
+
+    if _wants_json_response(request):
+        return JsonResponse(
+            {
+                "deleted": deleted_count,
+            }
+        )
+
+    messages.success(request, "История ИИ-диалогов удалена.")
+    return redirect("accounts:profile")
+
+
 @require_POST
 def ask(request):
     try:
@@ -592,6 +740,7 @@ def ask(request):
     language = normalize_language(language_value) if language_value else ""
     response_language = detect_response_language(prompt, fallback=language or "ru")
     card_language = response_language if language_value else ""
+    wants_stream = _wants_stream(request)
 
     if not prompt:
         return _error_response(
@@ -605,6 +754,17 @@ def ask(request):
             status=400,
         )
 
+    throttle_decision = check_ai_request_allowed(request, prompt)
+
+    if not throttle_decision.allowed:
+        record_throttled_ai_request(
+            request,
+            prompt,
+            throttle_decision,
+            is_stream=wants_stream,
+        )
+        return _rate_limited_response(throttle_decision)
+
     if session_id:
         session = _get_existing_session(request, session_id)
 
@@ -615,6 +775,21 @@ def ask(request):
             )
     else:
         session = _create_session(request, prompt)
+
+    stream_slot = None
+
+    if wants_stream:
+        stream_slot = acquire_ai_stream_slot(request)
+
+        if not stream_slot.allowed:
+            record_throttled_ai_request(
+                request,
+                prompt,
+                stream_slot,
+                chat_session=session,
+                is_stream=True,
+            )
+            return _rate_limited_response(stream_slot, session=session)
 
     session.interface_language = language or "ru"
     session.response_language = response_language
@@ -627,12 +802,24 @@ def ask(request):
 
     session.updated_at = timezone.now()
     session.save(update_fields=["updated_at"])
+    usage_event = create_ai_usage_event(
+        request,
+        session,
+        prompt,
+        is_stream=wants_stream,
+    )
 
-    if _wants_stream(request):
+    if wants_stream:
         try:
             model_name, stream = generate_ai_answer_stream(session)
         except AIServiceError:
             logger.exception("AI assistant streaming request failed.")
+            release_ai_stream_slot(stream_slot)
+            finish_ai_usage_event(
+                usage_event,
+                AIUsageEvent.Status.FAILED,
+                limit_reason="ai_service_error",
+            )
             return _error_response(
                 (
                     "ИИ-ассистент временно недоступен. "
@@ -645,100 +832,129 @@ def ask(request):
         def event_stream():
             answer_parts = []
 
-            yield _stream_event(
-                "session",
-                session_id=str(session.id),
-                user_message_id=user_message.id,
-                user_message_created_at=_serialize_timestamp(user_message.created_at),
-            )
-
             try:
-                for chunk in stream:
-                    text = (getattr(chunk, "text", None) or "")
+                yield _stream_event(
+                    "session",
+                    session_id=str(session.id),
+                    user_message_id=user_message.id,
+                    user_message_created_at=_serialize_timestamp(user_message.created_at),
+                )
 
-                    if not text:
-                        continue
+                try:
+                    for chunk in stream:
+                        text = (getattr(chunk, "text", None) or "")
 
-                    answer_parts.append(text)
-                    yield _stream_event("delta", text=text)
-            except Exception as exc:
-                if _is_quota_error(exc) and not answer_parts:
-                    logger.warning("Gemini quota exhausted during streaming response.")
-                    fallback_answer, fallback_dishes = _build_quota_fallback_answer(
-                        prompt,
-                        request,
-                        session,
-                        language=card_language,
+                        if not text:
+                            continue
+
+                        answer_parts.append(text)
+                        yield _stream_event("delta", text=text)
+                except Exception as exc:
+                    if _is_quota_error(exc) and not answer_parts:
+                        logger.warning("Gemini quota exhausted during streaming response.")
+                        fallback_answer, fallback_dishes = _build_quota_fallback_answer(
+                            prompt,
+                            request,
+                            session,
+                            language=card_language,
+                        )
+                        assistant_message = ChatMessage.objects.create(
+                            session=session,
+                            role=ChatMessage.Role.ASSISTANT,
+                            content=fallback_answer,
+                            model_name="local-quota-fallback",
+                        )
+
+                        session.updated_at = timezone.now()
+                        session.save(update_fields=["updated_at"])
+                        finish_ai_usage_event(
+                            usage_event,
+                            AIUsageEvent.Status.FALLBACK,
+                            response_text=fallback_answer,
+                            model_name=assistant_message.model_name,
+                            limit_reason="provider_quota",
+                        )
+
+                        yield _stream_event("delta", text=fallback_answer)
+                        yield _stream_event(
+                            "done",
+                            recommended_dishes=fallback_dishes,
+                            session_id=str(session.id),
+                            model=assistant_message.model_name,
+                            message_id=assistant_message.id,
+                            created_at=_serialize_timestamp(assistant_message.created_at),
+                        )
+                        return
+
+                    logger.exception("AI assistant stream interrupted.")
+                    finish_ai_usage_event(
+                        usage_event,
+                        AIUsageEvent.Status.FAILED,
+                        response_text="".join(answer_parts),
+                        model_name=model_name,
+                        limit_reason="stream_interrupted",
                     )
-                    assistant_message = ChatMessage.objects.create(
-                        session=session,
-                        role=ChatMessage.Role.ASSISTANT,
-                        content=fallback_answer,
-                        model_name="local-quota-fallback",
-                    )
-
-                    session.updated_at = timezone.now()
-                    session.save(update_fields=["updated_at"])
-
-                    yield _stream_event("delta", text=fallback_answer)
                     yield _stream_event(
-                        "done",
-                        recommended_dishes=fallback_dishes,
+                        "error",
+                        error=(
+                            "Ответ прервался. Попробуйте отправить сообщение еще раз."
+                        ),
                         session_id=str(session.id),
-                        model=assistant_message.model_name,
-                        message_id=assistant_message.id,
-                        created_at=_serialize_timestamp(assistant_message.created_at),
                     )
                     return
 
-                logger.exception("AI assistant stream interrupted.")
-                yield _stream_event(
-                    "error",
-                    error=(
-                        "Ответ прервался. Попробуйте отправить сообщение еще раз."
-                    ),
-                    session_id=str(session.id),
+                answer = "".join(answer_parts).strip()
+
+                if not answer:
+                    finish_ai_usage_event(
+                        usage_event,
+                        AIUsageEvent.Status.FAILED,
+                        model_name=model_name,
+                        limit_reason="empty_response",
+                    )
+                    yield _stream_event(
+                        "error",
+                        error="Я не получил текст ответа. Попробуйте еще раз.",
+                        session_id=str(session.id),
+                    )
+                    return
+
+                assistant_message = ChatMessage.objects.create(
+                    session=session,
+                    role=ChatMessage.Role.ASSISTANT,
+                    content=answer,
+                    model_name=model_name,
                 )
-                return
 
-            answer = "".join(answer_parts).strip()
-
-            if not answer:
-                yield _stream_event(
-                    "error",
-                    error="Я не получил текст ответа. Попробуйте еще раз.",
-                    session_id=str(session.id),
+                session.updated_at = timezone.now()
+                session.save(update_fields=["updated_at"])
+                finish_ai_usage_event(
+                    usage_event,
+                    AIUsageEvent.Status.COMPLETED,
+                    response_text=answer,
+                    model_name=model_name,
                 )
-                return
 
-            assistant_message = ChatMessage.objects.create(
-                session=session,
-                role=ChatMessage.Role.ASSISTANT,
-                content=answer,
-                model_name=model_name,
-            )
-
-            session.updated_at = timezone.now()
-            session.save(update_fields=["updated_at"])
-
-            yield _stream_event(
-                "done",
-                recommended_dishes=_serialize_recommended_dishes(
-                    assistant_message.content,
-                    request,
-                    prompt=prompt,
-                    excluded_dish_ids=_get_excluded_dish_ids_for_prompt(
-                        session,
+                yield _stream_event(
+                    "done",
+                    recommended_dishes=_serialize_recommended_dishes(
+                        assistant_message.content,
+                        request,
                         prompt,
-                        current_message_id=assistant_message.id,
+                        excluded_dish_ids=_get_excluded_dish_ids_for_prompt(
+                            session,
+                            prompt,
+                            current_message_id=assistant_message.id,
+                        ),
+                        language=card_language,
                     ),
-                    language=card_language,
-                ),
-                session_id=str(session.id),
-                model=model_name,
-                message_id=assistant_message.id,
-                created_at=_serialize_timestamp(assistant_message.created_at),
-            )
+                    session_id=str(session.id),
+                    model=model_name,
+                    message_id=assistant_message.id,
+                    created_at=_serialize_timestamp(assistant_message.created_at),
+                )
+            finally:
+                release_ai_stream_slot(stream_slot)
 
         return StreamingHttpResponse(
             event_stream(),
@@ -749,6 +965,11 @@ def ask(request):
         result = generate_ai_answer(session)
     except AIServiceError:
         logger.exception("AI assistant request failed.")
+        finish_ai_usage_event(
+            usage_event,
+            AIUsageEvent.Status.FAILED,
+            limit_reason="ai_service_error",
+        )
         return _error_response(
             (
                 "ИИ-ассистент временно недоступен. "
@@ -767,6 +988,12 @@ def ask(request):
 
     session.updated_at = timezone.now()
     session.save(update_fields=["updated_at"])
+    finish_ai_usage_event(
+        usage_event,
+        AIUsageEvent.Status.COMPLETED,
+        response_text=assistant_message.content,
+        model_name=result.model_name,
+    )
 
     return JsonResponse(
         {

@@ -20,11 +20,21 @@ def order_items_json(order):
     for item in order.items.all():
         items.append(
             {
-                "id": f"dish-{item.dish_id}" if item.dish_id else "",
+                "id": f"order-item-{item.id}",
                 "dish_id": item.dish_id,
                 "name": item.dish_name,
                 "price": f"{item.unit_price:.2f}",
                 "qty": item.quantity,
+                "note": item.note,
+                "modifiers": [
+                    {
+                        "type": modifier.type,
+                        "dish_ingredient_id": modifier.dish_ingredient_id,
+                        "name": modifier.name,
+                        "price_delta": f"{modifier.price_delta:.2f}",
+                    }
+                    for modifier in item.modifiers.all()
+                ],
             }
         )
 

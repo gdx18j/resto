@@ -2,21 +2,25 @@ import json
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from menu.models import Category, Dish
+from accounts.models import UserAllergy
+from menu.models import Allergen, Category, Dish
 
-from .models import ChatMessage, ChatSession
+from .models import AIUsageEvent, ChatMessage, ChatSession
 from .services import (
     AIResult,
     AIServiceError,
     build_menu_context,
+    build_user_context,
     detect_response_language,
     get_configured_model_names,
     get_gemini_client,
 )
+from .throttling import AIStreamSlot
 
 
 class GeminiServiceTests(TestCase):
@@ -73,8 +77,56 @@ class GeminiServiceTests(TestCase):
             "ru",
         )
 
+    def test_user_context_does_not_share_allergies_without_consent(self):
+        user = get_user_model().objects.create_user(
+            email="private-allergy@example.com",
+            password="strong-pass-123",
+        )
+        allergen = Allergen.objects.create(
+            name="Тестовое молоко private",
+            code="test-milk-private",
+        )
+        UserAllergy.objects.create(
+            user=user,
+            allergen=allergen,
+            status=UserAllergy.Status.CONFIRMED,
+        )
+        session = ChatSession.objects.create(user=user, session_key="private")
+
+        context = build_user_context(session)
+
+        self.assertIn("sharing with the external AI provider is disabled", context)
+        self.assertNotIn("Тестовое молоко private", context)
+        self.assertNotIn(user.email, context)
+
+    def test_user_context_shares_minimized_allergies_with_consent(self):
+        user = get_user_model().objects.create_user(
+            email="shared-allergy@example.com",
+            password="strong-pass-123",
+            share_allergies_with_ai=True,
+        )
+        allergen = Allergen.objects.create(
+            name="Тестовое молоко shared",
+            code="test-milk-shared",
+        )
+        UserAllergy.objects.create(
+            user=user,
+            allergen=allergen,
+            status=UserAllergy.Status.CONFIRMED,
+        )
+        session = ChatSession.objects.create(user=user, session_key="shared")
+
+        context = build_user_context(session)
+
+        self.assertIn("Тестовое молоко shared", context)
+        self.assertIn("No other profile fields are included", context)
+        self.assertNotIn(user.email, context)
+
 
 class AskViewTests(TestCase):
+    def setUp(self):
+        cache.clear()
+
     def post_prompt(self, prompt, session_id=None, language=None):
         payload = {
             "prompt": prompt,
@@ -143,6 +195,10 @@ class AskViewTests(TestCase):
         self.assertTrue(session.session_key)
         self.assertEqual(session.messages.count(), 2)
         generate_ai_answer_mock.assert_called_once_with(session)
+        usage_event = AIUsageEvent.objects.get()
+        self.assertEqual(usage_event.status, AIUsageEvent.Status.COMPLETED)
+        self.assertEqual(usage_event.model_name, "gemini-test")
+        self.assertGreater(usage_event.estimated_total_tokens, 0)
 
     @patch(
         "ai_assistant.views.generate_ai_answer",
@@ -184,6 +240,125 @@ class AskViewTests(TestCase):
         session = ChatSession.objects.get(id=session_id)
         self.assertEqual(session.messages.count(), 4)
         self.assertEqual(generate_ai_answer_mock.call_count, 2)
+
+    @override_settings(
+        AI_DAILY_QUOTA_GUEST=1,
+        AI_DAILY_QUOTA_IP=100,
+        AI_DAILY_TOKEN_BUDGET_GUEST=999999,
+        AI_DAILY_TOKEN_BUDGET_IP=999999,
+        AI_RATE_LIMIT_GUEST_PER_MINUTE=100,
+        AI_RATE_LIMIT_IP_PER_MINUTE=100,
+    )
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        return_value=AIResult(
+            text="First answer",
+            model_name="gemini-test",
+        ),
+    )
+    def test_guest_daily_quota_blocks_second_request(self, generate_ai_answer_mock):
+        first_response = self.post_prompt("Hello")
+        second_response = self.post_prompt("Again")
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 429)
+        self.assertGreater(int(second_response["Retry-After"]), 0)
+        self.assertEqual(generate_ai_answer_mock.call_count, 1)
+        self.assertEqual(ChatSession.objects.count(), 1)
+        self.assertEqual(
+            AIUsageEvent.objects.filter(
+                status=AIUsageEvent.Status.THROTTLED,
+                limit_reason="actor_daily_quota",
+            ).count(),
+            1,
+        )
+
+    @override_settings(
+        AI_DAILY_TOKEN_BUDGET_GUEST=1,
+        AI_DAILY_TOKEN_BUDGET_IP=999999,
+        AI_DAILY_QUOTA_GUEST=100,
+        AI_DAILY_QUOTA_IP=100,
+        AI_RATE_LIMIT_GUEST_PER_MINUTE=100,
+        AI_RATE_LIMIT_IP_PER_MINUTE=100,
+    )
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        return_value=AIResult(
+            text="Should not be called",
+            model_name="gemini-test",
+        ),
+    )
+    def test_guest_token_budget_blocks_before_gemini(self, generate_ai_answer_mock):
+        response = self.post_prompt("Hello")
+
+        self.assertEqual(response.status_code, 429)
+        generate_ai_answer_mock.assert_not_called()
+        self.assertEqual(ChatSession.objects.count(), 0)
+        usage_event = AIUsageEvent.objects.get()
+        self.assertEqual(usage_event.status, AIUsageEvent.Status.THROTTLED)
+        self.assertEqual(usage_event.limit_reason, "actor_daily_token_budget")
+
+    @override_settings(
+        AI_DAILY_COST_BUDGET_MICROS_GUEST=1,
+        AI_DAILY_COST_BUDGET_MICROS_IP=0,
+        AI_ESTIMATED_COST_MICROS_PER_1000_TOKENS=1000,
+        AI_DAILY_TOKEN_BUDGET_GUEST=999999,
+        AI_DAILY_TOKEN_BUDGET_IP=999999,
+        AI_DAILY_QUOTA_GUEST=100,
+        AI_DAILY_QUOTA_IP=100,
+        AI_RATE_LIMIT_GUEST_PER_MINUTE=100,
+        AI_RATE_LIMIT_IP_PER_MINUTE=100,
+    )
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        return_value=AIResult(
+            text="Should not be called",
+            model_name="gemini-test",
+        ),
+    )
+    def test_guest_cost_budget_blocks_before_gemini(self, generate_ai_answer_mock):
+        response = self.post_prompt("Hello")
+
+        self.assertEqual(response.status_code, 429)
+        generate_ai_answer_mock.assert_not_called()
+        usage_event = AIUsageEvent.objects.get()
+        self.assertEqual(usage_event.status, AIUsageEvent.Status.THROTTLED)
+        self.assertEqual(usage_event.limit_reason, "actor_daily_cost_budget")
+        self.assertGreater(usage_event.estimated_cost_micros, 0)
+
+    @patch(
+        "ai_assistant.views.acquire_ai_stream_slot",
+        return_value=AIStreamSlot(
+            allowed=False,
+            reason="actor_stream_concurrency",
+            message="Слишком много запросов к ИИ. Попробуйте отправить сообщение позже.",
+            retry_after=180,
+        ),
+    )
+    @patch("ai_assistant.views.generate_ai_answer_stream")
+    def test_stream_concurrency_limit_blocks_before_message(
+        self,
+        generate_ai_answer_stream_mock,
+        acquire_ai_stream_slot_mock,
+    ):
+        response = self.client.post(
+            reverse("ai_assistant:ask"),
+            data=json.dumps({"prompt": "Stream please"}),
+            content_type="application/json",
+            HTTP_ACCEPT="application/x-ndjson",
+            HTTP_X_AI_STREAM="1",
+        )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response["Retry-After"], "180")
+        acquire_ai_stream_slot_mock.assert_called_once()
+        generate_ai_answer_stream_mock.assert_not_called()
+        session = ChatSession.objects.get()
+        self.assertEqual(session.messages.count(), 0)
+        usage_event = AIUsageEvent.objects.get()
+        self.assertEqual(usage_event.status, AIUsageEvent.Status.THROTTLED)
+        self.assertEqual(usage_event.limit_reason, "actor_stream_concurrency")
+        self.assertTrue(usage_event.is_stream)
 
     @patch(
         "ai_assistant.views.generate_ai_answer",
@@ -291,6 +466,101 @@ class AskViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["session_id"], str(requested_session.id))
+
+    def test_export_history_returns_only_owned_dialogs(self):
+        user = get_user_model().objects.create_user(
+            email="export-history@example.com",
+            password="strong-pass-123",
+        )
+        other_user = get_user_model().objects.create_user(
+            email="other-export-history@example.com",
+            password="strong-pass-123",
+        )
+        owned_session = ChatSession.objects.create(
+            user=user,
+            session_key="owned-export",
+            title="Owned export",
+        )
+        ChatMessage.objects.create(
+            session=owned_session,
+            role=ChatMessage.Role.USER,
+            content="Мой вопрос",
+        )
+        other_session = ChatSession.objects.create(
+            user=other_user,
+            session_key="other-export",
+            title="Other export",
+        )
+        ChatMessage.objects.create(
+            session=other_session,
+            role=ChatMessage.Role.USER,
+            content="Чужой вопрос",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("ai_assistant:export_history"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            'attachment; filename="caesar-ai-history.json"',
+            response["Content-Disposition"],
+        )
+        payload = response.json()
+        self.assertEqual(len(payload["sessions"]), 1)
+        self.assertEqual(payload["sessions"][0]["id"], str(owned_session.id))
+        self.assertEqual(
+            payload["sessions"][0]["messages"][0]["text"],
+            "Мой вопрос",
+        )
+        self.assertNotIn(str(other_session.id), response.content.decode("utf-8"))
+
+    def test_delete_history_removes_only_owned_dialogs(self):
+        user = get_user_model().objects.create_user(
+            email="delete-history@example.com",
+            password="strong-pass-123",
+        )
+        other_user = get_user_model().objects.create_user(
+            email="other-delete-history@example.com",
+            password="strong-pass-123",
+        )
+        owned_session = ChatSession.objects.create(
+            user=user,
+            session_key="owned-delete",
+            title="Owned delete",
+        )
+        ChatMessage.objects.create(
+            session=owned_session,
+            role=ChatMessage.Role.USER,
+            content="Удалить",
+        )
+        owned_event = AIUsageEvent.objects.create(
+            user=user,
+            chat_session=owned_session,
+            status=AIUsageEvent.Status.COMPLETED,
+        )
+        other_session = ChatSession.objects.create(
+            user=other_user,
+            session_key="other-delete",
+            title="Other delete",
+        )
+        other_event = AIUsageEvent.objects.create(
+            user=other_user,
+            chat_session=other_session,
+            status=AIUsageEvent.Status.COMPLETED,
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("ai_assistant:delete_history"),
+            HTTP_ACCEPT="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["deleted"], 1)
+        self.assertFalse(ChatSession.objects.filter(id=owned_session.id).exists())
+        self.assertTrue(ChatSession.objects.filter(id=other_session.id).exists())
+        self.assertFalse(AIUsageEvent.objects.filter(id=owned_event.id).exists())
+        self.assertTrue(AIUsageEvent.objects.filter(id=other_event.id).exists())
 
     @patch(
         "ai_assistant.views.generate_ai_answer",

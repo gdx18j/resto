@@ -42,7 +42,9 @@
     }
 
     if (count) {
-      count.textContent = String(visibleCount);
+      count.textContent = query || activeFilter !== 'all'
+        ? String(visibleCount)
+        : String(count.dataset.orderTotalCount || visibleCount);
     }
   }
 

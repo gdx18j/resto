@@ -6,6 +6,21 @@ from django.db import models
 from django.utils import timezone
 
 
+class OrderQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        if "status" in kwargs:
+            raise ValueError("Use orders.statuses.transition_order() to change order status.")
+
+        return super().update(**kwargs)
+
+    def transition_update(self, **kwargs):
+        return super().update(**kwargs)
+
+
+class OrderManager(models.Manager.from_queryset(OrderQuerySet)):
+    pass
+
+
 class Restaurant(models.Model):
     name = models.CharField(max_length=160, verbose_name="Название")
     slug = models.SlugField(max_length=180, unique=True, verbose_name="Код")
@@ -71,6 +86,8 @@ class Order(models.Model):
         Status.COMPLETED,
     )
 
+    objects = OrderManager()
+
     restaurant = models.ForeignKey(
         Restaurant,
         on_delete=models.PROTECT,
@@ -118,6 +135,7 @@ class Order(models.Model):
         db_index=True,
         verbose_name="Статус",
     )
+    version = models.PositiveIntegerField(default=0, verbose_name="Версия")
     guests_count = models.PositiveSmallIntegerField(
         default=1,
         validators=[MinValueValidator(1)],
@@ -155,6 +173,24 @@ class Order(models.Model):
     def __str__(self):
         return f"Заказ #{self.pk or 'новый'}"
 
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+
+        if self.pk and not getattr(self, "_allow_status_save", False):
+            should_check_status = update_fields is None or "status" in update_fields
+
+            if should_check_status:
+                current_status = (
+                    type(self).objects.filter(pk=self.pk)
+                    .values_list("status", flat=True)
+                    .first()
+                )
+
+                if current_status is not None and current_status != self.status:
+                    raise ValueError("Use orders.statuses.transition_order() to change order status.")
+
+        super().save(*args, **kwargs)
+
     def can_transition_to(self, next_status):
         if next_status == self.Status.CANCELED:
             return self.status not in {self.Status.COMPLETED, self.Status.CANCELED}
@@ -169,6 +205,17 @@ class Order(models.Model):
         if not self.can_transition_to(next_status):
             raise ValueError(f"Нельзя перевести заказ из {self.status} в {next_status}")
 
+        if save:
+            from .statuses import transition_order
+
+            updated_order = transition_order(self, next_status, expected_version=self.version)
+            self.status = updated_order.status
+            self.version = updated_order.version
+            self.confirmed_at = updated_order.confirmed_at
+            self.completed_at = updated_order.completed_at
+            self.updated_at = updated_order.updated_at
+            return self
+
         self.status = next_status
 
         if next_status == self.Status.CONFIRMED and not self.confirmed_at:
@@ -176,8 +223,48 @@ class Order(models.Model):
         if next_status == self.Status.COMPLETED and not self.completed_at:
             self.completed_at = timezone.now()
 
-        if save:
-            self.save(update_fields=["status", "confirmed_at", "completed_at", "updated_at"])
+        return self
+
+
+class OrderStatusHistory(models.Model):
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.CASCADE,
+        related_name="status_history",
+        verbose_name="Заказ",
+    )
+    from_status = models.CharField(
+        max_length=20,
+        choices=Order.Status.choices,
+        verbose_name="Из статуса",
+    )
+    to_status = models.CharField(
+        max_length=20,
+        choices=Order.Status.choices,
+        verbose_name="В статус",
+    )
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="order_status_changes",
+        verbose_name="Кто изменил",
+    )
+    reason = models.CharField(max_length=255, blank=True, verbose_name="Причина")
+    order_version = models.PositiveIntegerField(verbose_name="Версия заказа")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создано")
+
+    class Meta:
+        verbose_name = "История статуса заказа"
+        verbose_name_plural = "История статусов заказов"
+        ordering = ["created_at", "id"]
+        indexes = [
+            models.Index(fields=["order", "created_at"], name="order_status_history_idx"),
+        ]
+
+    def __str__(self):
+        return f"Заказ #{self.order_id}: {self.from_status} -> {self.to_status}"
 
 
 class OrderItem(models.Model):

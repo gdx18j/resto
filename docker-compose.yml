@@ -17,6 +17,19 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:8-alpine
+    container_name: resto_or_tests_redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   web:
     build: .
     container_name: resto_or_tests_web
@@ -30,12 +43,36 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-resto_password}
       DB_HOST: db
       DB_PORT: 5432
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
       GEMINI_FALLBACK_MODEL: ${GEMINI_FALLBACK_MODEL:-gemini-2.5-flash}
       AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-600}
       AI_HISTORY_LIMIT: ${AI_HISTORY_LIMIT:-12}
       AI_MENU_CONTEXT_LIMIT: ${AI_MENU_CONTEXT_LIMIT:-80}
+      AI_HISTORY_RETENTION_DAYS: ${AI_HISTORY_RETENTION_DAYS:-180}
+      AI_RATE_LIMIT_WINDOW_SECONDS: ${AI_RATE_LIMIT_WINDOW_SECONDS:-60}
+      AI_RATE_LIMIT_IP_PER_MINUTE: ${AI_RATE_LIMIT_IP_PER_MINUTE:-30}
+      AI_RATE_LIMIT_GUEST_PER_MINUTE: ${AI_RATE_LIMIT_GUEST_PER_MINUTE:-6}
+      AI_RATE_LIMIT_USER_PER_MINUTE: ${AI_RATE_LIMIT_USER_PER_MINUTE:-12}
+      AI_DAILY_QUOTA_IP: ${AI_DAILY_QUOTA_IP:-120}
+      AI_DAILY_QUOTA_GUEST: ${AI_DAILY_QUOTA_GUEST:-25}
+      AI_DAILY_QUOTA_USER: ${AI_DAILY_QUOTA_USER:-80}
+      AI_DAILY_TOKEN_BUDGET_IP: ${AI_DAILY_TOKEN_BUDGET_IP:-160000}
+      AI_DAILY_TOKEN_BUDGET_GUEST: ${AI_DAILY_TOKEN_BUDGET_GUEST:-30000}
+      AI_DAILY_TOKEN_BUDGET_USER: ${AI_DAILY_TOKEN_BUDGET_USER:-100000}
+      AI_ESTIMATED_RESPONSE_TOKENS: ${AI_ESTIMATED_RESPONSE_TOKENS:-600}
+      AI_ESTIMATED_COST_MICROS_PER_1000_TOKENS: ${AI_ESTIMATED_COST_MICROS_PER_1000_TOKENS:-0}
+      AI_DAILY_COST_BUDGET_MICROS_IP: ${AI_DAILY_COST_BUDGET_MICROS_IP:-0}
+      AI_DAILY_COST_BUDGET_MICROS_GUEST: ${AI_DAILY_COST_BUDGET_MICROS_GUEST:-0}
+      AI_DAILY_COST_BUDGET_MICROS_USER: ${AI_DAILY_COST_BUDGET_MICROS_USER:-0}
+      AI_STREAM_CONCURRENCY_IP: ${AI_STREAM_CONCURRENCY_IP:-5}
+      AI_STREAM_CONCURRENCY_GUEST: ${AI_STREAM_CONCURRENCY_GUEST:-1}
+      AI_STREAM_CONCURRENCY_USER: ${AI_STREAM_CONCURRENCY_USER:-2}
+      AI_STREAM_LOCK_TIMEOUT_SECONDS: ${AI_STREAM_LOCK_TIMEOUT_SECONDS:-180}
+      AI_ABUSE_BLOCK_THRESHOLD: ${AI_ABUSE_BLOCK_THRESHOLD:-8}
+      AI_ABUSE_BLOCK_SECONDS: ${AI_ABUSE_BLOCK_SECONDS:-600}
+      AI_TRUST_X_FORWARDED_FOR: ${AI_TRUST_X_FORWARDED_FOR:-False}
     volumes:
       - .:/app
       - static_volume:/app/staticfiles
@@ -44,6 +81,8 @@ services:
       - "${APP_PORT:-8000}:8000"
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
 volumes:

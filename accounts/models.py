@@ -13,6 +13,15 @@ class User(AbstractUser):
         unique=True,
     )
 
+    share_allergies_with_ai = models.BooleanField(
+        default=False,
+        verbose_name="Передавать аллергии ИИ",
+        help_text=(
+            "Разрешает добавлять только названия подтвержденных аллергенов "
+            "в запрос к внешнему AI-провайдеру."
+        ),
+    )
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 
@@ -20,6 +29,7 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.email
+
 
 class UserAllergy(models.Model):
     """

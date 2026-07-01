@@ -1,6 +1,7 @@
 import json
 
 from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
@@ -90,7 +91,7 @@ def create(request):
 @require_GET
 def success(request, order_id):
     order = get_object_or_404(
-        Order.objects.select_related("table", "user").prefetch_related("items__dish", "payments"),
+        Order.objects.select_related("table", "user").prefetch_related("items__dish", "items__modifiers", "payments"),
         id=order_id,
     )
 
@@ -112,17 +113,22 @@ def success(request, order_id):
 @login_required
 @require_GET
 def history(request):
-    orders = list(
+    orders_queryset = (
         Order.objects.filter(user=request.user)
         .select_related("table")
-        .prefetch_related("items__dish", "payments")
+        .prefetch_related("items__dish", "items__modifiers", "payments")
         .order_by("-created_at")
     )
+    paginator = Paginator(orders_queryset, 10)
+    page_obj = paginator.get_page(request.GET.get("page"))
+    orders = list(page_obj.object_list)
 
     return render(
         request,
         "orders/history.html",
         {
             "orders": decorate_orders(orders),
+            "page_obj": page_obj,
+            "paginator": paginator,
         },
     )

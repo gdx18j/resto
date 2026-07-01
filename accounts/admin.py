@@ -14,6 +14,7 @@ class CustomUserAdmin(UserAdmin):
         "email",
         "first_name",
         "last_name",
+        "share_allergies_with_ai",
         "is_active",
         "is_staff",
     )
@@ -52,6 +53,14 @@ class CustomUserAdmin(UserAdmin):
                     "is_superuser",
                     "groups",
                     "user_permissions",
+                )
+            },
+        ),
+        (
+            "Приватность ИИ",
+            {
+                "fields": (
+                    "share_allergies_with_ai",
                 )
             },
         ),

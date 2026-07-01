@@ -57,6 +57,30 @@
         <span class="lang lang--tr">Sonuç bulunamadı.</span>
       </p>
 
+      <section class="account-privacy-panel">
+        <label class="account-toggle-row">
+          {{ form.share_allergies_with_ai }}
+          <span class="account-toggle-row__control" aria-hidden="true"></span>
+          <span class="account-toggle-row__copy">
+            <strong>
+              <span class="lang lang--ru">Передавать подтвержденные аллергены ИИ-ассистенту</span>
+              <span class="lang lang--en">Share confirmed allergens with the AI assistant</span>
+              <span class="lang lang--tr">Onaylı alerjenleri AI asistanıyla paylaş</span>
+            </strong>
+            <small>
+              <span class="lang lang--ru">Если включено, во внешний запрос к Gemini уйдут только названия выбранных аллергенов. Email, история заказов и другие данные профиля не добавляются. По умолчанию выключено.</span>
+              <span class="lang lang--en">When enabled, only the names of selected allergens are sent to Gemini. Email, order history and other profile data are not included. Off by default.</span>
+              <span class="lang lang--tr">Açıldığında Gemini'ye yalnızca seçili alerjen adları gönderilir. Email, sipariş geçmişi ve diğer profil verileri eklenmez. Varsayılan olarak kapalıdır.</span>
+            </small>
+          </span>
+        </label>
+        <p>
+          <span class="lang lang--ru">Подсветка аллергенов в меню работает внутри сайта и не требует передачи этих данных ИИ.</span>
+          <span class="lang lang--en">Menu allergen highlighting works inside the site and does not require sharing this data with AI.</span>
+          <span class="lang lang--tr">Menüde alerjen vurgulaması site içinde çalışır ve bu verilerin AI ile paylaşılmasını gerektirmez.</span>
+        </p>
+      </section>
+
       <button type="submit" class="account-primary-button">
         <span class="lang lang--ru">Сохранить</span>
         <span class="lang lang--en">Save</span>

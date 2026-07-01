@@ -249,6 +249,147 @@
   background: var(--accent-hover);
 }
 
+.account-secondary-button,
+.account-danger-button {
+  min-height: 46px;
+  padding: 0 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.account-secondary-button {
+  border: 1px solid var(--line);
+  color: var(--accent);
+  background: var(--surface);
+}
+
+.account-secondary-button:hover {
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+
+.account-danger-button {
+  border: 1px solid color-mix(in srgb, #a9432f 42%, var(--line));
+  color: #a9432f;
+  background: color-mix(in srgb, #a9432f 8%, var(--surface));
+}
+
+.account-danger-button:hover {
+  border-color: #a9432f;
+  background: color-mix(in srgb, #a9432f 12%, var(--surface));
+}
+
+.account-privacy-panel {
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.account-privacy-panel p,
+.account-data-summary p {
+  margin: 0;
+}
+
+.account-privacy-panel p {
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.account-toggle-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: start;
+  cursor: pointer;
+}
+
+.account-toggle-row input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.account-toggle-row__control {
+  width: 46px;
+  height: 26px;
+  position: relative;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.account-toggle-row__control::after {
+  content: "";
+  width: 18px;
+  height: 18px;
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  border-radius: 50%;
+  background: var(--text-soft);
+  transition: transform 180ms ease, background-color 160ms ease;
+}
+
+.account-toggle-row input:focus-visible + .account-toggle-row__control {
+  outline: 2px solid color-mix(in srgb, var(--accent) 36%, transparent);
+  outline-offset: 3px;
+}
+
+.account-toggle-row input:checked + .account-toggle-row__control {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+}
+
+.account-toggle-row input:checked + .account-toggle-row__control::after {
+  transform: translateX(20px);
+  background: var(--accent);
+}
+
+.account-toggle-row__copy {
+  display: grid;
+  gap: 5px;
+}
+
+.account-toggle-row__copy strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.account-toggle-row__copy small {
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.account-data-summary {
+  padding: 15px 0;
+}
+
+.account-data-summary p {
+  display: grid;
+  gap: 6px;
+}
+
+.account-data-summary strong {
+  color: var(--text);
+}
+
+.account-data-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 @media (min-width: 760px) {
   .account-page {
     padding-top: 34px;

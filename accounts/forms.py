@@ -102,3 +102,7 @@ class AllergyPreferencesForm(forms.Form):
         widget=forms.CheckboxSelectMultiple,
         label="Пищевые ограничения",
     )
+    share_allergies_with_ai = forms.BooleanField(
+        required=False,
+        label="Передавать подтвержденные аллергены ИИ-ассистенту",
+    )

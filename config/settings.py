@@ -180,6 +180,23 @@ else:
         }
     }
 
+REDIS_URL = os.getenv("REDIS_URL", "")
+
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "resto-ai-guards",
+        }
+    }
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -254,3 +271,96 @@ AI_HISTORY_LIMIT = int(
 AI_MENU_CONTEXT_LIMIT = int(
     os.getenv("AI_MENU_CONTEXT_LIMIT", "80")
 )
+
+AI_HISTORY_RETENTION_DAYS = int(
+    os.getenv("AI_HISTORY_RETENTION_DAYS", "180")
+)
+
+AI_RATE_LIMIT_WINDOW_SECONDS = int(
+    os.getenv("AI_RATE_LIMIT_WINDOW_SECONDS", "60")
+)
+
+AI_RATE_LIMIT_IP_PER_MINUTE = int(
+    os.getenv("AI_RATE_LIMIT_IP_PER_MINUTE", "30")
+)
+
+AI_RATE_LIMIT_GUEST_PER_MINUTE = int(
+    os.getenv("AI_RATE_LIMIT_GUEST_PER_MINUTE", "6")
+)
+
+AI_RATE_LIMIT_USER_PER_MINUTE = int(
+    os.getenv("AI_RATE_LIMIT_USER_PER_MINUTE", "12")
+)
+
+AI_DAILY_QUOTA_IP = int(
+    os.getenv("AI_DAILY_QUOTA_IP", "120")
+)
+
+AI_DAILY_QUOTA_GUEST = int(
+    os.getenv("AI_DAILY_QUOTA_GUEST", "25")
+)
+
+AI_DAILY_QUOTA_USER = int(
+    os.getenv("AI_DAILY_QUOTA_USER", "80")
+)
+
+AI_DAILY_TOKEN_BUDGET_IP = int(
+    os.getenv("AI_DAILY_TOKEN_BUDGET_IP", "160000")
+)
+
+AI_DAILY_TOKEN_BUDGET_GUEST = int(
+    os.getenv("AI_DAILY_TOKEN_BUDGET_GUEST", "30000")
+)
+
+AI_DAILY_TOKEN_BUDGET_USER = int(
+    os.getenv("AI_DAILY_TOKEN_BUDGET_USER", "100000")
+)
+
+AI_ESTIMATED_RESPONSE_TOKENS = int(
+    os.getenv("AI_ESTIMATED_RESPONSE_TOKENS", "600")
+)
+
+AI_ESTIMATED_COST_MICROS_PER_1000_TOKENS = int(
+    os.getenv("AI_ESTIMATED_COST_MICROS_PER_1000_TOKENS", "0")
+)
+
+AI_DAILY_COST_BUDGET_MICROS_IP = int(
+    os.getenv("AI_DAILY_COST_BUDGET_MICROS_IP", "0")
+)
+
+AI_DAILY_COST_BUDGET_MICROS_GUEST = int(
+    os.getenv("AI_DAILY_COST_BUDGET_MICROS_GUEST", "0")
+)
+
+AI_DAILY_COST_BUDGET_MICROS_USER = int(
+    os.getenv("AI_DAILY_COST_BUDGET_MICROS_USER", "0")
+)
+
+AI_STREAM_CONCURRENCY_IP = int(
+    os.getenv("AI_STREAM_CONCURRENCY_IP", "5")
+)
+
+AI_STREAM_CONCURRENCY_GUEST = int(
+    os.getenv("AI_STREAM_CONCURRENCY_GUEST", "1")
+)
+
+AI_STREAM_CONCURRENCY_USER = int(
+    os.getenv("AI_STREAM_CONCURRENCY_USER", "2")
+)
+
+AI_STREAM_LOCK_TIMEOUT_SECONDS = int(
+    os.getenv("AI_STREAM_LOCK_TIMEOUT_SECONDS", "180")
+)
+
+AI_ABUSE_BLOCK_THRESHOLD = int(
+    os.getenv("AI_ABUSE_BLOCK_THRESHOLD", "8")
+)
+
+AI_ABUSE_BLOCK_SECONDS = int(
+    os.getenv("AI_ABUSE_BLOCK_SECONDS", "600")
+)
+
+AI_TRUST_X_FORWARDED_FOR = os.getenv(
+    "AI_TRUST_X_FORWARDED_FOR",
+    "False",
+).lower() in {"1", "true", "yes", "on"}

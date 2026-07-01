@@ -643,6 +643,45 @@
   box-shadow: none;
 }
 
+.order-history-pagination {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.order-history-page-link,
+.order-history-page-current {
+  min-height: 38px;
+  padding: 0 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.order-history-page-link {
+  color: var(--accent);
+  text-decoration: none;
+  transition: color 160ms ease, border-color 160ms ease, background-color 160ms ease, transform 120ms ease;
+}
+
+.order-history-page-link:hover {
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  background: var(--accent);
+}
+
+.order-history-page-link:active {
+  transform: scale(0.97);
+}
+
 .order-empty__mark {
   width: 46px;
   height: 46px;

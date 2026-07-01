@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ChatMessage, ChatSession
+from .models import AIUsageEvent, ChatMessage, ChatSession
 
 
 class ChatMessageInline(admin.TabularInline):
@@ -91,3 +91,53 @@ class ChatMessageAdmin(admin.ModelAdmin):
     @admin.display(description="Сообщение")
     def short_content(self, obj):
         return obj.content[:80]
+
+
+@admin.register(AIUsageEvent)
+class AIUsageEventAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "status",
+        "user",
+        "actor_kind",
+        "model_name",
+        "estimated_total_tokens",
+        "estimated_cost_micros",
+        "is_stream",
+        "created_at",
+    )
+
+    list_filter = (
+        "status",
+        "actor_kind",
+        "is_stream",
+        "model_name",
+        "created_at",
+    )
+
+    search_fields = (
+        "user__email",
+        "session_key",
+        "ip_address_hash",
+        "limit_reason",
+    )
+
+    readonly_fields = (
+        "user",
+        "chat_session",
+        "session_key",
+        "actor_kind",
+        "ip_address_hash",
+        "prompt_chars",
+        "response_chars",
+        "estimated_prompt_tokens",
+        "estimated_response_tokens",
+        "estimated_total_tokens",
+        "estimated_cost_micros",
+        "model_name",
+        "status",
+        "limit_reason",
+        "is_stream",
+        "created_at",
+        "updated_at",
+    )

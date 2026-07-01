@@ -63,6 +63,58 @@
     <section class="account-section">
       <div class="account-section-header">
         <h2>
+          <span class="lang lang--ru">ИИ и данные</span>
+          <span class="lang lang--en">AI and data</span>
+          <span class="lang lang--tr">AI ve veriler</span>
+        </h2>
+        <a href="{% url 'accounts:edit_allergies' %}" class="account-link">
+          <span class="lang lang--ru">Настроить</span>
+          <span class="lang lang--en">Settings</span>
+          <span class="lang lang--tr">Ayarlar</span>
+        </a>
+      </div>
+
+      <div class="account-data-summary">
+        <p>
+          <strong>
+            {% if request.user.share_allergies_with_ai %}
+              <span class="lang lang--ru">Передача аллергий ИИ включена</span>
+              <span class="lang lang--en">Allergy sharing with AI is on</span>
+              <span class="lang lang--tr">Alerji paylaşımı açık</span>
+            {% else %}
+              <span class="lang lang--ru">Передача аллергий ИИ выключена</span>
+              <span class="lang lang--en">Allergy sharing with AI is off</span>
+              <span class="lang lang--tr">Alerji paylaşımı kapalı</span>
+            {% endif %}
+          </strong>
+          <span class="account-muted">
+            <span class="lang lang--ru">История ИИ-диалогов привязана к аккаунту: {{ ai_chat_count }}. Срок хранения: {{ ai_history_retention_days }} дн.</span>
+            <span class="lang lang--en">AI chat history tied to this account: {{ ai_chat_count }}. Retention: {{ ai_history_retention_days }} days.</span>
+            <span class="lang lang--tr">Bu hesaba bağlı AI sohbet geçmişi: {{ ai_chat_count }}. Saklama süresi: {{ ai_history_retention_days }} gün.</span>
+          </span>
+        </p>
+      </div>
+
+      <div class="account-data-actions">
+        <a class="account-secondary-button" href="{% url 'accounts:export_data' %}">
+          <span class="lang lang--ru">Экспорт данных</span>
+          <span class="lang lang--en">Export data</span>
+          <span class="lang lang--tr">Verileri dışa aktar</span>
+        </a>
+        <form method="post" action="{% url 'ai_assistant:delete_history' %}">
+          {% csrf_token %}
+          <button class="account-danger-button" type="submit">
+            <span class="lang lang--ru">Удалить историю ИИ</span>
+            <span class="lang lang--en">Delete AI history</span>
+            <span class="lang lang--tr">AI geçmişini sil</span>
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <section class="account-section">
+      <div class="account-section-header">
+        <h2>
           <span class="lang lang--ru">Заказы</span>
           <span class="lang lang--en">Orders</span>
           <span class="lang lang--tr">Siparişler</span>

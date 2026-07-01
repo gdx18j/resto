@@ -210,10 +210,17 @@ def build_user_context(session: ChatSession) -> str:
     if not session.user_id:
         return "Visitor profile: guest user. No saved allergy profile is available."
 
+    if not getattr(session.user, "share_allergies_with_ai", False):
+        return (
+            "Visitor profile: authenticated user. Saved allergy profile sharing "
+            "with the external AI provider is disabled. Do not use saved allergy "
+            "data unless the user explicitly writes it in this chat."
+        )
+
     allergens = UserAllergy.objects.filter(
         user=session.user,
         status=UserAllergy.Status.CONFIRMED,
-    ).select_related("allergen")
+    ).select_related("allergen").order_by("allergen__name")
 
     allergen_names = [
         record.allergen.name
@@ -221,8 +228,9 @@ def build_user_context(session: ChatSession) -> str:
     ]
 
     return (
-        "Visitor profile: authenticated user. Confirmed allergies: "
-        f"{_format_list(allergen_names)}."
+        "Visitor profile: authenticated user. Confirmed allergy names shared "
+        f"with explicit consent: {_format_list(allergen_names)}. "
+        "No other profile fields are included."
     )
 
 

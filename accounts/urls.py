@@ -17,4 +17,9 @@ urlpatterns = [
         views.edit_allergies,
         name="edit_allergies",
     ),
+    path(
+        "export/",
+        views.export_data,
+        name="export_data",
+    ),
 ]

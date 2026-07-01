@@ -164,6 +164,7 @@
       item.qty = Math.max(1, Math.min(99, parseInt(item.qty, 10) || 1));
       item.price = Number(item.price) || 0;
       item.name = String(item.name || '');
+      item.note = String(item.note || '');
       item.modifiers = Array.isArray(item.modifiers) ? item.modifiers : [];
       item.dishId = normalizeDishId(id, item);
 
@@ -375,6 +376,7 @@
           id: id,
           dish_id: item.dishId || normalizeDishId(id, item),
           quantity: item.qty,
+          note: item.note || '',
           modifiers: Array.isArray(item.modifiers) ? item.modifiers : [],
         };
       }),
@@ -468,6 +470,7 @@
         price: Number(serverItem.unit_price) || 0,
         qty: Number(serverItem.quantity) || existing.qty || 1,
         dishId: serverItem.dish_id,
+        note: existing.note || serverItem.note || '',
         modifiers: Array.isArray(existing.modifiers) ? existing.modifiers : [],
       };
     });
@@ -602,6 +605,7 @@
         price: Number(price) || 0,
         qty: 1,
         dishId: normalizeDishId(id, null),
+        note: '',
         modifiers: [],
       };
     }
@@ -659,6 +663,7 @@
           price: Number(item.price || item.unit_price) || 0,
           qty: qty,
           dishId: dishId,
+          note: String(item.note || ''),
           modifiers: Array.isArray(item.modifiers) ? item.modifiers : [],
         };
       }
