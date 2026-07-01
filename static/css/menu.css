@@ -1093,55 +1093,6 @@ label[for="theme-toggle"] {
   animation-delay: calc(min(var(--card-index, 1), 8) * 42ms);
 }
 
-.dish-card--removing {
-  border-color: color-mix(in srgb, var(--danger) 38%, var(--line));
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(6px) scale(0.985);
-}
-
-.dish-menu-action {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 2;
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
-  border-radius: 12px;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--surface) 84%, transparent);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
-  cursor: pointer;
-  transition:
-    color 160ms ease,
-    border-color 160ms ease,
-    background-color 200ms ease,
-    transform 160ms ease,
-    opacity 160ms ease;
-}
-
-.dish-menu-action svg {
-  width: 17px;
-  height: 17px;
-}
-
-.dish-menu-action:hover {
-  color: var(--accent-contrast);
-  border-color: var(--accent);
-  background: var(--accent);
-  transform: translateY(-1px);
-}
-
-.dish-menu-action:disabled {
-  opacity: 0.58;
-  cursor: wait;
-  transform: none;
-}
-
 .dish-card:hover {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
   box-shadow: 0 18px 38px rgba(0, 0, 0, 0.22);

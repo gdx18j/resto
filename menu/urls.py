@@ -12,9 +12,4 @@ urlpatterns = [
         views.dish_list,
         name="dish_list",
     ),
-    path(
-        "dishes/<int:dish_id>/hide/",
-        views.hide_dish,
-        name="hide_dish",
-    ),
 ]

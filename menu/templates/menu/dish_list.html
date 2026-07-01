@@ -132,18 +132,6 @@
                 {% endif %}
               </div>
 
-              {% if request.user.is_staff %}
-                <button
-                  class="dish-menu-action"
-                  type="button"
-                  data-hide-dish
-                  data-hide-url="{% url 'menu:hide_dish' dish.id %}"
-                  aria-label="Убрать из меню: {{ dish.name }}"
-                >
-                  <svg aria-hidden="true"><use href="#i-eye-off"/></svg>
-                </button>
-              {% endif %}
-
               <div class="dish-body">
                 <div class="dish-copy">
                   <h2>{{ dish.localized_name_html }}</h2>

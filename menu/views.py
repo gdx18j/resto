@@ -1,8 +1,7 @@
-from django.contrib.admin.views.decorators import staff_member_required
-from django.http import JsonResponse
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import render
 from django.views.decorators.csrf import ensure_csrf_cookie
-from django.views.decorators.http import require_POST
+
+from orders.models import Restaurant
 
 from .models import Category, Dish
 from .services import (
@@ -13,10 +12,35 @@ from .services import (
 from .translations import localized_category_html
 
 
+def get_menu_restaurant(request):
+    slug = request.GET.get("restaurant") or request.GET.get("restaurant_slug")
+
+    if slug:
+        restaurant = Restaurant.objects.filter(
+            slug=str(slug).strip(),
+            is_active=True,
+        ).first()
+
+        if restaurant:
+            return restaurant
+
+    restaurant = Restaurant.objects.filter(is_active=True).order_by("id").first()
+
+    if restaurant:
+        return restaurant
+
+    return Restaurant.objects.create(
+        slug="caesar-company",
+        name="Caesar & Company",
+    )
+
+
 @ensure_csrf_cookie
 def dish_list(request):
+    restaurant = get_menu_restaurant(request)
     dishes = (
         Dish.objects.filter(
+            restaurant=restaurant,
             is_active=True,
             is_available=True,
         )
@@ -39,7 +63,10 @@ def dish_list(request):
         for dish in dishes
         if dish.category_id is not None
     }
-    categories = Category.objects.filter(id__in=category_ids).order_by("name")
+    categories = Category.objects.filter(
+        restaurant=restaurant,
+        id__in=category_ids,
+    ).order_by("name")
     dishes_by_category = {
         category.id: []
         for category in categories
@@ -76,6 +103,7 @@ def dish_list(request):
         "dishes": dishes,
         "dish_details": build_dish_detail_payload(dishes),
         "menu_sections": menu_sections,
+        "restaurant": restaurant,
         "user_allergens": get_confirmed_user_allergens(request.user),
     }
 
@@ -83,22 +111,4 @@ def dish_list(request):
         request,
         "menu/dish_list.html",
         context,
-    )
-
-
-@staff_member_required
-@require_POST
-def hide_dish(request, dish_id):
-    dish = get_object_or_404(Dish, id=dish_id)
-
-    if dish.is_active:
-        dish.is_active = False
-        dish.save(update_fields=["is_active"])
-
-    return JsonResponse(
-        {
-            "ok": True,
-            "dish_id": dish.id,
-            "message": "Блюдо убрано из меню.",
-        }
     )

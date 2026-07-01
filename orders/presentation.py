@@ -77,6 +77,12 @@ def decorate_order(order):
     order.primary_payment = payments[0] if payments else None
     order.status_label = STATUS_LABELS.get(order.status, order.get_status_display())
     order.status_steps = _status_steps(order)
+    order.history_state = "active"
+
+    if order.status == Order.Status.COMPLETED:
+        order.history_state = "completed"
+    elif order.status == Order.Status.CANCELED:
+        order.history_state = "canceled"
 
     return order
 

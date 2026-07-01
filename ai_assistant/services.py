@@ -8,7 +8,7 @@ from google import genai
 from google.genai import errors, types
 
 from accounts.models import UserAllergy
-from menu.models import Dish
+from menu.models import Dish, get_default_restaurant_id
 from menu.translations import normalize_language
 
 from .models import ChatMessage, ChatSession
@@ -142,8 +142,10 @@ def detect_response_language(text, fallback="ru"):
 
 
 def build_menu_context() -> str:
+    restaurant_id = get_default_restaurant_id()
     dishes = (
         Dish.objects.filter(
+            restaurant_id=restaurant_id,
             is_active=True,
             is_available=True,
         )
@@ -246,7 +248,11 @@ def _previous_assistant_dish_names(session: ChatSession) -> list[str]:
 
     names = []
 
-    for dish in Dish.objects.filter(is_active=True, is_available=True).order_by("name"):
+    for dish in Dish.objects.filter(
+        restaurant_id=get_default_restaurant_id(),
+        is_active=True,
+        is_available=True,
+    ).order_by("name"):
         if dish.name.casefold() in previous_text:
             names.append(dish.name)
 

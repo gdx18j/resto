@@ -16,6 +16,7 @@ from menu.models import (
     DishIngredient,
     Ingredient,
 )
+from orders.models import Restaurant
 
 
 def parse_decimal(value):
@@ -105,6 +106,11 @@ class Command(BaseCommand):
                 "в may_contain_allergens"
             ),
         )
+        parser.add_argument(
+            "--restaurant-slug",
+            default="caesar-company",
+            help="Slug ресторана, в меню которого импортируются блюда.",
+        )
 
     @transaction.atomic
     def handle(self, *args, **options):
@@ -131,14 +137,22 @@ class Command(BaseCommand):
                 "В JSON отсутствует список dishes."
             )
 
+        restaurant, _ = Restaurant.objects.get_or_create(
+            slug=options["restaurant_slug"] or "caesar-company",
+            defaults={"name": "Caesar & Company"},
+        )
+
+        if not restaurant.is_active:
+            restaurant.is_active = True
+            restaurant.save(update_fields=["is_active"])
+
         if options["clear"]:
-            Dish.objects.all().delete()
-            Ingredient.objects.all().delete()
-            Category.objects.all().delete()
+            Dish.objects.filter(restaurant=restaurant).delete()
+            Category.objects.filter(restaurant=restaurant).delete()
 
             self.stdout.write(
                 self.style.WARNING(
-                    "Старые блюда, ингредиенты и категории удалены."
+                    "Старые блюда и категории выбранного ресторана удалены."
                 )
             )
 
@@ -164,9 +178,11 @@ class Command(BaseCommand):
                 continue
 
             category, _ = Category.objects.get_or_create(
+                restaurant=restaurant,
                 name=category_name,
             )
             dish, created = Dish.objects.update_or_create(
+                restaurant=restaurant,
                 category=category,
                 name=dish_name,
                 defaults={
