@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import User, UserAllergy
+from .models import User, UserAllergy, UserAllergyStatusChange
 
 
 @admin.register(User)
@@ -116,3 +116,59 @@ class UserAllergyAdmin(admin.ModelAdmin):
         "user",
         "allergen",
     )
+
+
+@admin.register(UserAllergyStatusChange)
+class UserAllergyStatusChangeAdmin(admin.ModelAdmin):
+    list_display = (
+        "allergy",
+        "actor",
+        "old_status",
+        "new_status",
+        "old_source",
+        "new_source",
+        "reason",
+        "created_at",
+    )
+
+    list_filter = (
+        "old_status",
+        "new_status",
+        "old_source",
+        "new_source",
+        "reason",
+    )
+
+    search_fields = (
+        "allergy__user__email",
+        "allergy__allergen__name",
+        "actor__email",
+        "reason",
+    )
+
+    list_select_related = (
+        "allergy",
+        "allergy__user",
+        "allergy__allergen",
+        "actor",
+    )
+
+    readonly_fields = (
+        "allergy",
+        "actor",
+        "old_status",
+        "new_status",
+        "old_source",
+        "new_source",
+        "reason",
+        "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

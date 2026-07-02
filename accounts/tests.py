@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from allauth.account.models import EmailAddress
 from allauth.socialaccount.adapter import get_adapter
 from allauth.socialaccount.models import SocialAccount, SocialLogin
@@ -11,6 +13,9 @@ from django.urls import reverse
 
 from ai_assistant.models import ChatMessage, ChatSession
 from menu.models import Allergen
+
+from .models import UserAllergy, UserAllergyStatusChange
+from .services import MANUAL_PROFILE_UPDATE, update_manual_allergy_preferences
 
 
 User = get_user_model()
@@ -218,6 +223,95 @@ class AccountViewTests(TestCase):
         user.refresh_from_db()
         self.assertTrue(user.share_allergies_with_ai)
 
+    def test_allergy_update_is_atomic_when_new_record_creation_fails(self):
+        user = User.objects.create_user(
+            email="allergy-atomic@example.com",
+            password="StrongPass123!",
+            share_allergies_with_ai=False,
+        )
+        milk = Allergen.objects.create(code="atomic-milk", name="Atomic milk")
+        egg = Allergen.objects.create(code="atomic-egg", name="Atomic egg")
+        UserAllergy.objects.create(
+            user=user,
+            allergen=milk,
+            source=UserAllergy.Source.MANUAL,
+            status=UserAllergy.Status.CONFIRMED,
+        )
+
+        with patch.object(UserAllergy.objects, "create", side_effect=RuntimeError):
+            with self.assertRaises(RuntimeError):
+                update_manual_allergy_preferences(
+                    user,
+                    Allergen.objects.filter(pk=egg.pk),
+                    True,
+                )
+
+        user.refresh_from_db()
+        milk_record = UserAllergy.objects.get(user=user, allergen=milk)
+
+        self.assertFalse(user.share_allergies_with_ai)
+        self.assertEqual(milk_record.status, UserAllergy.Status.CONFIRMED)
+        self.assertFalse(UserAllergy.objects.filter(user=user, allergen=egg).exists())
+        self.assertFalse(UserAllergyStatusChange.objects.exists())
+
+    def test_allergy_update_audits_rejected_to_confirmed_transition(self):
+        user = User.objects.create_user(
+            email="allergy-audit@example.com",
+            password="StrongPass123!",
+        )
+        allergen = Allergen.objects.create(code="audit-milk", name="Audit milk")
+        record = UserAllergy.objects.create(
+            user=user,
+            allergen=allergen,
+            source=UserAllergy.Source.DIALOG,
+            status=UserAllergy.Status.REJECTED,
+        )
+
+        update_manual_allergy_preferences(
+            user,
+            Allergen.objects.filter(pk=allergen.pk),
+            False,
+        )
+
+        record.refresh_from_db()
+        change = UserAllergyStatusChange.objects.get(allergy=record)
+
+        self.assertEqual(record.status, UserAllergy.Status.CONFIRMED)
+        self.assertEqual(record.source, UserAllergy.Source.MANUAL)
+        self.assertEqual(change.actor, user)
+        self.assertEqual(change.old_status, UserAllergy.Status.REJECTED)
+        self.assertEqual(change.new_status, UserAllergy.Status.CONFIRMED)
+        self.assertEqual(change.old_source, UserAllergy.Source.DIALOG)
+        self.assertEqual(change.new_source, UserAllergy.Source.MANUAL)
+        self.assertEqual(change.reason, MANUAL_PROFILE_UPDATE)
+
+    def test_allergy_update_marks_removed_confirmed_record_rejected(self):
+        user = User.objects.create_user(
+            email="allergy-remove@example.com",
+            password="StrongPass123!",
+        )
+        allergen = Allergen.objects.create(code="remove-milk", name="Remove milk")
+        record = UserAllergy.objects.create(
+            user=user,
+            allergen=allergen,
+            source=UserAllergy.Source.MANUAL,
+            status=UserAllergy.Status.CONFIRMED,
+        )
+
+        update_manual_allergy_preferences(
+            user,
+            Allergen.objects.none(),
+            False,
+        )
+
+        record.refresh_from_db()
+        change = UserAllergyStatusChange.objects.get(allergy=record)
+
+        self.assertEqual(record.status, UserAllergy.Status.REJECTED)
+        self.assertEqual(record.source, UserAllergy.Source.MANUAL)
+        self.assertEqual(change.old_status, UserAllergy.Status.CONFIRMED)
+        self.assertEqual(change.new_status, UserAllergy.Status.REJECTED)
+
     def test_profile_links_data_export_and_ai_history_delete(self):
         user = User.objects.create_user(
             email="ai-data-profile@example.com",
@@ -241,7 +335,16 @@ class AccountViewTests(TestCase):
             code="test-milk-export",
             name="Тестовое молоко export",
         )
-        user.allergy_records.create(allergen=allergen)
+        allergy_record = user.allergy_records.create(allergen=allergen)
+        UserAllergyStatusChange.objects.create(
+            allergy=allergy_record,
+            actor=user,
+            old_status="",
+            new_status=UserAllergy.Status.CONFIRMED,
+            old_source="",
+            new_source=UserAllergy.Source.MANUAL,
+            reason=MANUAL_PROFILE_UPDATE,
+        )
         session = ChatSession.objects.create(
             user=user,
             session_key="account-export",
@@ -266,6 +369,10 @@ class AccountViewTests(TestCase):
         self.assertEqual(
             payload["allergy_profile"][0]["allergen"],
             "Тестовое молоко export",
+        )
+        self.assertEqual(
+            payload["allergy_profile"][0]["status_changes"][0]["new_status"],
+            UserAllergy.Status.CONFIRMED,
         )
         self.assertEqual(
             payload["ai_history"]["sessions"][0]["messages"][0]["text"],

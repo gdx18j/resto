@@ -5,6 +5,25 @@ from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import Q
 
+from .codes import build_stable_code
+from .translations import LANGUAGE_CHOICES
+
+
+def build_unique_model_code(model, base_code, filters, instance_pk=None, max_length=220):
+    code = base_code[:max_length]
+    suffix = 2
+
+    while (
+        model.objects.filter(**filters, code=code)
+        .exclude(pk=instance_pk)
+        .exists()
+    ):
+        suffix_text = f"-{suffix}"
+        code = f"{base_code[: max_length - len(suffix_text)]}{suffix_text}"
+        suffix += 1
+
+    return code
+
 
 def get_default_restaurant_id():
     from orders.models import Restaurant
@@ -40,6 +59,14 @@ class Category(models.Model):
         verbose_name="Название",
     )
 
+    code = models.SlugField(
+        max_length=200,
+        blank=True,
+        db_index=True,
+        verbose_name="Code",
+        help_text="Stable translation key. It is not changed when the name is renamed.",
+    )
+
     class Meta:
         verbose_name = "Категория"
         verbose_name_plural = "Категории"
@@ -49,10 +76,27 @@ class Category(models.Model):
                 fields=["restaurant", "name"],
                 name="unique_category_name_per_restaurant",
             ),
+            models.UniqueConstraint(
+                fields=["restaurant", "code"],
+                name="unique_category_code_per_restaurant",
+            ),
         ]
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            base_code = build_stable_code(self.name, prefix="category")
+            self.code = build_unique_model_code(
+                Category,
+                base_code,
+                {"restaurant_id": self.restaurant_id},
+                instance_pk=self.pk,
+                max_length=200,
+            )
+
+        super().save(*args, **kwargs)
 
 
 class Allergen(models.Model):
@@ -149,6 +193,14 @@ class Dish(models.Model):
     name = models.CharField(
         max_length=200,
         verbose_name="Название",
+    )
+
+    code = models.SlugField(
+        max_length=220,
+        blank=True,
+        db_index=True,
+        verbose_name="Code",
+        help_text="Stable translation key. It is not changed when the name is renamed.",
     )
 
     description = models.TextField(
@@ -258,9 +310,28 @@ class Dish(models.Model):
                 name="dish_rest_active_avail_idx",
             ),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["restaurant", "code"],
+                name="unique_dish_code_per_restaurant",
+            ),
+        ]
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            base_code = build_stable_code(self.name, prefix="dish")
+            self.code = build_unique_model_code(
+                Dish,
+                base_code,
+                {"restaurant_id": self.restaurant_id},
+                instance_pk=self.pk,
+                max_length=220,
+            )
+
+        super().save(*args, **kwargs)
 
     def clean(self):
         super().clean()
@@ -296,6 +367,94 @@ class Dish(models.Model):
         return self.get_allergens().filter(
             id__in=allergen_ids
         ).exists()
+
+
+class CategoryTranslation(models.Model):
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.CASCADE,
+        related_name="translations",
+        verbose_name="Category",
+    )
+    language = models.CharField(
+        max_length=8,
+        choices=LANGUAGE_CHOICES,
+        verbose_name="Language",
+    )
+    name = models.CharField(max_length=100, verbose_name="Name")
+
+    class Meta:
+        verbose_name = "Category translation"
+        verbose_name_plural = "Category translations"
+        ordering = ["category__name", "language"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["category", "language"],
+                name="unique_category_translation_language",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.category} [{self.language}]"
+
+
+class DishTranslation(models.Model):
+    dish = models.ForeignKey(
+        Dish,
+        on_delete=models.CASCADE,
+        related_name="translations",
+        verbose_name="Dish",
+    )
+    language = models.CharField(
+        max_length=8,
+        choices=LANGUAGE_CHOICES,
+        verbose_name="Language",
+    )
+    name = models.CharField(max_length=200, verbose_name="Name")
+    description = models.TextField(blank=True, verbose_name="Description")
+
+    class Meta:
+        verbose_name = "Dish translation"
+        verbose_name_plural = "Dish translations"
+        ordering = ["dish__name", "language"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["dish", "language"],
+                name="unique_dish_translation_language",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.dish} [{self.language}]"
+
+
+class AllergenTranslation(models.Model):
+    allergen = models.ForeignKey(
+        Allergen,
+        on_delete=models.CASCADE,
+        related_name="translations",
+        verbose_name="Allergen",
+    )
+    language = models.CharField(
+        max_length=8,
+        choices=LANGUAGE_CHOICES,
+        verbose_name="Language",
+    )
+    name = models.CharField(max_length=100, verbose_name="Name")
+
+    class Meta:
+        verbose_name = "Allergen translation"
+        verbose_name_plural = "Allergen translations"
+        ordering = ["allergen__name", "language"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["allergen", "language"],
+                name="unique_allergen_translation_language",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.allergen} [{self.language}]"
 
 
 class DishIngredient(models.Model):

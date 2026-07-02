@@ -63,9 +63,13 @@ def dish_list(request, qr_token=None):
         )
         .select_related("category")
         .prefetch_related(
+            "translations",
+            "category__translations",
             "ingredients__allergens",
+            "ingredients__allergens__translations",
             "dish_ingredients__ingredient",
             "may_contain_allergens",
+            "may_contain_allergens__translations",
         )
         .order_by("category__name", "name")
     )
@@ -100,7 +104,7 @@ def dish_list(request, qr_token=None):
         {
             "anchor": f"category-{category.id}",
             "title": category.name,
-            "title_html": localized_category_html(category.name),
+            "title_html": localized_category_html(category),
             "dishes": dishes_by_category[category.id],
         }
         for category in categories

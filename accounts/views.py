@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db.models import Prefetch
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -14,7 +15,8 @@ from orders.models import Order
 from orders.presentation import decorate_orders
 
 from .forms import AllergyPreferencesForm
-from .models import UserAllergy
+from .models import UserAllergy, UserAllergyStatusChange
+from .services import update_manual_allergy_preferences
 
 
 def _serialize_timestamp(value):
@@ -102,6 +104,16 @@ def export_data(request):
     allergy_records = (
         request.user.allergy_records
         .select_related("allergen")
+        .prefetch_related(
+            Prefetch(
+                "status_changes",
+                queryset=(
+                    UserAllergyStatusChange.objects
+                    .select_related("actor")
+                    .order_by("created_at", "id")
+                ),
+            )
+        )
         .order_by("allergen__name")
     )
     ai_sessions = (
@@ -128,6 +140,18 @@ def export_data(request):
                 "source": record.source,
                 "created_at": _serialize_timestamp(record.created_at),
                 "updated_at": _serialize_timestamp(record.updated_at),
+                "status_changes": [
+                    {
+                        "old_status": change.old_status,
+                        "new_status": change.new_status,
+                        "old_source": change.old_source,
+                        "new_source": change.new_source,
+                        "reason": change.reason,
+                        "actor": change.actor.email if change.actor else None,
+                        "created_at": _serialize_timestamp(change.created_at),
+                    }
+                    for change in record.status_changes.all()
+                ],
             }
             for record in allergy_records
         ],
@@ -171,30 +195,11 @@ def edit_allergies(request):
 
         if form.is_valid():
             selected_allergens = form.cleaned_data["allergens"]
-            request.user.share_allergies_with_ai = form.cleaned_data[
-                "share_allergies_with_ai"
-            ]
-            request.user.save(update_fields=["share_allergies_with_ai"])
-            selected_ids = set(
-                selected_allergens.values_list("id", flat=True)
+            update_manual_allergy_preferences(
+                request.user,
+                selected_allergens,
+                form.cleaned_data["share_allergies_with_ai"],
             )
-
-            if selected_ids:
-                confirmed_records.exclude(
-                    allergen_id__in=selected_ids
-                ).delete()
-            else:
-                confirmed_records.delete()
-
-            for allergen in selected_allergens:
-                UserAllergy.objects.update_or_create(
-                    user=request.user,
-                    allergen=allergen,
-                    defaults={
-                        "source": UserAllergy.Source.MANUAL,
-                        "status": UserAllergy.Status.CONFIRMED,
-                    },
-                )
 
             messages.success(
                 request,

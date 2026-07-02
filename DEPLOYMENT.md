@@ -23,6 +23,11 @@ PostgreSQL and Redis are available only on the internal Docker network. The web
 container binds to `127.0.0.1:8000` by default. Put Nginx, a load balancer, or
 another reverse proxy in front of it for public traffic.
 
+Static files are collected at startup. `DJANGO_USE_WHITENOISE=True` lets the web
+container serve `/static/` directly, which is useful behind an external reverse
+proxy. The bundled Nginx TLS profile still serves `/static/` from the shared
+static volume before proxying dynamic requests to Django.
+
 ## Rate Limiting
 
 Production requires `REDIS_URL`; application rate-limit counters must be shared
@@ -88,6 +93,30 @@ example `udp://logs.example.com:12201`, and run with the logging override:
 
 ```bash
 docker compose -f docker-compose.yml -f deploy/docker-compose.logging.gelf.yml up -d
+```
+
+## Data Import
+
+The database schema is defined by committed Django migrations, not by a local
+SQLite file. `db.sqlite3` is ignored and must not be included in release
+archives as project data.
+
+For a clean import after migrations:
+
+```bash
+docker compose exec web python manage.py seed_project_data
+```
+
+The seed command creates base restaurant/table rows and imports the versioned
+menu JSON from `data/caesar_and_company_menu_seed.json`. Use
+`IMPORT_SEED_DATA_ON_STARTUP=True` only for deployments where startup should
+intentionally upsert this seed data. More detail is in `DATA.md`.
+
+Before a release, validate translated menu data:
+
+```bash
+docker compose exec web python manage.py check_menu_translations --restaurant-slug caesar-company
+docker compose exec web python manage.py validate_translation_sources
 ```
 
 ## Backup

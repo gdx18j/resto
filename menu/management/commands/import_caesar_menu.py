@@ -5,6 +5,7 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from menu.codes import build_stable_code
 from menu.allergen_rules import (
     ALLERGEN_NAME_TO_CODE,
     get_allergen_codes_for_ingredient,
@@ -177,15 +178,21 @@ class Command(BaseCommand):
                 )
                 continue
 
-            category, _ = Category.objects.get_or_create(
+            category_code = build_stable_code(category_name, prefix="category")
+            category, _ = Category.objects.update_or_create(
                 restaurant=restaurant,
-                name=category_name,
+                code=category_code,
+                defaults={
+                    "name": category_name,
+                },
             )
+            dish_code = build_stable_code(dish_name, prefix="dish")
             dish, created = Dish.objects.update_or_create(
                 restaurant=restaurant,
-                category=category,
-                name=dish_name,
+                code=dish_code,
                 defaults={
+                    "category": category,
+                    "name": dish_name,
                     "description": str(
                         item.get("description_ru", "")
                     ).strip(),

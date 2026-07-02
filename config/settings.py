@@ -164,6 +164,11 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+USE_WHITENOISE = env_bool("DJANGO_USE_WHITENOISE", not DEBUG)
+
+if USE_WHITENOISE:
+    MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")
+
 ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [
@@ -295,7 +300,19 @@ SOCIALACCOUNT_PROVIDERS = {
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-if os.getenv("DB_HOST"):
+SQLITE_DATABASE_PATH = env_value("SQLITE_DATABASE_PATH", "")
+
+if SQLITE_DATABASE_PATH:
+    if IS_PRODUCTION:
+        raise ImproperlyConfigured("SQLITE_DATABASE_PATH must not be used in production.")
+
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": SQLITE_DATABASE_PATH,
+        }
+    }
+elif os.getenv("DB_HOST"):
     db_password = env_value("DB_PASSWORD", required=True)
     if IS_PRODUCTION and db_password in {"resto_password", "password", "change-me"}:
         raise ImproperlyConfigured(
@@ -470,12 +487,22 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 
+if USE_WHITENOISE:
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+        },
+    }
+
 # Media files (User uploads)
-MEDIA_URL = "media/"
+MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "mediafiles"
 
 # Default primary key field type

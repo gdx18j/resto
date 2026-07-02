@@ -2,24 +2,56 @@ from django.contrib import admin
 
 from .models import (
     Allergen,
+    AllergenTranslation,
     Category,
+    CategoryTranslation,
     Dish,
     DishIngredient,
+    DishTranslation,
     Ingredient,
 )
 
 
+class CategoryTranslationInline(admin.TabularInline):
+    model = CategoryTranslation
+    extra = 0
+
+
+class StableCodeAdminMixin:
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = super().get_readonly_fields(request, obj)
+        if obj is None:
+            return readonly_fields
+
+        return (*readonly_fields, "code")
+
+
 @admin.register(Category)
-class CategoryAdmin(admin.ModelAdmin):
-    list_display = ("name", "restaurant")
+class CategoryAdmin(StableCodeAdminMixin, admin.ModelAdmin):
+    list_display = ("name", "code", "restaurant", "translation_count")
     list_filter = ("restaurant",)
-    search_fields = ("name",)
+    search_fields = ("name", "code", "translations__name")
+    inlines = (CategoryTranslationInline,)
+
+    @admin.display(description="Translations")
+    def translation_count(self, obj):
+        return obj.translations.count()
+
+
+class AllergenTranslationInline(admin.TabularInline):
+    model = AllergenTranslation
+    extra = 0
 
 
 @admin.register(Allergen)
-class AllergenAdmin(admin.ModelAdmin):
-    list_display = ("name", "code")
-    search_fields = ("name", "code")
+class AllergenAdmin(StableCodeAdminMixin, admin.ModelAdmin):
+    list_display = ("name", "code", "translation_count")
+    search_fields = ("name", "code", "translations__name")
+    inlines = (AllergenTranslationInline,)
+
+    @admin.display(description="Translations")
+    def translation_count(self, obj):
+        return obj.translations.count()
 
 
 @admin.register(Ingredient)
@@ -45,13 +77,20 @@ class DishIngredientInline(admin.TabularInline):
     autocomplete_fields = ("ingredient",)
 
 
+class DishTranslationInline(admin.TabularInline):
+    model = DishTranslation
+    extra = 0
+
+
 @admin.register(Dish)
-class DishAdmin(admin.ModelAdmin):
+class DishAdmin(StableCodeAdminMixin, admin.ModelAdmin):
     list_display = (
         "name",
+        "code",
         "restaurant",
         "category",
         "price",
+        "translation_count",
         "is_available",
         "is_active",
     )
@@ -65,7 +104,10 @@ class DishAdmin(admin.ModelAdmin):
 
     search_fields = (
         "name",
+        "code",
         "description",
+        "translations__name",
+        "translations__description",
     )
 
     filter_horizontal = (
@@ -73,5 +115,10 @@ class DishAdmin(admin.ModelAdmin):
     )
 
     inlines = (
+        DishTranslationInline,
         DishIngredientInline,
     )
+
+    @admin.display(description="Translations")
+    def translation_count(self, obj):
+        return obj.translations.count()

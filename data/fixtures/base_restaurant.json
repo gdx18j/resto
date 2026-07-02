@@ -1,0 +1,67 @@
+[
+  {
+    "model": "orders.restaurant",
+    "pk": 1,
+    "fields": {
+      "name": "Caesar & Company",
+      "slug": "caesar-company",
+      "address": "",
+      "phone": "",
+      "is_active": true,
+      "created_at": "2026-07-02T00:00:00Z",
+      "updated_at": "2026-07-02T00:00:00Z"
+    }
+  },
+  {
+    "model": "orders.table",
+    "pk": 1,
+    "fields": {
+      "restaurant": 1,
+      "number": "1",
+      "title": "Table 1",
+      "qr_token": "caesar-table-1",
+      "seats": 2,
+      "is_active": true,
+      "created_at": "2026-07-02T00:00:00Z"
+    }
+  },
+  {
+    "model": "orders.table",
+    "pk": 2,
+    "fields": {
+      "restaurant": 1,
+      "number": "2",
+      "title": "Table 2",
+      "qr_token": "caesar-table-2",
+      "seats": 2,
+      "is_active": true,
+      "created_at": "2026-07-02T00:00:00Z"
+    }
+  },
+  {
+    "model": "orders.table",
+    "pk": 3,
+    "fields": {
+      "restaurant": 1,
+      "number": "3",
+      "title": "Table 3",
+      "qr_token": "caesar-table-3",
+      "seats": 2,
+      "is_active": true,
+      "created_at": "2026-07-02T00:00:00Z"
+    }
+  },
+  {
+    "model": "orders.table",
+    "pk": 4,
+    "fields": {
+      "restaurant": 1,
+      "number": "4",
+      "title": "Table 4",
+      "qr_token": "caesar-table-4",
+      "seats": 2,
+      "is_active": true,
+      "created_at": "2026-07-02T00:00:00Z"
+    }
+  }
+]

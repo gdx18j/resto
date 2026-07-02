@@ -47,8 +47,8 @@ echo "Applying database migrations..."
 python manage.py migrate --noinput
 
 if [ "${IMPORT_SEED_DATA_ON_STARTUP:-False}" = "True" ]; then
-    echo "Importing seed menu data..."
-    python manage.py import_caesar_menu /app/data/caesar_and_company_menu_seed.json --with-allergens
+    echo "Importing project seed data..."
+    python manage.py seed_project_data
 fi
 
 if [ "${IMPORT_SEED_IMAGES_ON_STARTUP:-False}" = "True" ]; then

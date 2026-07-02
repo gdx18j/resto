@@ -3,7 +3,7 @@
 Проект находится здесь:
 
 ```powershell
-cd D:\1PythonProjects\resto
+cd D:\resto_pj\resto
 ```
 
 ## Вариант 1: локально без Docker
@@ -13,7 +13,7 @@ cd D:\1PythonProjects\resto
 Запуск сервера:
 
 ```powershell
-.\.venv\bin\python.exe manage.py runserver 127.0.0.1:8000
+.\.venv\Scripts\python.exe manage.py runserver 127.0.0.1:8000
 ```
 
 Открыть в браузере:
@@ -37,7 +37,7 @@ Ctrl+C
 Если нужно создать администратора:
 
 ```powershell
-.\.venv\bin\python.exe manage.py createsuperuser
+.\.venv\Scripts\python.exe manage.py createsuperuser
 ```
 
 ## Если запускаешь с нуля
@@ -45,25 +45,29 @@ Ctrl+C
 Создать `.env`, если его нет:
 
 ```powershell
-Copy-Item .env.example .env
+Copy-Item .env.local.example .env
 ```
+
+`.env.example` теперь production-шаблон: он специально требует реальные
+секреты, SMTP и production-настройки. Для локального запуска используй
+`.env.local.example`.
 
 Поставить зависимости, которые нужны для локального SQLite-запуска:
 
 ```powershell
-.\.venv\bin\python.exe -m pip install --no-cache-dir asgiref==3.11.1 Django==5.2.15 python-dotenv==1.2.2 sqlparse==0.5.5 typing_extensions==4.15.0 tzdata==2026.2
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
 Применить миграции:
 
 ```powershell
-.\.venv\bin\python.exe manage.py migrate
+.\.venv\Scripts\python.exe manage.py migrate
 ```
 
 Запустить сервер:
 
 ```powershell
-.\.venv\bin\python.exe manage.py runserver 127.0.0.1:8000
+.\.venv\Scripts\python.exe manage.py runserver 127.0.0.1:8000
 ```
 
 ## Вариант 2: через Docker
@@ -94,33 +98,31 @@ docker compose down
 docker compose down -v
 ```
 
-## Что сейчас не получилось
+Команда с `-v` удаляет все данные базы, поэтому используется только при необходимости полного пересоздания PostgreSQL.
 
-Docker установлен, но daemon сейчас недоступен. Ошибка была такая: Docker client не может подключиться к `docker_engine`.
+## Важное про DB_HOST
 
-Обычно это значит одно из двух:
-
-- Docker Desktop не запущен.
-- Docker Desktop запущен, но терминал/права Windows не дают подключиться к daemon.
-
-Для быстрого локального запуска используй вариант без Docker выше.
+Для Docker не добавляй `DB_HOST=db` в `.env`: compose сам передает это значение
+в `web`-контейнер. Если прописать `DB_HOST=db` в `.env`, команды `manage.py` с
+хоста начнут пытаться подключаться к Docker DNS-имени `db` и упадут вне
+compose-сети.
 
 ## Полезные команды
 
 Проверка проекта:
 
 ```powershell
-.\.venv\bin\python.exe manage.py check
+.\.venv\Scripts\python.exe manage.py check
 ```
 
 Повторно применить миграции:
 
 ```powershell
-.\.venv\bin\python.exe manage.py migrate
+.\.venv\Scripts\python.exe manage.py migrate
 ```
 
 Открыть Django shell:
 
 ```powershell
-.\.venv\bin\python.exe manage.py shell
+.\.venv\Scripts\python.exe manage.py shell
 ```

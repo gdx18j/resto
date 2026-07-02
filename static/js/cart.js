@@ -710,6 +710,24 @@
     return true;
   };
 
+  window.CaesarCart.open = function (opener) {
+    openPanel(opener || getCartFallbackOpener());
+    return true;
+  };
+
+  window.CaesarCart.close = function (options) {
+    if (!els.panel || !els.panel.classList.contains('cart-panel--open')) {
+      return false;
+    }
+
+    closePanel(options);
+    return true;
+  };
+
+  window.CaesarCart.isOpen = function () {
+    return Boolean(els.panel && els.panel.classList.contains('cart-panel--open'));
+  };
+
   window.CaesarCart.repeatOrder = function (items, opener) {
     if (!Array.isArray(items) || items.length === 0) {
       return false;
@@ -936,12 +954,44 @@
       qs('[data-cart-open]');
   }
 
+  function getAiAssistantRoot() {
+    return qs('[data-ai-assistant]');
+  }
+
+  function getCartModalExemptElements() {
+    var exemptElements = [];
+    var aiRoot = getAiAssistantRoot();
+
+    if (els.backdrop) {
+      exemptElements.push(els.backdrop);
+    }
+
+    if (aiRoot) {
+      exemptElements.push(aiRoot);
+    }
+
+    return exemptElements;
+  }
+
+  function closeAiAssistantBeforeCartOpen() {
+    if (
+      window.CaesarAiAssistant &&
+      typeof window.CaesarAiAssistant.close === 'function' &&
+      window.CaesarAiAssistant.isOpen &&
+      window.CaesarAiAssistant.isOpen()
+    ) {
+      window.CaesarAiAssistant.close({ restoreFocus: false });
+    }
+  }
+
   function openPanel(opener) {
     var panel = els.panel;
     var focusReturn;
     var shell;
 
     if (!panel) return;
+
+    closeAiAssistantBeforeCartOpen();
 
     focusReturn = opener || getCartFallbackOpener();
     setCartTop();
@@ -960,7 +1010,7 @@
         opener: focusReturn,
         returnFocusTo: focusReturn,
         initialFocus: qs('[data-cart-close]', panel) || qs('button, [tabindex="0"]', panel),
-        exemptElements: els.backdrop ? [els.backdrop] : [],
+        exemptElements: getCartModalExemptElements(),
         requestClose: closePanel,
       });
     } else {
@@ -972,14 +1022,14 @@
     }
   }
 
-  function closePanel() {
+  function closePanel(options) {
     var panel = els.panel;
     var wasManaged;
     var shell;
 
     if (!panel) return;
 
-    wasManaged = modalManager && modalManager.close(panel);
+    wasManaged = modalManager && modalManager.close(panel, options);
     panel.classList.remove('cart-panel--open');
     panel.setAttribute('aria-hidden', 'true');
     if (els.backdrop) els.backdrop.classList.remove('cart-panel--open');

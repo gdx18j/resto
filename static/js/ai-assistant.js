@@ -581,7 +581,34 @@
       }
     }
 
-    function setOpen(isOpen) {
+    function getCartExemptElements() {
+      var elements = Array.prototype.slice.call(document.querySelectorAll("[data-cart-open]"));
+      var cartPanel = document.querySelector(".cart-panel");
+      var cartBackdrop = document.querySelector(".cart-panel__backdrop");
+
+      if (cartPanel) {
+        elements.push(cartPanel);
+      }
+
+      if (cartBackdrop) {
+        elements.push(cartBackdrop);
+      }
+
+      return elements;
+    }
+
+    function closeCartBeforeAssistantOpen() {
+      if (
+        window.CaesarCart &&
+        typeof window.CaesarCart.close === "function" &&
+        window.CaesarCart.isOpen &&
+        window.CaesarCart.isOpen()
+      ) {
+        window.CaesarCart.close({ restoreFocus: false });
+      }
+    }
+
+    function setOpen(isOpen, options) {
       if (!panel || !launcher) {
         return;
       }
@@ -591,6 +618,7 @@
       document.body.classList.toggle(LOCK_CLASS, isOpen);
 
       if (isOpen) {
+        closeCartBeforeAssistantOpen();
         syncInitialGreetingLanguage();
         panel.hidden = false;
         root.classList.add("is-mounted");
@@ -606,6 +634,7 @@
               opener: launcher,
               returnFocusTo: launcher,
               initialFocus: getVisibleInput,
+              exemptElements: getCartExemptElements(),
               requestClose: function () {
                 setOpen(false);
               },
@@ -622,7 +651,7 @@
       }
 
       if (modalManager) {
-        modalManager.close(root);
+        modalManager.close(root, options);
       }
 
       root.classList.remove("is-open");
@@ -631,6 +660,23 @@
         root.classList.remove("is-mounted");
       }, 260);
     }
+
+    window.CaesarAiAssistant = window.CaesarAiAssistant || {};
+    window.CaesarAiAssistant.open = function () {
+      setOpen(true);
+      return true;
+    };
+    window.CaesarAiAssistant.close = function (options) {
+      if (!root.classList.contains("is-open")) {
+        return false;
+      }
+
+      setOpen(false, options);
+      return true;
+    };
+    window.CaesarAiAssistant.isOpen = function () {
+      return root.classList.contains("is-open");
+    };
 
     function renderMessages() {
       var previousMessage = null;

@@ -1,11 +1,18 @@
 from decimal import Decimal
+from io import StringIO
+import tempfile
+from pathlib import Path
 
+from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.db import IntegrityError
 from django.test import TestCase
 from django.urls import reverse
 
 from orders.models import Restaurant
 
-from .models import Category, Dish
+from .models import Category, CategoryTranslation, Dish, DishTranslation
+from .translations import localized_dish_string
 
 
 class MenuRenderingTests(TestCase):
@@ -61,3 +68,78 @@ class MenuRenderingTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f'id="dish-{second_dish.id}"')
         self.assertNotContains(response, f'id="dish-{self.dish.id}"')
+
+
+class MenuTranslationTests(TestCase):
+    def test_dish_translation_survives_source_name_rename(self):
+        category = Category.objects.create(name="Menu")
+        dish = Dish.objects.create(
+            category=category,
+            name="Original name",
+            description="Original description",
+            price=Decimal("100.00"),
+            is_active=True,
+            is_available=True,
+        )
+        DishTranslation.objects.create(
+            dish=dish,
+            language="en",
+            name="Translated name",
+            description="Translated description",
+        )
+        original_code = dish.code
+
+        dish.name = "Renamed in admin"
+        dish.save(update_fields=["name"])
+        dish.refresh_from_db()
+
+        self.assertEqual(dish.code, original_code)
+        self.assertEqual(localized_dish_string(dish, "name", language="en"), "Translated name")
+
+    def test_translation_language_is_unique_per_object(self):
+        category = Category.objects.create(name="Menu")
+        CategoryTranslation.objects.create(
+            category=category,
+            language="en",
+            name="Menu",
+        )
+
+        with self.assertRaises(IntegrityError):
+            CategoryTranslation.objects.create(
+                category=category,
+                language="en",
+                name="Duplicate",
+            )
+
+    def test_check_menu_translations_reports_missing_rows(self):
+        category = Category.objects.create(name="Menu")
+        Dish.objects.create(
+            category=category,
+            name="Americano",
+            description="Coffee",
+            price=Decimal("150.00"),
+            is_active=True,
+            is_available=True,
+        )
+
+        with self.assertRaises(CommandError):
+            call_command(
+                "check_menu_translations",
+                "--skip-allergens",
+                stderr=StringIO(),
+            )
+
+    def test_validate_translation_sources_detects_duplicate_python_keys(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source_path = Path(tmp_dir) / "bad_translations.py"
+            source_path.write_text(
+                'TRANSLATIONS = {"dish": {"en": "First", "en": "Second"}}\n',
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(CommandError):
+                call_command(
+                    "validate_translation_sources",
+                    str(source_path),
+                    stderr=StringIO(),
+                )
