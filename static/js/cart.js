@@ -198,8 +198,9 @@
 
     // Mobile bar
     var bar = els.mobileBar;
+    var suppressMobileBar = !!qs('.auth-page');
     if (bar) {
-      if (n > 0) {
+      if (n > 0 && !suppressMobileBar) {
         bar.classList.add('cart-bar--visible');
         document.body.classList.add('cart-bar-visible');
       } else {
@@ -207,6 +208,7 @@
         document.body.classList.remove('cart-bar-visible');
       }
     }
+    document.body.classList.toggle('cart-bar-suppressed', suppressMobileBar);
 
     // Desktop button
     var deskBtn = els.desktopBtn;

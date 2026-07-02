@@ -101,6 +101,18 @@
                 aria-haspopup="dialog"
                 aria-label="Подробности заказа №{{ order.id }}"
               >
+                <div class="order-history-card__media" aria-hidden="true">
+                  {% for item in order.preview_items %}
+                    <span class="order-history-thumb">
+                      {% if item.dish.image %}
+                        <img src="{{ item.dish.image.url }}" alt="">
+                      {% else %}
+                        <span>{{ item.dish_name|first }}</span>
+                      {% endif %}
+                    </span>
+                  {% endfor %}
+                </div>
+
                 <div class="order-history-card__main">
                   <div class="order-history-card__head">
                     <div>

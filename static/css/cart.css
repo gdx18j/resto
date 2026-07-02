@@ -173,6 +173,11 @@
 
 @media (min-width: 768px) { .cart-bar { display: none; } }
 
+body.cart-bar-suppressed .cart-bar.cart-bar--visible {
+  pointer-events: none;
+  transform: translateY(calc(100% + 12px));
+}
+
 /* AI кнопка поднимается над плашкой корзины на мобиле */
 @media (max-width: 767px) {
   body.ai-assistant-lock .cart-bar.cart-bar--visible {
