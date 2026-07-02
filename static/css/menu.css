@@ -294,12 +294,6 @@ textarea:focus-visible {
   font-weight: 700;
 }
 
-.waiter-button {
-  min-width: 118px;
-  padding-inline: 14px;
-  color: var(--accent);
-}
-
 .icon-button svg,
 .nav-button svg {
   width: 17px;
@@ -1818,7 +1812,6 @@ body.dish-detail-open {
   font-size: 11px;
 }
 
-.modal-layer,
 .profile-popover-layer {
   position: fixed;
   inset: 0;
@@ -1837,14 +1830,12 @@ body.dish-detail-open {
   overscroll-behavior: contain;
 }
 
-#waiter-toggle:checked ~ .app-shell .waiter-modal,
 #profile-toggle:checked ~ .app-shell .profile-popover-layer {
   visibility: visible;
   opacity: 1;
   pointer-events: auto;
 }
 
-.modal-backdrop,
 .profile-popover-backdrop {
   position: absolute;
   inset: 0;
@@ -1858,28 +1849,11 @@ body.dish-detail-open {
   background: rgba(0, 0, 0, 0.34);
 }
 
-.dialog-card,
 .profile-popover {
   position: absolute;
   color: var(--text);
   background: var(--surface-raised);
   box-shadow: var(--shadow);
-}
-
-.compact-dialog {
-  top: 50%;
-  left: 50%;
-  width: min(calc(100% - 28px), 420px);
-  padding: 28px 22px 22px;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  text-align: center;
-  transform: translate(-50%, -46%) scale(0.98);
-  transition: transform 180ms ease;
-}
-
-#waiter-toggle:checked ~ .app-shell .compact-dialog {
-  transform: translate(-50%, -50%) scale(1);
 }
 
 .close-button {
@@ -1900,35 +1874,6 @@ body.dish-detail-open {
 .close-button:hover {
   color: var(--text);
   border-color: var(--line-strong);
-}
-
-.dialog-icon {
-  width: 50px;
-  height: 50px;
-  margin: 0 auto 16px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  color: var(--accent);
-  background: var(--surface-soft);
-}
-
-.compact-dialog h2 {
-  margin-bottom: 9px;
-  font-size: 32px;
-}
-
-.compact-dialog p {
-  margin-bottom: 22px;
-  color: var(--text-soft);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.dialog-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 9px;
 }
 
 .primary-button,
@@ -2375,15 +2320,6 @@ body.dish-detail-open {
 
   .brand-copy strong {
     font-size: 17px;
-  }
-
-  .waiter-button {
-    min-width: 38px;
-    padding-inline: 9px;
-  }
-
-  .waiter-button .lang {
-    display: none !important;
   }
 
   .dish-grid {
