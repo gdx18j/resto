@@ -4,6 +4,17 @@ set -e
 
 echo "Waiting for PostgreSQL..."
 
+if [ "${DJANGO_ENV:-development}" = "production" ]; then
+    : "${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY is required}"
+    : "${DJANGO_DEBUG:?DJANGO_DEBUG is required}"
+    : "${DJANGO_ALLOWED_HOSTS:?DJANGO_ALLOWED_HOSTS is required}"
+    : "${DB_HOST:?DB_HOST is required}"
+    : "${DB_PORT:?DB_PORT is required}"
+    : "${DB_USER:?DB_USER is required}"
+    : "${DB_NAME:?DB_NAME is required}"
+    : "${DB_PASSWORD:?DB_PASSWORD is required}"
+fi
+
 DB_HOST=${DB_HOST:-db}
 DB_PORT=${DB_PORT:-5432}
 DB_USER=${DB_USER:-resto_user}

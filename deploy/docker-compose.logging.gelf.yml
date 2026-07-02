@@ -1,0 +1,28 @@
+services:
+  db:
+    logging:
+      driver: gelf
+      options:
+        gelf-address: ${GELF_ADDRESS:?GELF_ADDRESS is required}
+        tag: resto.db
+
+  redis:
+    logging:
+      driver: gelf
+      options:
+        gelf-address: ${GELF_ADDRESS:?GELF_ADDRESS is required}
+        tag: resto.redis
+
+  web:
+    logging:
+      driver: gelf
+      options:
+        gelf-address: ${GELF_ADDRESS:?GELF_ADDRESS is required}
+        tag: resto.web
+
+  nginx:
+    logging:
+      driver: gelf
+      options:
+        gelf-address: ${GELF_ADDRESS:?GELF_ADDRESS is required}
+        tag: resto.nginx

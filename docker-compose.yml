@@ -1,29 +1,49 @@
+name: resto
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: ${DOCKER_LOG_MAX_SIZE:-10m}
+    max-file: ${DOCKER_LOG_MAX_FILE:-5}
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  logging: *default-logging
+
 services:
   db:
+    <<: *service-defaults
     image: postgres:15-alpine
     container_name: resto_or_tests_db
-    restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_NAME:-resto_db}
-      POSTGRES_USER: ${DB_USER:-resto_user}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-resto_password}
+      POSTGRES_DB: ${DB_NAME:?DB_NAME is required}
+      POSTGRES_USER: ${DB_USER:?DB_USER is required}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "${DB_PORT:-5432}:5432"
+    expose:
+      - "5432"
+    cpus: ${DB_CPUS:-1.0}
+    mem_limit: ${DB_MEMORY_LIMIT:-512m}
+    pids_limit: 256
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-resto_user} -d ${DB_NAME:-resto_db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:?DB_USER is required} -d ${DB_NAME:?DB_NAME is required}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   redis:
+    <<: *service-defaults
     image: redis:8-alpine
     container_name: resto_or_tests_redis
-    restart: unless-stopped
     command: ["redis-server", "--save", "", "--appendonly", "no"]
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
+    expose:
+      - "6379"
+    cpus: ${REDIS_CPUS:-0.5}
+    mem_limit: ${REDIS_MEMORY_LIMIT:-256m}
+    pids_limit: 128
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -31,16 +51,21 @@ services:
       retries: 5
 
   web:
+    <<: *service-defaults
     build: .
     container_name: resto_or_tests_web
-    restart: unless-stopped
     environment:
-      DJANGO_DEBUG: ${DJANGO_DEBUG:-True}
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-django-insecure-change-me}
-      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,0.0.0.0}
-      DB_NAME: ${DB_NAME:-resto_db}
-      DB_USER: ${DB_USER:-resto_user}
-      DB_PASSWORD: ${DB_PASSWORD:-resto_password}
+      DJANGO_ENV: ${DJANGO_ENV:?DJANGO_ENV is required}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:?DJANGO_DEBUG is required}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY is required}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?DJANGO_ALLOWED_HOSTS is required}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
+      DJANGO_HEALTHCHECK_HOST: ${DJANGO_HEALTHCHECK_HOST:-127.0.0.1}
+      DJANGO_SECURE_SSL_REDIRECT: ${DJANGO_SECURE_SSL_REDIRECT:-True}
+      DJANGO_SECURE_PROXY_SSL_HEADER: ${DJANGO_SECURE_PROXY_SSL_HEADER:-True}
+      DB_NAME: ${DB_NAME:?DB_NAME is required}
+      DB_USER: ${DB_USER:?DB_USER is required}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       DB_HOST: db
       DB_PORT: 5432
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
@@ -73,16 +98,58 @@ services:
       AI_ABUSE_BLOCK_THRESHOLD: ${AI_ABUSE_BLOCK_THRESHOLD:-8}
       AI_ABUSE_BLOCK_SECONDS: ${AI_ABUSE_BLOCK_SECONDS:-600}
       AI_TRUST_X_FORWARDED_FOR: ${AI_TRUST_X_FORWARDED_FOR:-False}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-60}
     volumes:
-      - .:/app
       - static_volume:/app/staticfiles
       - media_volume:/app/mediafiles
     ports:
-      - "${APP_PORT:-8000}:8000"
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8000}:8000"
+    expose:
+      - "8000"
+    cpus: ${WEB_CPUS:-1.0}
+    mem_limit: ${WEB_MEMORY_LIMIT:-768m}
+    pids_limit: 512
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import os, urllib.request; req = urllib.request.Request('http://127.0.0.1:8000/healthz/', headers={'Host': os.environ.get('DJANGO_HEALTHCHECK_HOST', '127.0.0.1'), 'X-Forwarded-Proto': 'https'}); urllib.request.urlopen(req, timeout=5).read()\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     depends_on:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  nginx:
+    <<: *service-defaults
+    image: nginx:1.27-alpine
+    container_name: resto_or_tests_nginx
+    profiles:
+      - tls
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./deploy/nginx/certs:/etc/nginx/certs:ro
+      - static_volume:/app/staticfiles:ro
+      - media_volume:/app/mediafiles:ro
+    cpus: ${NGINX_CPUS:-0.5}
+    mem_limit: ${NGINX_MEMORY_LIMIT:-256m}
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider --no-check-certificate https://127.0.0.1/healthz/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      web:
         condition: service_healthy
 
 volumes:

@@ -27,3 +27,7 @@ npm-debug.log
 tmp-*.png
 staticfiles
 mediafiles
+backups
+deploy/nginx/certs/*.pem
+deploy/nginx/certs/*.key
+deploy/nginx/certs/*.crt

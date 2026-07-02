@@ -10,9 +10,10 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
-from pathlib import Path
 import os
+from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -21,31 +22,106 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 
+def env_value(name, default=None, *, required=False):
+    value = os.getenv(name)
+    if value is None or value == "":
+        if required:
+            raise ImproperlyConfigured(f"{name} environment variable is required.")
+        return default
+    return value
+
+
+def env_bool(name, default=False, *, required=False):
+    value = env_value(name, required=required)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ImproperlyConfigured(
+        f"{name} must be a boolean value: true/false, yes/no, on/off, or 1/0."
+    )
+
+
+def env_int(name, default, *, required=False):
+    value = env_value(name, required=required)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ImproperlyConfigured(f"{name} must be an integer.") from exc
+
+
+def env_list(name, default="", *, required=False):
+    value = env_value(name, default, required=required)
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+DJANGO_ENV = env_value("DJANGO_ENV", "development").lower()
+IS_PRODUCTION = DJANGO_ENV == "production"
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv(
+SECRET_KEY = env_value(
     "DJANGO_SECRET_KEY",
-    os.getenv("SECRET_KEY", "django-insecure-change-this-in-production"),
+    os.getenv("SECRET_KEY", "django-insecure-local-development-only"),
+    required=IS_PRODUCTION,
 )
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("DJANGO_DEBUG", os.getenv("DEBUG", "False")).lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
+INSECURE_SECRET_KEYS = {
+    "django-insecure-change-me",
+    "django-insecure-change-this-value",
+    "django-insecure-change-this-in-production",
+    "django-insecure-local-development-only",
 }
 
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in os.getenv(
-        "DJANGO_ALLOWED_HOSTS",
-        os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1"),
-    ).split(",")
-    if host.strip()
-]
+if IS_PRODUCTION and SECRET_KEY in INSECURE_SECRET_KEYS:
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY must be set to a unique, non-example value in production."
+    )
+
+# SECURITY WARNING: don't run with debug turned on in production!
+DEBUG = env_bool(
+    "DJANGO_DEBUG",
+    os.getenv("DEBUG", "False").lower() in {"1", "true", "yes", "on"},
+    required=IS_PRODUCTION,
+)
+
+if IS_PRODUCTION and DEBUG:
+    raise ImproperlyConfigured("DJANGO_DEBUG must be False in production.")
+
+ALLOWED_HOSTS = env_list(
+    "DJANGO_ALLOWED_HOSTS",
+    os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1"),
+    required=IS_PRODUCTION,
+)
+
+if IS_PRODUCTION and "*" in ALLOWED_HOSTS:
+    raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS must not contain '*' in production.")
+
+CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS", "")
+
+SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", IS_PRODUCTION)
+SESSION_COOKIE_SECURE = env_bool("DJANGO_SESSION_COOKIE_SECURE", IS_PRODUCTION)
+CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", IS_PRODUCTION)
+SECURE_HSTS_SECONDS = env_int(
+    "DJANGO_SECURE_HSTS_SECONDS",
+    31536000 if IS_PRODUCTION else 0,
+)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool(
+    "DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS",
+    IS_PRODUCTION,
+)
+SECURE_HSTS_PRELOAD = env_bool("DJANGO_SECURE_HSTS_PRELOAD", IS_PRODUCTION)
+
+if env_bool("DJANGO_SECURE_PROXY_SSL_HEADER", IS_PRODUCTION):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 
 # Application definition
@@ -162,17 +238,26 @@ SOCIALACCOUNT_PROVIDERS = {
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 if os.getenv("DB_HOST"):
+    db_password = env_value("DB_PASSWORD", required=True)
+    if IS_PRODUCTION and db_password in {"resto_password", "password", "change-me"}:
+        raise ImproperlyConfigured(
+            "DB_PASSWORD must be set to a unique, non-example value in production."
+        )
+
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.getenv("DB_NAME", "resto_db"),
-            "USER": os.getenv("DB_USER", "resto_user"),
-            "PASSWORD": os.getenv("DB_PASSWORD", "resto_password"),
-            "HOST": os.getenv("DB_HOST", "db"),
-            "PORT": os.getenv("DB_PORT", "5432"),
+            "NAME": env_value("DB_NAME", "resto_db", required=IS_PRODUCTION),
+            "USER": env_value("DB_USER", "resto_user", required=IS_PRODUCTION),
+            "PASSWORD": db_password,
+            "HOST": env_value("DB_HOST", "db", required=IS_PRODUCTION),
+            "PORT": env_value("DB_PORT", "5432", required=IS_PRODUCTION),
         }
     }
 else:
+    if IS_PRODUCTION:
+        raise ImproperlyConfigured("DB_HOST is required in production.")
+
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
