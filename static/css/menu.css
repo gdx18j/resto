@@ -275,6 +275,7 @@ textarea:focus-visible {
   border-radius: 10px;
   color: var(--text-soft);
   background: var(--surface);
+  font: inherit;
   cursor: pointer;
   transition: color 180ms ease, border-color 180ms ease, background-color 260ms ease, transform 180ms ease;
 }
@@ -291,12 +292,6 @@ textarea:focus-visible {
   padding-inline: 12px;
   font-size: 12px;
   font-weight: 700;
-}
-
-.waiter-button {
-  min-width: 118px;
-  padding-inline: 14px;
-  color: var(--accent);
 }
 
 .icon-button svg,
@@ -1677,6 +1672,33 @@ body.dish-detail-open {
   background: color-mix(in srgb, var(--accent) 10%, var(--surface-soft));
 }
 
+.dish-detail__allergen-group {
+  display: grid;
+  gap: 4px;
+}
+
+.dish-detail__allergen-group small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.dish-detail__allergen-group strong {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0;
+  color: inherit;
+  font: inherit;
+}
+
+.dish-detail__allergen-group--unknown {
+  border-color: color-mix(in srgb, #b45309 36%, var(--line));
+  color: #92400e;
+  background: color-mix(in srgb, #f59e0b 13%, var(--surface-soft));
+}
+
 .dish-detail__add {
   min-height: 46px;
   margin-top: 2px;
@@ -1790,7 +1812,6 @@ body.dish-detail-open {
   font-size: 11px;
 }
 
-.modal-layer,
 .profile-popover-layer {
   position: fixed;
   inset: 0;
@@ -1809,17 +1830,17 @@ body.dish-detail-open {
   overscroll-behavior: contain;
 }
 
-#waiter-toggle:checked ~ .app-shell .waiter-modal,
 #profile-toggle:checked ~ .app-shell .profile-popover-layer {
   visibility: visible;
   opacity: 1;
   pointer-events: auto;
 }
 
-.modal-backdrop,
 .profile-popover-backdrop {
   position: absolute;
   inset: 0;
+  padding: 0;
+  border: 0;
   background: rgba(0, 0, 0, 0.64);
   cursor: pointer;
 }
@@ -1828,28 +1849,11 @@ body.dish-detail-open {
   background: rgba(0, 0, 0, 0.34);
 }
 
-.dialog-card,
 .profile-popover {
   position: absolute;
   color: var(--text);
   background: var(--surface-raised);
   box-shadow: var(--shadow);
-}
-
-.compact-dialog {
-  top: 50%;
-  left: 50%;
-  width: min(calc(100% - 28px), 420px);
-  padding: 28px 22px 22px;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  text-align: center;
-  transform: translate(-50%, -46%) scale(0.98);
-  transition: transform 180ms ease;
-}
-
-#waiter-toggle:checked ~ .app-shell .compact-dialog {
-  transform: translate(-50%, -50%) scale(1);
 }
 
 .close-button {
@@ -1872,35 +1876,6 @@ body.dish-detail-open {
   border-color: var(--line-strong);
 }
 
-.dialog-icon {
-  width: 50px;
-  height: 50px;
-  margin: 0 auto 16px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  color: var(--accent);
-  background: var(--surface-soft);
-}
-
-.compact-dialog h2 {
-  margin-bottom: 9px;
-  font-size: 32px;
-}
-
-.compact-dialog p {
-  margin-bottom: 22px;
-  color: var(--text-soft);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.dialog-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 9px;
-}
-
 .primary-button,
 .secondary-button,
 .profile-popover__primary,
@@ -1911,6 +1886,7 @@ body.dish-detail-open {
   align-items: center;
   justify-content: center;
   border-radius: 12px;
+  font: inherit;
   font-size: 13px;
   font-weight: 800;
   cursor: pointer;
@@ -2344,15 +2320,6 @@ body.dish-detail-open {
 
   .brand-copy strong {
     font-size: 17px;
-  }
-
-  .waiter-button {
-    min-width: 38px;
-    padding-inline: 9px;
-  }
-
-  .waiter-button .lang {
-    display: none !important;
   }
 
   .dish-grid {

@@ -2,6 +2,7 @@
   var REQUEST_TIMEOUT_MS = 120000;
   var LOCK_CLASS = "ai-assistant-lock";
   var TYPEWRITER_STEP_MS = 14;
+  var modalManager = window.CaesarModal || null;
 
   var roots = document.querySelectorAll("[data-ai-assistant]");
 
@@ -374,6 +375,7 @@
 
     document.addEventListener("keydown", function (event) {
       if (
+        !modalManager &&
         event.key === "Escape" &&
         panel &&
         root.classList.contains("is-open")
@@ -596,12 +598,31 @@
         window.requestAnimationFrame(function () {
           root.classList.add("is-open");
           resizeInput();
-          focusVisibleInput();
+
+          if (modalManager) {
+            modalManager.open(panel, {
+              root: root,
+              container: root.parentElement || document.body,
+              opener: launcher,
+              returnFocusTo: launcher,
+              initialFocus: getVisibleInput,
+              requestClose: function () {
+                setOpen(false);
+              },
+            });
+          } else {
+            focusVisibleInput();
+          }
+
           scrollMessagesToBottom(true);
 
           window.setTimeout(resizeInput, 80);
         });
         return;
+      }
+
+      if (modalManager) {
+        modalManager.close(root);
       }
 
       root.classList.remove("is-open");
