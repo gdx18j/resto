@@ -24,6 +24,7 @@
   var dishModalShell = dishModal
     ? dishModal.querySelector(".dish-detail-shell")
     : null;
+  var modalManager = window.CaesarModal || null;
   var dishDetails = readDishDetails();
   var lastDishTrigger = null;
   var menuControls = document.querySelector(".menu-controls");
@@ -260,6 +261,26 @@
         en: "Allergens",
         tr: "Alerjenler",
       },
+      containsAllergens: {
+        ru: "Содержит",
+        en: "Contains",
+        tr: "İçerir",
+      },
+      mayContainAllergens: {
+        ru: "Может содержать",
+        en: "May contain",
+        tr: "İçerebilir",
+      },
+      traceAllergens: {
+        ru: "Возможны следы",
+        en: "Possible traces",
+        tr: "İz bulunabilir",
+      },
+      unknownAllergens: {
+        ru: "Аллергенный состав не подтверждён",
+        en: "Allergen data is unverified",
+        tr: "Alerjen bilgisi doğrulanmadı",
+      },
       add: {
         ru: "Добавить",
         en: "Add",
@@ -360,18 +381,52 @@
       ].join("");
     }
 
-    if (Array.isArray(dish.allergens) && dish.allergens.length) {
-      allergensHtml = [
-        '<section class="dish-detail__section">',
-        "<h3>", detailLabel("allergens"), "</h3>",
-        '<div class="dish-detail__allergens">',
-        dish.allergens.map(function (allergen) {
-          return "<span>" + langSpans(allergen) + "</span>";
-        }).join(""),
-        "</div>",
-        "</section>",
-      ].join("");
-    }
+    (function () {
+      var groups = dish.allergen_groups || {};
+      var rows = [];
+
+      function addGroup(key, labelKey) {
+        var values = Array.isArray(groups[key]) ? groups[key] : [];
+
+        if (!values.length) {
+          return;
+        }
+
+        rows.push([
+          '<span class="dish-detail__allergen-group">',
+          '<small>', detailLabel(labelKey), '</small>',
+          '<strong>',
+          values.map(function (allergen) {
+            return '<span>' + langSpans(allergen) + '</span>';
+          }).join('<span class="dish-detail__comma">, </span>'),
+          '</strong>',
+          '</span>',
+        ].join(''));
+      }
+
+      addGroup("contains", "containsAllergens");
+      addGroup("may_contain", "mayContainAllergens");
+      addGroup("traces", "traceAllergens");
+
+      if (groups.unknown) {
+        rows.push([
+          '<span class="dish-detail__allergen-group dish-detail__allergen-group--unknown">',
+          '<strong>', detailLabel("unknownAllergens"), '</strong>',
+          '</span>',
+        ].join(''));
+      }
+
+      if (rows.length) {
+        allergensHtml = [
+          '<section class="dish-detail__section">',
+          "<h3>", detailLabel("allergens"), "</h3>",
+          '<div class="dish-detail__allergens">',
+          rows.join(""),
+          "</div>",
+          "</section>",
+        ].join("");
+      }
+    })();
 
     return [
       '<article class="dish-detail">',
@@ -444,6 +499,7 @@
     dishModalContent.innerHTML = buildDishDetailHtml(dish);
     document.dispatchEvent(new CustomEvent("cc:dishdetailopen"));
     dishModal.hidden = false;
+    dishModal.setAttribute("aria-hidden", "false");
     document.body.classList.add("dish-detail-open");
 
     var title = dishModalContent.querySelector("h2[id]");
@@ -456,7 +512,15 @@
     window.requestAnimationFrame(function () {
       dishModal.classList.add("is-open");
 
-      if (closeButton) {
+      if (modalManager && dishModalShell) {
+        modalManager.open(dishModalShell, {
+          root: dishModal,
+          container: dishModal.parentElement || document.body,
+          opener: lastDishTrigger,
+          initialFocus: closeButton || dishModalShell,
+          requestClose: closeDishDetails,
+        });
+      } else if (closeButton) {
         closeButton.focus();
       }
     });
@@ -467,15 +531,21 @@
       return;
     }
 
+    if (modalManager) {
+      modalManager.close(dishModal);
+    }
+
     dishModal.classList.remove("is-open");
     document.body.classList.remove("dish-detail-open");
     dishModal.hidden = true;
+    dishModal.setAttribute("aria-hidden", "true");
     dishModalContent.innerHTML = "";
 
-    if (lastDishTrigger) {
+    if (!modalManager && lastDishTrigger) {
       lastDishTrigger.focus();
-      lastDishTrigger = null;
     }
+
+    lastDishTrigger = null;
   }
 
   function handleDishClick(event) {

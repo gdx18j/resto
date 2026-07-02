@@ -72,6 +72,8 @@
     onclick=""
     data-cart-quote-url="{% url 'orders:quote' %}"
     data-cart-create-url="{% url 'orders:create' %}"
+    data-cart-restaurant-slug="{% if cart_restaurant %}{{ cart_restaurant.slug }}{% endif %}"
+    data-cart-table-token="{{ cart_table_token|default:'' }}"
   >
     <header class="site-header">
       <div class="header-inner page-width">
@@ -84,12 +86,17 @@
         </a>
 
         <div class="header-actions">
-          <label class="nav-button waiter-button" for="waiter-toggle" aria-label="Позвать официанта">
+          <button
+            class="nav-button waiter-button"
+            type="button"
+            data-modal-open="waiter-modal"
+            aria-label="Позвать официанта"
+          >
             <svg><use href="#i-bell"/></svg>
             <span class="lang lang--ru">Официант</span>
             <span class="lang lang--en">Waiter</span>
             <span class="lang lang--tr">Garson</span>
-          </label>
+          </button>
 
           <details class="language-menu">
             <summary class="icon-button language-summary" aria-label="Выбрать язык">
@@ -112,14 +119,19 @@
             <svg class="theme-icon theme-icon--dark"><use href="#i-moon"/></svg>
           </label>
 
-          <label class="icon-button profile-button" for="profile-toggle" aria-label="Личный кабинет">
+          <button
+            class="icon-button profile-button"
+            type="button"
+            data-modal-open="profile-popover"
+            aria-label="Личный кабинет"
+          >
             <svg><use href="#i-user"/></svg>
             <span class="profile-button__label">
               <span class="lang lang--ru">Кабинет</span>
               <span class="lang lang--en">Account</span>
               <span class="lang lang--tr">Hesap</span>
             </span>
-          </label>
+          </button>
         </div>
       </div>
     </header>
@@ -162,12 +174,17 @@
       <div class="footer__bottom page-width">© 2026 Caesar &amp; Company</div>
     </footer>
 
-    <div class="modal-layer waiter-modal" role="dialog" aria-modal="true" aria-labelledby="waiter-title">
-      <label class="modal-backdrop" for="waiter-toggle" aria-label="Закрыть"></label>
-      <div class="dialog-card compact-dialog">
-        <label class="close-button" for="waiter-toggle" aria-label="Закрыть">
+    <div
+      class="modal-layer waiter-modal"
+      id="waiter-modal"
+      data-modal-toggle-id="waiter-toggle"
+      aria-hidden="true"
+    >
+      <button class="modal-backdrop" type="button" data-modal-close aria-label="Закрыть"></button>
+      <div class="dialog-card compact-dialog" role="dialog" aria-modal="true" aria-labelledby="waiter-title" data-modal-dialog>
+        <button class="close-button" type="button" data-modal-close aria-label="Закрыть">
           <svg><use href="#i-close"/></svg>
-        </label>
+        </button>
         <div class="dialog-icon"><svg><use href="#i-bell"/></svg></div>
         <h2 id="waiter-title">
           <span class="lang lang--ru">Позвать официанта?</span>
@@ -180,26 +197,31 @@
           <span class="lang lang--tr">Şimdilik arayüz düğmesi. Daha sonra personele bildirim bağlanacak.</span>
         </p>
         <div class="dialog-actions">
-          <label class="secondary-button" for="waiter-toggle">
+          <button class="secondary-button" type="button" data-modal-close>
             <span class="lang lang--ru">Отмена</span>
             <span class="lang lang--en">Cancel</span>
             <span class="lang lang--tr">İptal</span>
-          </label>
-          <label class="primary-button" for="waiter-toggle">
+          </button>
+          <button class="primary-button" type="button" data-modal-close>
             <span class="lang lang--ru">Понятно</span>
             <span class="lang lang--en">OK</span>
             <span class="lang lang--tr">Tamam</span>
-          </label>
+          </button>
         </div>
       </div>
     </div>
 
-    <div class="profile-popover-layer" role="dialog" aria-modal="false" aria-labelledby="profile-popover-title">
-      <label class="profile-popover-backdrop" for="profile-toggle" aria-label="Закрыть"></label>
-      <aside class="profile-popover" aria-label="Аккаунт">
-        <label class="close-button" for="profile-toggle" aria-label="Закрыть">
+    <div
+      class="profile-popover-layer"
+      id="profile-popover"
+      data-modal-toggle-id="profile-toggle"
+      aria-hidden="true"
+    >
+      <button class="profile-popover-backdrop" type="button" data-modal-close aria-label="Закрыть"></button>
+      <aside class="profile-popover" role="dialog" aria-modal="true" aria-labelledby="profile-popover-title" data-modal-dialog>
+        <button class="close-button" type="button" data-modal-close aria-label="Закрыть">
           <svg><use href="#i-close"/></svg>
-        </label>
+        </button>
 
         {% if request.user.is_authenticated %}
           <p class="profile-popover__kicker">
@@ -304,6 +326,7 @@
   </div>
 
   <script src="{% static 'js/theme.js' %}" defer></script>
+  <script src="{% static 'js/modal-manager.js' %}" defer></script>
   <script src="{% static 'js/menu-ui.js' %}" defer></script>
   <script src="{% static 'js/language-menu.js' %}" defer></script>
   <script src="{% static 'js/password-toggle.js' %}" defer></script>

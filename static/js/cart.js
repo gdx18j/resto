@@ -23,7 +23,11 @@
     quotePending: false,
     submitting: false,
     noteTimer: null,
+    restaurantSlug: '',
+    tableToken: '',
   };
+  var modalManager = window.CaesarModal || null;
+  var lastOrderTrigger = null;
 
   function qs(sel, root) { return (root || document).querySelector(sel); }
   function qsa(sel, root) { return Array.from((root || document).querySelectorAll(sel)); }
@@ -152,6 +156,10 @@
         if (stored && stored.items) Object.assign(cart, stored);
       }
     } catch (_) {}
+
+    if (cart.payment !== 'card' && cart.payment !== 'cash') {
+      cart.payment = null;
+    }
 
     Object.keys(cart.items).forEach(function (id) {
       var item = cart.items[id];
@@ -365,10 +373,12 @@
 
     cartApi.quoteUrl = shell ? shell.dataset.cartQuoteUrl || '' : '';
     cartApi.createUrl = shell ? shell.dataset.cartCreateUrl || '' : '';
+    cartApi.restaurantSlug = shell ? shell.dataset.cartRestaurantSlug || '' : '';
+    cartApi.tableToken = shell ? shell.dataset.cartTableToken || '' : '';
   }
 
   function cartPayload() {
-    return {
+    var payload = {
       items: Object.entries(cart.items).map(function (entry) {
         var id = entry[0];
         var item = entry[1];
@@ -384,6 +394,60 @@
       payment_method: cart.payment,
       comment: cart.comment,
     };
+
+    if (cartApi.restaurantSlug) {
+      payload.restaurant_slug = cartApi.restaurantSlug;
+    }
+
+    if (cartApi.tableToken) {
+      payload.table_token = cartApi.tableToken;
+    }
+
+    return payload;
+  }
+
+  function createIdempotencyKey() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return window.crypto.randomUUID();
+    }
+
+    return [
+      'cc',
+      Date.now().toString(36),
+      Math.random().toString(36).slice(2),
+      Math.random().toString(36).slice(2),
+    ].join(':');
+  }
+
+  function idempotencyFingerprint(payload) {
+    return JSON.stringify(payload);
+  }
+
+  function idempotencyKeyForPayload(payload) {
+    var fingerprint = idempotencyFingerprint(payload);
+    var storageKey = 'cc_order_idempotency';
+    var stored = null;
+
+    try {
+      stored = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
+    } catch (_) {
+      stored = null;
+    }
+
+    if (stored && stored.fingerprint === fingerprint && stored.key) {
+      return stored.key;
+    }
+
+    stored = {
+      key: createIdempotencyKey(),
+      fingerprint: fingerprint,
+    };
+
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify(stored));
+    } catch (_) {}
+
+    return stored.key;
   }
 
   function createIdempotencyKey() {
@@ -642,7 +706,7 @@
     return true;
   };
 
-  window.CaesarCart.repeatOrder = function (items) {
+  window.CaesarCart.repeatOrder = function (items, opener) {
     if (!Array.isArray(items) || items.length === 0) {
       return false;
     }
@@ -670,7 +734,7 @@
     save();
     renderAll();
     scheduleQuote();
-    openPanel();
+    openPanel(opener || getCartFallbackOpener());
     return true;
   };
 
@@ -861,36 +925,66 @@
     document.documentElement.style.setProperty('--cart-top', top + 'px');
   }
 
-  function openPanel() {
+  function getCartFallbackOpener() {
+    return els.desktopBtn ||
+      (els.mobileBar ? qs('[data-cart-open]', els.mobileBar) : null) ||
+      qs('[data-cart-open]');
+  }
+
+  function openPanel(opener) {
     var panel = els.panel;
+    var focusReturn;
+    var shell;
+
     if (!panel) return;
+
+    focusReturn = opener || getCartFallbackOpener();
     setCartTop();
     hideToast();
     panel.classList.add('cart-panel--open');
+    panel.setAttribute('aria-hidden', 'false');
     if (els.backdrop) els.backdrop.classList.add('cart-panel--open');
-    if (isMobile()) {
-      document.body.style.overflow = 'hidden';
+
+    shell = qs('.app-shell');
+    if (shell) shell.classList.add('cart-is-open');
+
+    if (modalManager) {
+      modalManager.open(panel, {
+        root: panel,
+        container: panel.parentElement || document.body,
+        opener: focusReturn,
+        returnFocusTo: focusReturn,
+        initialFocus: qs('[data-cart-close]', panel) || qs('button, [tabindex="0"]', panel),
+        exemptElements: els.backdrop ? [els.backdrop] : [],
+        requestClose: closePanel,
+      });
     } else {
-      var shell = qs('.app-shell');
-      if (shell) shell.classList.add('cart-is-open');
+      document.body.style.overflow = 'hidden';
+      setTimeout(function () {
+        var f = qs('button, [tabindex="0"]', panel);
+        if (f) f.focus();
+      }, 80);
     }
-    setTimeout(function () {
-      var f = qs('button, [tabindex="0"]', panel);
-      if (f) f.focus();
-    }, 80);
   }
 
   function closePanel() {
     var panel = els.panel;
+    var wasManaged;
+    var shell;
+
     if (!panel) return;
+
+    wasManaged = modalManager && modalManager.close(panel);
     panel.classList.remove('cart-panel--open');
+    panel.setAttribute('aria-hidden', 'true');
     if (els.backdrop) els.backdrop.classList.remove('cart-panel--open');
-    document.body.style.overflow = '';
-    var shell = qs('.app-shell');
+    if (!wasManaged) document.body.style.overflow = '';
+
+    shell = qs('.app-shell');
     if (shell) shell.classList.remove('cart-is-open');
   }
 
-  function openOrderModal(orderId) {
+  function openOrderModal(orderId, opener) {
     if (!els.orderModal || !els.orderModalBody || !orderId) {
       return;
     }
@@ -900,26 +994,43 @@
       return;
     }
 
+    lastOrderTrigger = opener || document.activeElement;
     els.orderModalBody.innerHTML = '';
     els.orderModalBody.appendChild(template.content.cloneNode(true));
     els.orderModal.classList.add('order-modal--open');
+    els.orderModal.setAttribute('aria-hidden', 'false');
     if (els.orderBackdrop) els.orderBackdrop.classList.add('order-modal--open');
-    document.body.style.overflow = 'hidden';
 
-    setTimeout(function () {
-      var closeBtn = qs('[data-order-modal-close]', els.orderModal);
-      if (closeBtn) closeBtn.focus();
-    }, 60);
+    if (modalManager) {
+      modalManager.open(els.orderModal, {
+        root: els.orderModal,
+        container: els.orderModal.parentElement || document.body,
+        opener: lastOrderTrigger,
+        initialFocus: qs('[data-order-modal-close]', els.orderModal) || els.orderModal,
+        exemptElements: els.orderBackdrop ? [els.orderBackdrop] : [],
+        requestClose: closeOrderModal,
+      });
+    } else {
+      document.body.style.overflow = 'hidden';
+      setTimeout(function () {
+        var closeBtn = qs('[data-order-modal-close]', els.orderModal);
+        if (closeBtn) closeBtn.focus();
+      }, 60);
+    }
   }
 
-  function closeOrderModal() {
+  function closeOrderModal(options) {
+    var wasManaged;
+
     if (!els.orderModal) {
       return;
     }
 
+    wasManaged = modalManager && modalManager.close(els.orderModal, options);
     els.orderModal.classList.remove('order-modal--open');
+    els.orderModal.setAttribute('aria-hidden', 'true');
     if (els.orderBackdrop) els.orderBackdrop.classList.remove('order-modal--open');
-    if (!els.panel || !els.panel.classList.contains('cart-panel--open')) {
+    if (!wasManaged && (!els.panel || !els.panel.classList.contains('cart-panel--open'))) {
       document.body.style.overflow = '';
     }
   }
@@ -999,15 +1110,17 @@
     if (repeatBtn) {
       e.preventDefault();
       e.stopPropagation();
-      if (window.CaesarCart.repeatOrder(parseRepeatItems(repeatBtn.getAttribute('data-items')))) {
-        closeOrderModal();
+      var repeatItems = parseRepeatItems(repeatBtn.getAttribute('data-items'));
+      if (repeatItems.length) {
+        closeOrderModal({ restoreFocus: false });
+        window.CaesarCart.repeatOrder(repeatItems, getCartFallbackOpener());
       }
       return;
     }
 
     var orderTrigger = target.closest('[data-order-trigger]');
     if (orderTrigger) {
-      openOrderModal(orderTrigger.getAttribute('data-order-id'));
+      openOrderModal(orderTrigger.getAttribute('data-order-id'), orderTrigger);
       return;
     }
 
@@ -1066,9 +1179,10 @@
     }
 
     // Toggle panel
-    if (target.closest('[data-cart-open]')) {
+    var cartOpenButton = target.closest('[data-cart-open]');
+    if (cartOpenButton) {
       var isOpen = els.panel && els.panel.classList.contains('cart-panel--open');
-      if (isOpen) closePanel(); else openPanel();
+      if (isOpen) closePanel(); else openPanel(cartOpenButton);
       return;
     }
 
@@ -1146,7 +1260,7 @@
 
     if (orderTrigger && (e.key === 'Enter' || e.key === ' ')) {
       e.preventDefault();
-      openOrderModal(orderTrigger.getAttribute('data-order-id'));
+      openOrderModal(orderTrigger.getAttribute('data-order-id'), orderTrigger);
     }
   }
 
@@ -1242,6 +1356,7 @@
     panel.setAttribute('role', 'dialog');
     panel.setAttribute('aria-modal', 'true');
     panel.setAttribute('aria-label', 'Корзина');
+    panel.setAttribute('aria-hidden', 'true');
     panel.innerHTML = [
       // ── Шапка в стиле Lovin: счётчик + итог + кнопка закрытия
       '<div class="cart-panel__header">',
@@ -1293,12 +1408,7 @@
       '        <span class="lang lang--en">Card</span>',
       '        <span class="lang lang--tr">Kart</span>',
       '      </button>',
-      '      <button class="cart-pay-btn" data-pay="online">',
-      '        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4M9 6h6"/></svg>',
-      '        <span class="lang lang--ru">Онлайн</span>',
-      '        <span class="lang lang--en">Online</span>',
-      '        <span class="lang lang--tr">Online</span>',
-      '      </button>',
+
       '      <button class="cart-pay-btn" data-pay="cash">',
       '        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M6 7V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"/></svg>',
       '        <span class="lang lang--ru">Наличными</span>',
@@ -1367,6 +1477,7 @@
       orderModal.setAttribute('role', 'dialog');
       orderModal.setAttribute('aria-modal', 'true');
       orderModal.setAttribute('aria-label', 'Order details');
+      orderModal.setAttribute('aria-hidden', 'true');
       orderModal.innerHTML = [
         '<button class="close-button order-modal__close" data-order-modal-close aria-label="Close order details">',
         '  <svg viewBox="0 0 24 24"><path d="m5 5 14 14M19 5 5 19"/></svg>',

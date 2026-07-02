@@ -275,6 +275,7 @@ textarea:focus-visible {
   border-radius: 10px;
   color: var(--text-soft);
   background: var(--surface);
+  font: inherit;
   cursor: pointer;
   transition: color 180ms ease, border-color 180ms ease, background-color 260ms ease, transform 180ms ease;
 }
@@ -1677,6 +1678,33 @@ body.dish-detail-open {
   background: color-mix(in srgb, var(--accent) 10%, var(--surface-soft));
 }
 
+.dish-detail__allergen-group {
+  display: grid;
+  gap: 4px;
+}
+
+.dish-detail__allergen-group small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.dish-detail__allergen-group strong {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0;
+  color: inherit;
+  font: inherit;
+}
+
+.dish-detail__allergen-group--unknown {
+  border-color: color-mix(in srgb, #b45309 36%, var(--line));
+  color: #92400e;
+  background: color-mix(in srgb, #f59e0b 13%, var(--surface-soft));
+}
+
 .dish-detail__add {
   min-height: 46px;
   margin-top: 2px;
@@ -1820,6 +1848,8 @@ body.dish-detail-open {
 .profile-popover-backdrop {
   position: absolute;
   inset: 0;
+  padding: 0;
+  border: 0;
   background: rgba(0, 0, 0, 0.64);
   cursor: pointer;
 }
@@ -1911,6 +1941,7 @@ body.dish-detail-open {
   align-items: center;
   justify-content: center;
   border-radius: 12px;
+  font: inherit;
   font-size: 13px;
   font-weight: 800;
   cursor: pointer;
