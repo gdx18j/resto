@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -6,6 +7,7 @@ from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import UserAllergy
 from menu.models import Allergen, Category, Dish
@@ -176,6 +178,42 @@ class AskViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+
+    @override_settings(
+        RATE_LIMIT_RULES={
+            "ai_assistant:ask": {
+                "methods": ["POST"],
+                "identity": "ip",
+                "limits": [
+                    {
+                        "name": "test",
+                        "limit": 1,
+                        "window": 60,
+                    }
+                ],
+            }
+        }
+    )
+    def test_app_rate_limit_blocks_ai_ask_endpoint(self):
+        payload = {
+            "prompt": "",
+        }
+
+        first_response = self.client.post(
+            reverse("ai_assistant:ask"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        second_response = self.client.post(
+            reverse("ai_assistant:ask"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(first_response.status_code, 400)
+        self.assertEqual(second_response.status_code, 429)
+        self.assertEqual(second_response["Retry-After"], "60")
+        self.assertEqual(second_response.json()["code"], "rate_limited")
 
     @patch(
         "ai_assistant.views.generate_ai_answer",
@@ -417,6 +455,11 @@ class AskViewTests(TestCase):
             content="Советую Focaccia.",
             model_name="gemini-test",
         )
+        now = timezone.now()
+        ChatSession.objects.filter(id=old_session.id).update(
+            updated_at=now - timedelta(minutes=1),
+        )
+        ChatSession.objects.filter(id=latest_session.id).update(updated_at=now)
         self.client.force_login(user)
 
         response = self.client.get(reverse("ai_assistant:history"))

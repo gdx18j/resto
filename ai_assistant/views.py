@@ -495,7 +495,7 @@ def _get_latest_session(request):
     if request.user.is_authenticated:
         return (
             ChatSession.objects.filter(user=request.user)
-            .order_by("-updated_at", "-created_at")
+            .order_by("-updated_at", "-created_at", "-id")
             .first()
         )
 
@@ -509,7 +509,7 @@ def _get_latest_session(request):
             user__isnull=True,
             session_key=session_key,
         )
-        .order_by("-updated_at", "-created_at")
+        .order_by("-updated_at", "-created_at", "-id")
         .first()
     )
 

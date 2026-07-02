@@ -1,10 +1,12 @@
 from allauth.account.models import EmailAddress
 from allauth.socialaccount.adapter import get_adapter
 from allauth.socialaccount.models import SocialAccount, SocialLogin
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.exceptions import FieldDoesNotExist
 from django.db import IntegrityError
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
 from ai_assistant.models import ChatMessage, ChatSession
@@ -315,3 +317,51 @@ class GoogleAuthTests(TestCase):
         self.assertEqual(matched_user, user)
         self.assertEqual(matched_email, user.email)
         self.assertEqual(User.objects.filter(email=user.email).count(), 1)
+
+
+class RateLimitConfigTests(TestCase):
+    def setUp(self):
+        cache.clear()
+
+    def test_default_rules_cover_critical_endpoints(self):
+        expected_rules = {
+            "account_login",
+            "account_signup",
+            "account_reset_password",
+            "account_reset_password_from_key",
+            "google_login",
+            "ai_assistant:ask",
+            "orders:quote",
+            "orders:create",
+        }
+
+        self.assertTrue(expected_rules.issubset(settings.RATE_LIMIT_RULES))
+
+    @override_settings(
+        RATE_LIMIT_RULES={
+            "account_login": {
+                "methods": ["POST"],
+                "identity": "ip+field",
+                "field": "login",
+                "limits": [
+                    {
+                        "name": "test",
+                        "limit": 1,
+                        "window": 60,
+                    }
+                ],
+            }
+        }
+    )
+    def test_login_post_is_rate_limited(self):
+        payload = {
+            "login": "missing@example.com",
+            "password": "wrong-password",
+        }
+
+        first_response = self.client.post(reverse("account_login"), payload)
+        second_response = self.client.post(reverse("account_login"), payload)
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 429)
+        self.assertEqual(second_response["Retry-After"], "60")

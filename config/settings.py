@@ -159,6 +159,7 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     "allauth.account.middleware.AccountMiddleware",
+    "config.rate_limit.RateLimitMiddleware",
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -206,7 +207,64 @@ LOGIN_URL = "account_login"
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/"
 
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+EMAIL_BACKEND = env_value(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend",
+    required=IS_PRODUCTION,
+)
+
+UNSAFE_PRODUCTION_EMAIL_BACKENDS = {
+    "django.core.mail.backends.console.EmailBackend",
+    "django.core.mail.backends.locmem.EmailBackend",
+    "django.core.mail.backends.dummy.EmailBackend",
+    "django.core.mail.backends.filebased.EmailBackend",
+}
+
+if IS_PRODUCTION and EMAIL_BACKEND in UNSAFE_PRODUCTION_EMAIL_BACKENDS:
+    raise ImproperlyConfigured(
+        "EMAIL_BACKEND must deliver email in production; console, locmem, dummy, "
+        "and filebased backends are not allowed."
+    )
+
+EMAIL_HOST = env_value(
+    "EMAIL_HOST",
+    "",
+    required=IS_PRODUCTION
+    and EMAIL_BACKEND == "django.core.mail.backends.smtp.EmailBackend",
+)
+EMAIL_PORT = env_int(
+    "EMAIL_PORT",
+    587,
+    required=IS_PRODUCTION
+    and EMAIL_BACKEND == "django.core.mail.backends.smtp.EmailBackend",
+)
+EMAIL_HOST_USER = env_value("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = env_value("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", False)
+EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", False)
+EMAIL_TIMEOUT = env_int("EMAIL_TIMEOUT", 10)
+DEFAULT_FROM_EMAIL = env_value(
+    "DEFAULT_FROM_EMAIL",
+    "webmaster@localhost",
+    required=IS_PRODUCTION,
+)
+SERVER_EMAIL = env_value("SERVER_EMAIL", DEFAULT_FROM_EMAIL)
+EMAIL_SUBJECT_PREFIX = env_value("EMAIL_SUBJECT_PREFIX", "[Caesar & Company] ")
+
+if EMAIL_USE_TLS and EMAIL_USE_SSL:
+    raise ImproperlyConfigured("EMAIL_USE_TLS and EMAIL_USE_SSL cannot both be enabled.")
+
+if (
+    IS_PRODUCTION
+    and EMAIL_BACKEND == "django.core.mail.backends.smtp.EmailBackend"
+    and not (EMAIL_USE_TLS or EMAIL_USE_SSL)
+):
+    raise ImproperlyConfigured("SMTP email must use TLS or SSL in production.")
+
+if IS_PRODUCTION and DEFAULT_FROM_EMAIL.endswith("@localhost"):
+    raise ImproperlyConfigured(
+        "DEFAULT_FROM_EMAIL must be a real sender address in production."
+    )
 
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_LOGIN_ON_GET = False
@@ -267,6 +325,11 @@ else:
 
 REDIS_URL = os.getenv("REDIS_URL", "")
 
+if IS_PRODUCTION and not REDIS_URL:
+    raise ImproperlyConfigured(
+        "REDIS_URL is required in production so rate limits are shared across workers."
+    )
+
 if REDIS_URL:
     CACHES = {
         "default": {
@@ -281,6 +344,96 @@ else:
             "LOCATION": "resto-ai-guards",
         }
     }
+
+
+RATE_LIMIT_ENABLED = env_bool("RATE_LIMIT_ENABLED", True)
+RATE_LIMIT_TRUST_PROXY_HEADERS = env_bool(
+    "RATE_LIMIT_TRUST_PROXY_HEADERS",
+    IS_PRODUCTION,
+)
+RATE_LIMIT_MESSAGE = env_value(
+    "RATE_LIMIT_MESSAGE",
+    "Too many requests. Please try again later.",
+)
+
+
+def rate_limit(name, default, window):
+    return {
+        "name": name,
+        "limit": env_int(f"RATE_LIMIT_{name.upper()}", default),
+        "window": window,
+    }
+
+
+RATE_LIMIT_RULES = {
+    "account_login": {
+        "methods": ["POST"],
+        "identity": "ip+field",
+        "field": "login",
+        "limits": [
+            rate_limit("login_per_minute", 8, 60),
+            rate_limit("login_per_hour", 40, 3600),
+        ],
+    },
+    "account_signup": {
+        "methods": ["POST"],
+        "identity": "ip+field",
+        "field": "email",
+        "limits": [
+            rate_limit("signup_per_minute", 5, 60),
+            rate_limit("signup_per_hour", 20, 3600),
+        ],
+    },
+    "account_reset_password": {
+        "methods": ["POST"],
+        "identity": "ip+field",
+        "field": "email",
+        "limits": [
+            rate_limit("password_reset_per_minute", 3, 60),
+            rate_limit("password_reset_per_hour", 10, 3600),
+        ],
+    },
+    "account_reset_password_from_key": {
+        "methods": ["POST"],
+        "identity": "ip",
+        "limits": [
+            rate_limit("password_reset_confirm_per_minute", 6, 60),
+            rate_limit("password_reset_confirm_per_hour", 30, 3600),
+        ],
+    },
+    "google_login": {
+        "methods": ["POST"],
+        "identity": "ip",
+        "limits": [
+            rate_limit("google_login_per_minute", 10, 60),
+            rate_limit("google_login_per_hour", 60, 3600),
+        ],
+    },
+    "ai_assistant:ask": {
+        "methods": ["POST"],
+        "identity": "ip+actor",
+        "limits": [
+            rate_limit("ai_ask_per_minute", 20, 60),
+            rate_limit("ai_ask_per_hour", 120, 3600),
+        ],
+    },
+    "orders:quote": {
+        "methods": ["POST"],
+        "identity": "ip+actor",
+        "limits": [
+            rate_limit("order_quote_per_minute", 120, 60),
+            rate_limit("order_quote_per_hour", 1000, 3600),
+        ],
+    },
+    "orders:create": {
+        "methods": ["POST"],
+        "identity": "ip+actor",
+        "limits": [
+            rate_limit("order_create_per_minute", 20, 60),
+            rate_limit("order_create_per_hour", 100, 3600),
+        ],
+    },
+}
 
 
 # Password validation

@@ -4,7 +4,8 @@ from unittest.mock import patch
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.core.cache import cache
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from menu.models import Category, Dish, DishIngredient, Ingredient
@@ -619,6 +620,40 @@ class OrderApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "dish_unavailable")
         self.assertEqual(Order.objects.count(), 0)
+
+    @override_settings(
+        RATE_LIMIT_RULES={
+            "orders:quote": {
+                "methods": ["POST"],
+                "identity": "ip",
+                "limits": [
+                    {
+                        "name": "test",
+                        "limit": 1,
+                        "window": 60,
+                    }
+                ],
+            }
+        }
+    )
+    def test_quote_endpoint_returns_json_rate_limit_response(self):
+        cache.clear()
+        payload = {
+            "items": [
+                {
+                    "dish_id": self.dish.id,
+                    "quantity": 1,
+                }
+            ],
+        }
+
+        first_response = self.post_json(reverse("orders:quote"), payload)
+        second_response = self.post_json(reverse("orders:quote"), payload)
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 429)
+        self.assertEqual(second_response["Retry-After"], "60")
+        self.assertEqual(second_response.json()["code"], "rate_limited")
 
 
 class OrderStatusTransitionTests(TestCase):
