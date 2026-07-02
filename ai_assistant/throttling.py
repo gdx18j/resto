@@ -443,6 +443,31 @@ def acquire_ai_stream_slot(request):
     )
 
 
+def acquire_ai_session_slot(session: ChatSession):
+    timeout = _setting_int(
+        "AI_SESSION_LOCK_TIMEOUT_SECONDS",
+        _setting_int("AI_STREAM_LOCK_TIMEOUT_SECONDS", 180),
+    )
+    key = _cache_key("session", "active", session.id)
+
+    if cache.add(key, "1", timeout=timeout):
+        return AIStreamSlot(
+            allowed=True,
+            keys=[key],
+            retry_after=timeout,
+        )
+
+    return AIStreamSlot(
+        allowed=False,
+        reason="session_in_progress",
+        message=(
+            "Ассистент уже отвечает в этом диалоге. "
+            "Дождитесь ответа и попробуйте еще раз."
+        ),
+        retry_after=min(timeout, 30),
+    )
+
+
 def release_ai_stream_slot(slot):
     if not slot or not slot.keys:
         return
@@ -450,6 +475,14 @@ def release_ai_stream_slot(slot):
     for key in slot.keys:
         _decrement_cache_counter(key)
 
+    slot.keys = []
+
+
+def release_ai_session_slot(slot):
+    if not slot or not slot.keys:
+        return
+
+    cache.delete_many(slot.keys)
     slot.keys = []
 
 

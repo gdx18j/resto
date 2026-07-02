@@ -10,7 +10,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import UserAllergy
-from menu.models import Allergen, Category, Dish
+from menu.models import Allergen, Category, Dish, DishAllergen
+from orders.models import Restaurant, Table
 
 from .models import AIUsageEvent, ChatMessage, ChatSession
 from .services import (
@@ -38,11 +39,103 @@ class GeminiServiceTests(TestCase):
 
         get_gemini_client.cache_clear()
 
+    @override_settings(GEMINI_API_KEY="replace-with-new-gemini-api-key")
+    def test_rejects_placeholder_api_key(self):
+        get_gemini_client.cache_clear()
+
+        with self.assertRaisesMessage(
+            ImproperlyConfigured,
+            "GEMINI_API_KEY contains a placeholder value.",
+        ):
+            get_gemini_client()
+
+        get_gemini_client.cache_clear()
+
     def test_menu_context_handles_empty_menu(self):
         self.assertIn(
             "No active available dishes",
             build_menu_context(),
         )
+
+    def test_menu_context_uses_supplied_restaurant_id(self):
+        restaurant_b = Restaurant.objects.create(
+            name="AI Branch B",
+            slug="ai-branch-b",
+        )
+        category_b = Category.objects.create(
+            restaurant=restaurant_b,
+            name="AI Menu B",
+        )
+        Dish.objects.create(
+            restaurant=restaurant_b,
+            category=category_b,
+            name="Only AI Branch B",
+            price="250.00",
+            is_active=True,
+            is_available=True,
+        )
+        default_category = Category.objects.create(name="Default AI Menu")
+        Dish.objects.create(
+            category=default_category,
+            name="Default AI Dish",
+            price="100.00",
+            is_active=True,
+            is_available=True,
+        )
+
+        context = build_menu_context(restaurant_b.id)
+
+        self.assertIn("Only AI Branch B", context)
+        self.assertNotIn("Default AI Dish", context)
+
+    def test_menu_context_uses_only_verified_dish_allergens(self):
+        category = Category.objects.create(name="AI Allergens")
+        dish = Dish.objects.create(
+            category=category,
+            name="Allergen test dish",
+            price="100.00",
+            is_active=True,
+            is_available=True,
+        )
+        verified = Allergen.objects.create(
+            name="Verified milk",
+            code="verified-milk-ai",
+        )
+        trace = Allergen.objects.create(
+            name="Verified trace nuts",
+            code="verified-trace-nuts-ai",
+        )
+        suggested = Allergen.objects.create(
+            name="Suggested soy",
+            code="suggested-soy-ai",
+        )
+        DishAllergen.objects.create(
+            dish=dish,
+            allergen=verified,
+            relation_type=DishAllergen.RelationType.CONTAINS,
+            source=DishAllergen.Source.RECIPE,
+            verification_status=DishAllergen.VerificationStatus.VERIFIED,
+        )
+        DishAllergen.objects.create(
+            dish=dish,
+            allergen=trace,
+            relation_type=DishAllergen.RelationType.CROSS_CONTAMINATION,
+            source=DishAllergen.Source.MANUAL,
+            verification_status=DishAllergen.VerificationStatus.VERIFIED,
+        )
+        DishAllergen.objects.create(
+            dish=dish,
+            allergen=suggested,
+            relation_type=DishAllergen.RelationType.CONTAINS,
+            source=DishAllergen.Source.HEURISTIC,
+            verification_status=DishAllergen.VerificationStatus.SUGGESTED,
+        )
+
+        context = build_menu_context(dish.restaurant_id)
+
+        self.assertIn("contains_allergens: Verified milk", context)
+        self.assertIn("trace_allergens: Verified trace nuts", context)
+        self.assertNotIn("Suggested soy", context)
 
     @override_settings(
         GEMINI_MODEL=" gemini-primary ",
@@ -129,7 +222,14 @@ class AskViewTests(TestCase):
     def setUp(self):
         cache.clear()
 
-    def post_prompt(self, prompt, session_id=None, language=None):
+    def post_prompt(
+        self,
+        prompt,
+        session_id=None,
+        language=None,
+        restaurant_slug=None,
+        table_token=None,
+    ):
         payload = {
             "prompt": prompt,
         }
@@ -139,6 +239,12 @@ class AskViewTests(TestCase):
 
         if language:
             payload["language"] = language
+
+        if restaurant_slug:
+            payload["restaurant_slug"] = restaurant_slug
+
+        if table_token:
+            payload["table_token"] = table_token
 
         return self.client.post(
             reverse("ai_assistant:ask"),
@@ -237,6 +343,60 @@ class AskViewTests(TestCase):
         self.assertEqual(usage_event.status, AIUsageEvent.Status.COMPLETED)
         self.assertEqual(usage_event.model_name, "gemini-test")
         self.assertGreater(usage_event.estimated_total_tokens, 0)
+
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        return_value=AIResult(
+            text="I recommend Only Branch B AI Dish.",
+            model_name="gemini-test",
+        ),
+    )
+    def test_ai_uses_qr_restaurant_context_for_session_and_cards(self, generate_ai_answer_mock):
+        restaurant_b = Restaurant.objects.create(
+            name="AI Branch B",
+            slug="ai-branch-b",
+        )
+        category_b = Category.objects.create(
+            restaurant=restaurant_b,
+            name="AI Menu B",
+        )
+        dish_b = Dish.objects.create(
+            restaurant=restaurant_b,
+            category=category_b,
+            name="Only Branch B AI Dish",
+            price="250.00",
+            is_active=True,
+            is_available=True,
+        )
+        table_b = Table.objects.create(
+            restaurant=restaurant_b,
+            number="4",
+        )
+        table_b_token = table_b.plain_qr_token
+        default_category = Category.objects.create(name="Default AI Menu")
+        Dish.objects.create(
+            category=default_category,
+            name="Only Default AI Dish",
+            price="100.00",
+            is_active=True,
+            is_available=True,
+        )
+
+        response = self.post_prompt(
+            "Recommend something",
+            table_token=table_b_token,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        session = generate_ai_answer_mock.call_args.args[0]
+        self.assertEqual(session.restaurant_id, restaurant_b.id)
+        self.assertEqual(ChatSession.objects.get().restaurant, restaurant_b)
+        dishes = response.json()["recommended_dishes"]
+        self.assertEqual(dishes[0]["id"], dish_b.id)
+        self.assertIn(
+            reverse("menu:table_menu", args=[table_b_token]),
+            dishes[0]["url"],
+        )
 
     @patch(
         "ai_assistant.views.generate_ai_answer",
@@ -397,6 +557,44 @@ class AskViewTests(TestCase):
         self.assertEqual(usage_event.status, AIUsageEvent.Status.THROTTLED)
         self.assertEqual(usage_event.limit_reason, "actor_stream_concurrency")
         self.assertTrue(usage_event.is_stream)
+
+    @patch(
+        "ai_assistant.views.acquire_ai_session_slot",
+        return_value=AIStreamSlot(
+            allowed=False,
+            reason="session_in_progress",
+            message=(
+                "Ассистент уже отвечает в этом диалоге. "
+                "Дождитесь ответа и попробуйте еще раз."
+            ),
+            retry_after=30,
+        ),
+    )
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        return_value=AIResult(
+            text="Should not be called",
+            model_name="gemini-test",
+        ),
+    )
+    def test_busy_session_blocks_before_message(
+        self,
+        generate_ai_answer_mock,
+        acquire_ai_session_slot_mock,
+    ):
+        response = self.post_prompt("Hello")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response["Retry-After"], "30")
+        self.assertEqual(response.json()["code"], "ai_session_busy")
+        acquire_ai_session_slot_mock.assert_called_once()
+        generate_ai_answer_mock.assert_not_called()
+
+        session = ChatSession.objects.get()
+        self.assertEqual(session.messages.count(), 0)
+        usage_event = AIUsageEvent.objects.get()
+        self.assertEqual(usage_event.status, AIUsageEvent.Status.THROTTLED)
+        self.assertEqual(usage_event.limit_reason, "session_in_progress")
 
     @patch(
         "ai_assistant.views.generate_ai_answer",
@@ -629,7 +827,7 @@ class AskViewTests(TestCase):
         self.assertEqual(payload["recommended_dishes"][0]["name"], dish.name)
         self.assertEqual(
             payload["recommended_dishes"][0]["url"],
-            f"{reverse('menu:dish_list')}#dish-{dish.id}",
+            f"{reverse('menu:dish_list')}?restaurant={dish.restaurant.slug}#dish-{dish.id}",
         )
         generate_ai_answer_mock.assert_called_once()
 

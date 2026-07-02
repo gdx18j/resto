@@ -72,6 +72,7 @@
     data-cart-create-url="{% url 'orders:create' %}"
     data-cart-restaurant-slug="{% if cart_restaurant %}{{ cart_restaurant.slug }}{% endif %}"
     data-cart-table-token="{{ cart_table_token|default:'' }}"
+    data-cart-order-source="{{ cart_order_source|default:'' }}"
   >
     <header class="site-header">
       <div class="header-inner page-width">

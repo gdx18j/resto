@@ -356,6 +356,10 @@ class Dish(models.Model):
         return Allergen.objects.filter(
             Q(ingredients__dishes=self)
             | Q(may_contain_dishes=self)
+            | Q(
+                dish_links__dish=self,
+                dish_links__verification_status=DishAllergen.VerificationStatus.VERIFIED,
+            )
         ).distinct()
 
     def conflicts_with_allergens(self, allergen_ids):
@@ -367,6 +371,89 @@ class Dish(models.Model):
         return self.get_allergens().filter(
             id__in=allergen_ids
         ).exists()
+
+
+class DishAllergen(models.Model):
+    class RelationType(models.TextChoices):
+        CONTAINS = "contains", "Содержит"
+        MAY_CONTAIN = "may_contain", "Может содержать"
+        CROSS_CONTAMINATION = "cross_contamination", "Может содержать следы"
+
+    class Source(models.TextChoices):
+        RECIPE = "recipe", "Рецепт"
+        MANUAL = "manual", "Вручную"
+        IMPORT = "import", "Импорт"
+        HEURISTIC = "heuristic", "Эвристика"
+
+    class VerificationStatus(models.TextChoices):
+        VERIFIED = "verified", "Подтверждено"
+        SUGGESTED = "suggested", "Предложено"
+        REJECTED = "rejected", "Отклонено"
+
+    dish = models.ForeignKey(
+        Dish,
+        on_delete=models.CASCADE,
+        related_name="allergen_links",
+        verbose_name="Блюдо",
+    )
+
+    allergen = models.ForeignKey(
+        Allergen,
+        on_delete=models.CASCADE,
+        related_name="dish_links",
+        verbose_name="Аллерген",
+    )
+
+    relation_type = models.CharField(
+        max_length=32,
+        choices=RelationType.choices,
+        default=RelationType.CONTAINS,
+        verbose_name="Тип связи",
+    )
+
+    source = models.CharField(
+        max_length=20,
+        choices=Source.choices,
+        default=Source.MANUAL,
+        verbose_name="Источник",
+    )
+
+    verification_status = models.CharField(
+        max_length=20,
+        choices=VerificationStatus.choices,
+        default=VerificationStatus.SUGGESTED,
+        db_index=True,
+        verbose_name="Статус проверки",
+    )
+
+    notes = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="Примечание",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Аллерген блюда"
+        verbose_name_plural = "Аллергены блюд"
+        ordering = ["dish__name", "allergen__name", "relation_type"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["dish", "allergen", "relation_type"],
+                name="unique_dish_allergen_relation",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["dish", "verification_status", "relation_type"],
+                name="dish_allergen_status_type_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.dish}: {self.allergen} ({self.get_relation_type_display()})"
 
 
 class CategoryTranslation(models.Model):

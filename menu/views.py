@@ -1,7 +1,9 @@
-from django.shortcuts import get_object_or_404, render
+from django.http import Http404, HttpResponse
+from django.shortcuts import render
 from django.views.decorators.csrf import ensure_csrf_cookie
 
-from orders.models import Restaurant, Table
+from orders.models import Restaurant
+from orders.services import CartValidationError, OrderingContext, get_table_for_qr_token
 
 from .models import Category, Dish
 from .services import (
@@ -38,22 +40,42 @@ def get_menu_restaurant(request):
 @ensure_csrf_cookie
 def dish_list(request, qr_token=None):
     current_table_number = None
+    cart_table_token = None
 
     if qr_token:
-        table = get_object_or_404(
-            Table.objects.select_related("restaurant"),
-            qr_token=qr_token,
-            is_active=True,
-            restaurant__is_active=True,
-        )
+        try:
+            table = get_table_for_qr_token(qr_token)
+        except CartValidationError as error:
+            if error.status == 404:
+                raise Http404(error.message)
+
+            return HttpResponse(error.message, status=error.status)
+
         request.session["table_id"] = table.id
         request.session["table_number"] = table.number
+        request.session["table_token"] = qr_token
+        request.session["restaurant_id"] = table.restaurant_id
         restaurant = table.restaurant
         current_table_number = table.number
+        cart_table_token = qr_token
+        ordering_context = OrderingContext(
+            restaurant_id=restaurant.id,
+            table_id=table.id,
+            table_token=qr_token,
+            source="qr",
+        )
     else:
         request.session.pop("table_id", None)
         request.session.pop("table_number", None)
+        request.session.pop("table_token", None)
+        request.session.pop("restaurant_id", None)
         restaurant = get_menu_restaurant(request)
+        ordering_context = OrderingContext(
+            restaurant_id=restaurant.id,
+            table_id=None,
+            table_token=None,
+            source="menu",
+        )
 
     dishes = (
         Dish.objects.filter(
@@ -70,6 +92,8 @@ def dish_list(request, qr_token=None):
             "dish_ingredients__ingredient",
             "may_contain_allergens",
             "may_contain_allergens__translations",
+            "allergen_links__allergen",
+            "allergen_links__allergen__translations",
         )
         .order_by("category__name", "name")
     )
@@ -125,6 +149,9 @@ def dish_list(request, qr_token=None):
         "dish_details": build_dish_detail_payload(dishes),
         "menu_sections": menu_sections,
         "restaurant": restaurant,
+        "cart_restaurant": restaurant,
+        "cart_table_token": cart_table_token,
+        "ordering_context": ordering_context,
         "user_allergens": get_confirmed_user_allergens(request.user),
         "current_table_number": current_table_number,
     }

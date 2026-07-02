@@ -1,5 +1,7 @@
 import json
 
+from menu.models import Dish, DishIngredient
+
 from .models import Order
 
 
@@ -39,6 +41,116 @@ def order_items_json(order):
         )
 
     return json.dumps(items, ensure_ascii=False).replace("</", "<\\/")
+
+
+def _safe_json(value):
+    return json.dumps(value, ensure_ascii=False).replace("</", "<\\/")
+
+
+def repeat_order_result(order):
+    result = {
+        "available": [],
+        "changed": [],
+        "unavailable": [],
+    }
+
+    dish_ids = [item.dish_id for item in order.items.all()]
+    dishes = {
+        dish.id: dish
+        for dish in Dish.objects.filter(
+            id__in=dish_ids,
+            restaurant_id=order.restaurant_id,
+            is_active=True,
+            is_available=True,
+        )
+    }
+
+    for item in order.items.all():
+        base_payload = {
+            "id": f"dish-{item.dish_id}",
+            "dish_id": item.dish_id,
+            "name": item.dish_name,
+            "price": f"{item.unit_price:.2f}",
+            "qty": item.quantity,
+            "note": item.note,
+            "modifiers": [],
+        }
+        dish = dishes.get(item.dish_id)
+
+        if dish is None:
+            result["unavailable"].append(
+                {
+                    **base_payload,
+                    "reason": "dish_unavailable",
+                }
+            )
+            continue
+
+        changed_reasons = []
+
+        if dish.name != item.dish_name:
+            changed_reasons.append("name_changed")
+
+        if dish.price != item.unit_price:
+            changed_reasons.append("price_changed")
+            base_payload["price"] = f"{dish.price:.2f}"
+
+        modifiers = []
+        modifier_unavailable = False
+
+        for modifier in item.modifiers.all():
+            if modifier.type != "remove" or modifier.dish_ingredient_id is None:
+                changed_reasons.append("modifier_changed")
+                continue
+
+            current_modifier = (
+                DishIngredient.objects.select_related("ingredient")
+                .filter(
+                    id=modifier.dish_ingredient_id,
+                    dish=dish,
+                    can_be_removed=True,
+                )
+                .first()
+            )
+
+            if current_modifier is None:
+                modifier_unavailable = True
+                result["unavailable"].append(
+                    {
+                        **base_payload,
+                        "reason": "modifier_unavailable",
+                        "modifier": modifier.name,
+                    }
+                )
+                break
+
+            current_name = current_modifier.ingredient.name
+
+            if current_name != modifier.name or modifier.price_delta != 0:
+                changed_reasons.append("modifier_changed")
+
+            modifiers.append(
+                {
+                    "type": modifier.type,
+                    "dish_ingredient_id": current_modifier.id,
+                    "name": current_name,
+                    "price_delta": "0.00",
+                }
+            )
+
+        if modifier_unavailable:
+            continue
+
+        base_payload["name"] = dish.name
+        base_payload["modifiers"] = modifiers
+
+        if changed_reasons:
+            base_payload["changes"] = sorted(set(changed_reasons))
+            result["changed"].append(base_payload)
+        else:
+            result["available"].append(base_payload)
+
+    return result
 
 
 def _status_steps(order):
@@ -81,6 +193,9 @@ def decorate_order(order):
     payments = list(order.payments.all())
 
     order.items_json = order_items_json(order)
+    order.repeat_result = repeat_order_result(order)
+    order.repeat_result_json = _safe_json(order.repeat_result)
+    order.repeat_available_items_json = _safe_json(order.repeat_result["available"])
     order.items_count = sum(item.quantity for item in items)
     order.preview_items = items[:2]
     order.hidden_items_count = max(0, len(items) - len(order.preview_items))

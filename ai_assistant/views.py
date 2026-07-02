@@ -1,6 +1,7 @@
 import json
 import logging
 import unicodedata
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -18,6 +19,8 @@ from menu.translations import (
     localized_dish_string,
     normalize_language,
 )
+from orders.models import Restaurant
+from orders.services import CartValidationError, resolve_ordering_context
 
 from .models import AIUsageEvent, ChatMessage, ChatSession
 from .privacy import get_ai_history_retention_days, prune_expired_ai_history
@@ -28,11 +31,13 @@ from .services import (
     generate_ai_answer_stream,
 )
 from .throttling import (
+    acquire_ai_session_slot,
     acquire_ai_stream_slot,
     check_ai_request_allowed,
     create_ai_usage_event,
     finish_ai_usage_event,
     record_throttled_ai_request,
+    release_ai_session_slot,
     release_ai_stream_slot,
 )
 
@@ -117,10 +122,13 @@ REQUEST_RECOMMENDATION_RULES = (
 )
 
 
-def _error_response(message, status, session=None):
+def _error_response(message, status, session=None, code=None):
     payload = {
         "error": message,
     }
+
+    if code:
+        payload["code"] = code
 
     if session:
         payload["session_id"] = str(session.id)
@@ -128,11 +136,31 @@ def _error_response(message, status, session=None):
     return JsonResponse(payload, status=status)
 
 
+def _ordering_error_response(error, session=None):
+    return _error_response(
+        error.message,
+        status=error.status,
+        session=session,
+        code=error.code,
+    )
+
+
 def _rate_limited_response(decision, session=None):
     response = _error_response(
         decision.message,
         status=429,
         session=session,
+    )
+    response["Retry-After"] = str(decision.retry_after)
+    return response
+
+
+def _session_busy_response(decision, session):
+    response = _error_response(
+        decision.message,
+        status=409,
+        session=session,
+        code="ai_session_busy",
     )
     response["Retry-After"] = str(decision.retry_after)
     return response
@@ -178,7 +206,7 @@ def _get_existing_session(request, session_id):
         return None
 
 
-def _create_session(request, prompt):
+def _create_session(request, prompt, ordering_context=None):
     session_key = _get_session_key(request)
     session_data = {
         "title": prompt[:150],
@@ -188,7 +216,28 @@ def _create_session(request, prompt):
     if request.user.is_authenticated:
         session_data["user"] = request.user
 
-    return ChatSession.objects.create(**session_data)
+    if ordering_context is not None:
+        session_data["restaurant_id"] = ordering_context.restaurant_id
+
+    session = ChatSession.objects.create(**session_data)
+    session.ordering_context = ordering_context
+    return session
+
+
+def _apply_ordering_context(session, ordering_context):
+    if ordering_context is None:
+        return True
+
+    if session.restaurant_id and session.restaurant_id != ordering_context.restaurant_id:
+        return False
+
+    session.ordering_context = ordering_context
+
+    if not session.restaurant_id:
+        session.restaurant_id = ordering_context.restaurant_id
+        session.save(update_fields=["restaurant", "updated_at"])
+
+    return True
 
 
 def _trim_card_text(value, max_length=130):
@@ -247,6 +296,33 @@ def _is_poor_savory_match(dish):
     return any(marker in combined for marker in NON_SAVORY_CATEGORY_MARKERS)
 
 
+def _restaurant_id_for_ai(session=None, ordering_context=None):
+    if ordering_context is not None:
+        return ordering_context.restaurant_id
+
+    if session is not None and getattr(session, "restaurant_id", None):
+        return session.restaurant_id
+
+    return get_default_restaurant_id()
+
+
+def _menu_url_for_recommendations(restaurant_id, ordering_context=None):
+    if ordering_context is not None and ordering_context.table_token:
+        return reverse("menu:table_menu", args=[ordering_context.table_token])
+
+    restaurant_slug = (
+        Restaurant.objects.filter(id=restaurant_id)
+        .values_list("slug", flat=True)
+        .first()
+    )
+    menu_url = reverse("menu:dish_list")
+
+    if restaurant_slug:
+        return f"{menu_url}?{urlencode({'restaurant': restaurant_slug})}"
+
+    return menu_url
+
+
 def _score_prompt_dish_match(prompt_index, dish):
     best_score = 0
     dish_name = _normalize_match_text(dish.name)
@@ -276,7 +352,11 @@ def _score_prompt_dish_match(prompt_index, dish):
     return best_score
 
 
-def _get_previous_mentioned_dish_ids(session, current_message_id=None):
+def _get_previous_mentioned_dish_ids(
+    session,
+    current_message_id=None,
+    ordering_context=None,
+):
     messages = session.messages.filter(role=ChatMessage.Role.ASSISTANT)
 
     if current_message_id:
@@ -292,7 +372,10 @@ def _get_previous_mentioned_dish_ids(session, current_message_id=None):
     dish_ids = set()
 
     for dish in Dish.objects.filter(
-        restaurant_id=get_default_restaurant_id(),
+        restaurant_id=_restaurant_id_for_ai(
+            session=session,
+            ordering_context=ordering_context,
+        ),
         is_active=True,
         is_available=True,
     ):
@@ -308,19 +391,25 @@ def _serialize_recommended_dishes(
     prompt="",
     excluded_dish_ids=None,
     language="",
+    session=None,
+    ordering_context=None,
 ):
     language = normalize_language(language) if language else ""
     answer_index = str(answer or "").casefold()
     prompt_index = _normalize_match_text(prompt)
     is_savory_request = _is_savory_alternative_request(prompt_index)
     excluded_dish_ids = set(excluded_dish_ids or [])
+    restaurant_id = _restaurant_id_for_ai(
+        session=session,
+        ordering_context=ordering_context,
+    )
 
     if not answer_index and not prompt_index:
         return []
 
     dishes = (
         Dish.objects.filter(
-            restaurant_id=get_default_restaurant_id(),
+            restaurant_id=restaurant_id,
             is_active=True,
             is_available=True,
         )
@@ -374,7 +463,10 @@ def _serialize_recommended_dishes(
 
     recommended = []
     seen_ids = set()
-    menu_url = reverse("menu:dish_list")
+    menu_url = _menu_url_for_recommendations(
+        restaurant_id,
+        ordering_context=ordering_context,
+    )
 
     for match in matches:
         dish = match["dish"]
@@ -443,17 +535,29 @@ def _is_quota_error(exc):
     )
 
 
-def _get_excluded_dish_ids_for_prompt(session, prompt, current_message_id=None):
+def _get_excluded_dish_ids_for_prompt(
+    session,
+    prompt,
+    current_message_id=None,
+    ordering_context=None,
+):
     if not _is_other_options_request(_normalize_match_text(prompt)):
         return None
 
     return _get_previous_mentioned_dish_ids(
         session,
         current_message_id=current_message_id,
+        ordering_context=ordering_context,
     )
 
 
-def _build_quota_fallback_answer(prompt, request, session, language="ru"):
+def _build_quota_fallback_answer(
+    prompt,
+    request,
+    session,
+    language="ru",
+    ordering_context=None,
+):
     prompt_index = _normalize_match_text(prompt)
     answer = (
         "Сейчас лимит ИИ временно исчерпан, поэтому отвечу по опубликованному меню без Gemini. "
@@ -485,16 +589,33 @@ def _build_quota_fallback_answer(prompt, request, session, language="ru"):
             answer,
             request,
             prompt=prompt,
-            excluded_dish_ids=_get_excluded_dish_ids_for_prompt(session, prompt),
+            excluded_dish_ids=_get_excluded_dish_ids_for_prompt(
+                session,
+                prompt,
+                ordering_context=ordering_context,
+            ),
             language=language,
+            session=session,
+            ordering_context=ordering_context,
         ),
     )
 
 
-def _get_latest_session(request):
+def _get_latest_session(request, ordering_context=None):
+    restaurant_id = (
+        ordering_context.restaurant_id
+        if ordering_context is not None
+        else None
+    )
+
     if request.user.is_authenticated:
+        sessions = ChatSession.objects.filter(user=request.user)
+
+        if restaurant_id:
+            sessions = sessions.filter(restaurant_id=restaurant_id)
+
         return (
-            ChatSession.objects.filter(user=request.user)
+            sessions
             .order_by("-updated_at", "-created_at", "-id")
             .first()
         )
@@ -504,11 +625,16 @@ def _get_latest_session(request):
     if not session_key:
         return None
 
+    sessions = ChatSession.objects.filter(
+        user__isnull=True,
+        session_key=session_key,
+    )
+
+    if restaurant_id:
+        sessions = sessions.filter(restaurant_id=restaurant_id)
+
     return (
-        ChatSession.objects.filter(
-            user__isnull=True,
-            session_key=session_key,
-        )
+        sessions
         .order_by("-updated_at", "-created_at", "-id")
         .first()
     )
@@ -518,7 +644,7 @@ def _serialize_timestamp(value):
     return timezone.localtime(value).isoformat()
 
 
-def _serialize_chat_messages(session, request, language=""):
+def _serialize_chat_messages(session, request, language="", ordering_context=None):
     serialized = []
     last_user_prompt = ""
 
@@ -533,6 +659,8 @@ def _serialize_chat_messages(session, request, language=""):
                 request,
                 prompt=last_user_prompt,
                 language=language,
+                session=session,
+                ordering_context=ordering_context,
             )
 
         serialized.append(
@@ -595,6 +723,15 @@ def history(request):
     elif request.session.session_key:
         prune_expired_ai_history(session_key=request.session.session_key)
 
+    try:
+        ordering_context = resolve_ordering_context(
+            request.GET,
+            allow_menu_context=True,
+            allow_missing=True,
+        )
+    except CartValidationError as error:
+        return _ordering_error_response(error)
+
     language_value = request.GET.get("language")
     language = normalize_language(language_value) if language_value else ""
     session_id = request.GET.get("session_id")
@@ -603,8 +740,19 @@ def history(request):
     if session_id:
         session = _get_existing_session(request, session_id)
 
+        if (
+            session is not None
+            and ordering_context is not None
+            and session.restaurant_id
+            and session.restaurant_id != ordering_context.restaurant_id
+        ):
+            session = None
+
     if session is None:
-        session = _get_latest_session(request)
+        session = _get_latest_session(
+            request,
+            ordering_context=ordering_context,
+        )
 
     if session is None:
         return JsonResponse(
@@ -624,6 +772,7 @@ def history(request):
                 session,
                 request,
                 language=language,
+                ordering_context=ordering_context,
             ),
         }
     )
@@ -726,6 +875,15 @@ def ask(request):
             status=400,
         )
 
+    try:
+        ordering_context = resolve_ordering_context(
+            payload,
+            allow_menu_context=True,
+            allow_missing=True,
+        )
+    except CartValidationError as error:
+        return _ordering_error_response(error)
+
     prompt_value = payload.get("prompt", "")
 
     if not isinstance(prompt_value, str):
@@ -773,8 +931,20 @@ def ask(request):
                 "Диалог не найден. Начните новый чат.",
                 status=404,
             )
+
+        if not _apply_ordering_context(session, ordering_context):
+            return _error_response(
+                "Диалог относится к другому ресторану. Начните новый чат.",
+                status=409,
+                session=session,
+                code="ai_restaurant_context_conflict",
+            )
     else:
-        session = _create_session(request, prompt)
+        session = _create_session(
+            request,
+            prompt,
+            ordering_context=ordering_context,
+        )
 
     stream_slot = None
 
@@ -790,6 +960,21 @@ def ask(request):
                 is_stream=True,
             )
             return _rate_limited_response(stream_slot, session=session)
+
+    session_slot = acquire_ai_session_slot(session)
+
+    if not session_slot.allowed:
+        if stream_slot:
+            release_ai_stream_slot(stream_slot)
+
+        record_throttled_ai_request(
+            request,
+            prompt,
+            session_slot,
+            chat_session=session,
+            is_stream=wants_stream,
+        )
+        return _session_busy_response(session_slot, session=session)
 
     session.interface_language = language or "ru"
     session.response_language = response_language
@@ -815,6 +1000,7 @@ def ask(request):
         except AIServiceError:
             logger.exception("AI assistant streaming request failed.")
             release_ai_stream_slot(stream_slot)
+            release_ai_session_slot(session_slot)
             finish_ai_usage_event(
                 usage_event,
                 AIUsageEvent.Status.FAILED,
@@ -857,6 +1043,7 @@ def ask(request):
                             request,
                             session,
                             language=card_language,
+                            ordering_context=ordering_context,
                         )
                         assistant_message = ChatMessage.objects.create(
                             session=session,
@@ -945,8 +1132,11 @@ def ask(request):
                             session,
                             prompt,
                             current_message_id=assistant_message.id,
+                            ordering_context=ordering_context,
                         ),
                         language=card_language,
+                        session=session,
+                        ordering_context=ordering_context,
                     ),
                     session_id=str(session.id),
                     model=model_name,
@@ -955,6 +1145,7 @@ def ask(request):
                 )
             finally:
                 release_ai_stream_slot(stream_slot)
+                release_ai_session_slot(session_slot)
 
         return StreamingHttpResponse(
             event_stream(),
@@ -965,6 +1156,7 @@ def ask(request):
         result = generate_ai_answer(session)
     except AIServiceError:
         logger.exception("AI assistant request failed.")
+        release_ai_session_slot(session_slot)
         finish_ai_usage_event(
             usage_event,
             AIUsageEvent.Status.FAILED,
@@ -994,6 +1186,7 @@ def ask(request):
         response_text=assistant_message.content,
         model_name=result.model_name,
     )
+    release_ai_session_slot(session_slot)
 
     return JsonResponse(
         {
@@ -1006,8 +1199,11 @@ def ask(request):
                     session,
                     prompt,
                     current_message_id=assistant_message.id,
+                    ordering_context=ordering_context,
                 ),
                 language=card_language,
+                session=session,
+                ordering_context=ordering_context,
             ),
             "session_id": str(session.id),
             "model": result.model_name,

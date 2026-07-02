@@ -438,6 +438,7 @@ class RateLimitConfigTests(TestCase):
             "account_reset_password_from_key",
             "google_login",
             "ai_assistant:ask",
+            "menu:table_menu",
             "orders:quote",
             "orders:create",
         }

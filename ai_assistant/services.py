@@ -8,7 +8,7 @@ from google import genai
 from google.genai import errors, types
 
 from accounts.models import UserAllergy
-from menu.models import Dish, get_default_restaurant_id
+from menu.models import Dish, DishAllergen, get_default_restaurant_id
 from menu.translations import normalize_language
 
 from .models import ChatMessage, ChatSession
@@ -24,6 +24,14 @@ RETRYABLE_ERROR_CODES = {
     502,
     503,
     504,
+}
+
+INVALID_API_KEY_PLACEHOLDERS = {
+    "replace-with-new-gemini-api-key",
+    "replace-with-gemini-api-key",
+    "your-gemini-api-key",
+    "your-gemini-api-key-here",
+    "change-me",
 }
 
 LANGUAGE_INSTRUCTIONS = {
@@ -49,10 +57,17 @@ class AIResult:
 
 @lru_cache(maxsize=1)
 def get_gemini_client() -> genai.Client:
-    if not settings.GEMINI_API_KEY.strip():
+    api_key = settings.GEMINI_API_KEY.strip()
+
+    if not api_key:
         raise ImproperlyConfigured("GEMINI_API_KEY is not configured.")
 
-    return genai.Client(api_key=settings.GEMINI_API_KEY.strip())
+    if api_key.casefold() in INVALID_API_KEY_PLACEHOLDERS:
+        raise ImproperlyConfigured(
+            "GEMINI_API_KEY contains a placeholder value."
+        )
+
+    return genai.Client(api_key=api_key)
 
 
 def _format_list(values):
@@ -141,8 +156,20 @@ def detect_response_language(text, fallback="ru"):
     return normalize_language(fallback)
 
 
-def build_menu_context() -> str:
-    restaurant_id = get_default_restaurant_id()
+def _restaurant_id_for_session(session: ChatSession) -> int:
+    ordering_context = getattr(session, "ordering_context", None)
+
+    if ordering_context is not None:
+        return ordering_context.restaurant_id
+
+    if getattr(session, "restaurant_id", None):
+        return session.restaurant_id
+
+    return get_default_restaurant_id()
+
+
+def build_menu_context(restaurant_id=None) -> str:
+    restaurant_id = restaurant_id or get_default_restaurant_id()
     dishes = (
         Dish.objects.filter(
             restaurant_id=restaurant_id,
@@ -153,6 +180,7 @@ def build_menu_context() -> str:
         .prefetch_related(
             "dish_ingredients__ingredient__allergens",
             "may_contain_allergens",
+            "allergen_links__allergen",
         )
         .order_by("category__name", "name")[: settings.AI_MENU_CONTEXT_LIMIT]
     )
@@ -163,10 +191,20 @@ def build_menu_context() -> str:
 
     for dish in dishes:
         ingredients = []
-        allergens = {
-            allergen.name
-            for allergen in dish.may_contain_allergens.all()
-        }
+        contains_allergens = set()
+        trace_allergens = set()
+
+        for link in dish.allergen_links.all():
+            if link.verification_status != DishAllergen.VerificationStatus.VERIFIED:
+                continue
+
+            if link.relation_type == DishAllergen.RelationType.CONTAINS:
+                contains_allergens.add(link.allergen.name)
+            elif link.relation_type in {
+                DishAllergen.RelationType.MAY_CONTAIN,
+                DishAllergen.RelationType.CROSS_CONTAMINATION,
+            }:
+                trace_allergens.add(link.allergen.name)
 
         for dish_ingredient in dish.dish_ingredients.all():
             ingredient = dish_ingredient.ingredient
@@ -177,16 +215,14 @@ def build_menu_context() -> str:
 
             ingredients.append(label)
 
-            for allergen in ingredient.allergens.all():
-                allergens.add(allergen.name)
-
         facts = [
             f"name: {dish.name}",
             f"category: {dish.category.name if dish.category else 'Other'}",
             f"price: {dish.price}",
             f"description: {_trim_text(dish.description)}",
             f"ingredients: {_format_list(ingredients)}",
-            f"allergens: {_format_list(sorted(allergens))}",
+            f"contains_allergens: {_format_list(sorted(contains_allergens))}",
+            f"trace_allergens: {_format_list(sorted(trace_allergens))}",
         ]
 
         if dish.serving_weight_g:
@@ -257,7 +293,7 @@ def _previous_assistant_dish_names(session: ChatSession) -> list[str]:
     names = []
 
     for dish in Dish.objects.filter(
-        restaurant_id=get_default_restaurant_id(),
+        restaurant_id=_restaurant_id_for_session(session),
         is_active=True,
         is_available=True,
     ).order_by("name"):
@@ -352,7 +388,7 @@ def build_system_instruction(session: ChatSession) -> str:
         [
             RESTAURANT_ASSISTANT_SYSTEM_PROMPT,
             LANGUAGE_INSTRUCTIONS[language],
-            build_menu_context(),
+            build_menu_context(_restaurant_id_for_session(session)),
             build_user_context(session),
             build_request_context(session),
         ]

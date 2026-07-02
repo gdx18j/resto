@@ -1,22 +1,35 @@
 import hashlib
 import json
+import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import timedelta
 from decimal import Decimal
+from enum import StrEnum
 
+from django.core import signing
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from menu.models import Dish, DishIngredient
 from menu.translations import localized_dish_string
 
 from .models import (
     Order,
+    ORDER_COMMENT_MAX_LENGTH,
+    ORDER_ITEM_NOTE_MAX_LENGTH,
     OrderItem,
     OrderItemModifier,
+    OrderStatusHistory,
     Payment,
     Restaurant,
     Table,
+    TableQrTokenAudit,
+    hash_table_qr_token,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class CartValidationError(ValueError):
@@ -36,6 +49,21 @@ class ValidatedCartModifier:
 
 
 @dataclass(frozen=True)
+class OrderingContext:
+    restaurant_id: int
+    table_id: int | None
+    table_token: str | None
+    source: str
+
+
+class OrderMode(StrEnum):
+    TABLE = "table"
+    PICKUP = "pickup"
+    COUNTER = "counter"
+    DELIVERY = "delivery"
+
+
+@dataclass(frozen=True)
 class ValidatedCartItem:
     id: str
     dish: Dish
@@ -51,14 +79,40 @@ class ValidatedCartItem:
 @dataclass(frozen=True)
 class ValidatedCart:
     restaurant: Restaurant
+    ordering_context: OrderingContext
     items: tuple[ValidatedCartItem, ...]
     subtotal: Decimal
     total: Decimal
     currency: str
     fingerprint: str
+    pricing_revision: str
+
+
+NO_TABLE_ORDER_MODES = {
+    OrderMode.PICKUP,
+    OrderMode.COUNTER,
+    OrderMode.DELIVERY,
+}
+TABLE_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+DISH_CART_ID_PATTERN = re.compile(r"^dish-(\d+)$")
+QUOTE_TTL_SECONDS = 180
+QUOTE_SIGNING_SALT = "orders.quote"
+GUEST_SCOPE_SIGNING_SALT = "orders.idempotency.guest"
+
+
+def normalize_limited_text(value, max_length, error_message, error_code):
+    text = str(value or "").strip()
+
+    if len(text) > max_length:
+        raise CartValidationError(error_message, code=error_code)
+
+    return text
 
 
 def normalize_dish_id(value):
+    if isinstance(value, bool):
+        raise CartValidationError("Некорректное блюдо.")
+
     if isinstance(value, int):
         return value
 
@@ -66,7 +120,7 @@ def normalize_dish_id(value):
         raise CartValidationError("Некорректное блюдо.")
 
     value = value.strip()
-    match = re.search(r"(\d+)$", value)
+    match = DISH_CART_ID_PATTERN.fullmatch(value)
 
     if not match:
         raise CartValidationError("Некорректное блюдо.")
@@ -90,7 +144,21 @@ def normalize_quantity(value):
 
 
 def normalize_item_note(value):
-    return str(value or "").strip()[:255]
+    return normalize_limited_text(
+        value,
+        ORDER_ITEM_NOTE_MAX_LENGTH,
+        "Комментарий к позиции слишком длинный. Максимум — 255 символов.",
+        "item_note_too_long",
+    )
+
+
+def normalize_order_comment(value):
+    return normalize_limited_text(
+        value,
+        ORDER_COMMENT_MAX_LENGTH,
+        "Комментарий к заказу слишком длинный. Максимум — 2000 символов.",
+        "order_comment_too_long",
+    )
 
 
 def normalize_modifier_payload(raw_modifier):
@@ -159,11 +227,6 @@ def cart_item_identity(dish_id, modifiers, note):
 
 
 def cart_item_id(raw_item, dish_id, modifiers, note):
-    raw_id = str(raw_item.get("id") or "").strip()
-
-    if raw_id:
-        return raw_id
-
     if not modifiers and not note:
         return f"dish-{dish_id}"
 
@@ -250,12 +313,38 @@ def get_idempotency_key(payload, request=None):
     return value
 
 
-def build_cart_fingerprint(payload, restaurant, normalized_items=None):
+def get_idempotency_actor_scope(request=None):
+    if request is None:
+        return "system:anonymous"
+
+    user = getattr(request, "user", None)
+
+    if user is not None and user.is_authenticated:
+        return f"user:{user.pk}"
+
+    if not request.session.session_key:
+        request.session.save()
+
+    session_key = request.session.session_key or ""
+    signed_session = signing.Signer(salt=GUEST_SCOPE_SIGNING_SALT).sign(session_key)
+    return f"guest:{signed_session}"
+
+
+def build_cart_fingerprint(
+    payload,
+    restaurant,
+    normalized_items=None,
+    ordering_context=None,
+):
     normalized_items = normalized_items or normalize_cart_payload(payload)
+    ordering_context = ordering_context or OrderingContext(
+        restaurant_id=restaurant.id,
+        table_id=None,
+        table_token=None,
+        source="legacy",
+    )
     payment_method = payload.get("payment_method") or payload.get("payment") or ""
-    table_id = payload.get("table_id") or ""
-    table_number = payload.get("table_number") or payload.get("table") or ""
-    comment = (payload.get("comment") or "").strip()[:2000]
+    comment = normalize_order_comment(payload.get("comment"))
     fingerprint_items = [
         {
             "dish_id": item["dish_id"],
@@ -270,9 +359,10 @@ def build_cart_fingerprint(payload, restaurant, normalized_items=None):
         "guests_count": normalize_quantity(payload.get("guests_count") or payload.get("persons") or 1),
         "payment_method": str(payment_method),
         "comment": comment,
-        "restaurant_id": restaurant.id,
-        "table_id": str(table_id),
-        "table_number": str(table_number).strip(),
+        "restaurant_id": ordering_context.restaurant_id,
+        "table_id": str(ordering_context.table_id or ""),
+        "table_token": ordering_context.table_token or "",
+        "ordering_source": ordering_context.source,
     }
     fingerprint_json = json.dumps(
         fingerprint_payload,
@@ -282,6 +372,109 @@ def build_cart_fingerprint(payload, restaurant, normalized_items=None):
     )
 
     return hashlib.sha256(fingerprint_json.encode("utf-8")).hexdigest()
+
+
+def build_pricing_revision(cart):
+    pricing_payload = {
+        "currency": cart.currency,
+        "restaurant_id": cart.restaurant.id,
+        "subtotal": str(cart.subtotal),
+        "total": str(cart.total),
+        "items": [
+            {
+                "dish_id": item.dish_id,
+                "dish_updated_at": item.dish.updated_at.isoformat(),
+                "dish_is_active": item.dish.is_active,
+                "dish_is_available": item.dish.is_available,
+                "quantity": item.quantity,
+                "unit_price": str(item.unit_price),
+                "line_total": str(item.line_total),
+                "modifiers": [
+                    {
+                        "dish_ingredient_id": modifier.dish_ingredient.id,
+                        "price_delta": str(modifier.price_delta),
+                    }
+                    for modifier in item.modifiers
+                ],
+            }
+            for item in cart.items
+        ],
+    }
+    pricing_json = json.dumps(
+        pricing_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+    return hashlib.sha256(pricing_json.encode("utf-8")).hexdigest()
+
+
+def build_quote_payload(cart, expires_at):
+    expires_at_value = (
+        expires_at.isoformat()
+        if hasattr(expires_at, "isoformat")
+        else str(expires_at or "")
+    )
+
+    return {
+        "fingerprint": cart.fingerprint,
+        "pricing_revision": cart.pricing_revision,
+        "restaurant_id": cart.restaurant.id,
+        "expires_at": expires_at_value,
+    }
+
+
+def build_quote_id(cart, expires_at):
+    return signing.dumps(
+        build_quote_payload(cart, expires_at),
+        salt=QUOTE_SIGNING_SALT,
+    )
+
+
+def validate_quote_for_cart(payload, cart):
+    quote_id = str(payload.get("quote_id") or "").strip()
+
+    if not quote_id:
+        raise CartValidationError(
+            "Подтвердите актуальную сумму заказа.",
+            code="quote_required",
+            status=409,
+        )
+
+    try:
+        quote_payload = signing.loads(
+            quote_id,
+            salt=QUOTE_SIGNING_SALT,
+            max_age=QUOTE_TTL_SECONDS,
+        )
+    except signing.SignatureExpired:
+        raise CartValidationError(
+            "Расчёт заказа устарел. Проверьте сумму ещё раз.",
+            code="quote_expired",
+            status=409,
+        )
+    except signing.BadSignature:
+        raise CartValidationError(
+            "Расчёт заказа не подтверждён.",
+            code="invalid_quote",
+            status=409,
+        )
+
+    expected = build_quote_payload(cart, quote_payload.get("expires_at", ""))
+
+    if (
+        quote_payload.get("fingerprint") != expected["fingerprint"]
+        or quote_payload.get("pricing_revision") != expected["pricing_revision"]
+        or quote_payload.get("restaurant_id") != expected["restaurant_id"]
+    ):
+        raise CartValidationError(
+            "Состав или сумма заказа изменились. Проверьте корзину и подтвердите заказ ещё раз.",
+            code="quote_changed",
+            status=409,
+        )
+
+    return quote_payload
 
 
 def _return_idempotent_order(order, fingerprint):
@@ -317,11 +510,6 @@ def _priced_unit_amount(base_price, modifiers):
 
 
 def get_default_restaurant():
-    restaurant = Restaurant.objects.filter(is_active=True).order_by("id").first()
-
-    if restaurant:
-        return restaurant
-
     restaurant, _ = Restaurant.objects.get_or_create(
         slug="caesar-company",
         defaults={"name": "Caesar & Company"},
@@ -334,17 +522,29 @@ def get_default_restaurant():
     return restaurant
 
 
-def get_restaurant_for_payload(payload):
+def _clean_payload_value(payload, *names):
+    for name in names:
+        value = payload.get(name)
+
+        if value is not None and str(value).strip():
+            return str(value).strip()
+
+    return ""
+
+
+def _get_restaurant_by_payload_identity(payload):
     restaurant_id = payload.get("restaurant_id")
     restaurant_slug = payload.get("restaurant_slug") or payload.get("restaurant")
-    table_id = payload.get("table_id")
-    table_number = payload.get("table_number") or payload.get("table")
 
     if restaurant_id:
         try:
             return Restaurant.objects.get(id=restaurant_id, is_active=True)
         except (Restaurant.DoesNotExist, TypeError, ValueError):
-            raise CartValidationError("Ресторан не найден.", code="restaurant_not_found")
+            raise CartValidationError(
+                "Ресторан не найден.",
+                code="restaurant_not_found",
+                status=404,
+            )
 
     if restaurant_slug:
         restaurant = Restaurant.objects.filter(
@@ -353,42 +553,233 @@ def get_restaurant_for_payload(payload):
         ).first()
 
         if restaurant is None:
-            raise CartValidationError("Ресторан не найден.", code="restaurant_not_found")
+            raise CartValidationError(
+                "Ресторан не найден.",
+                code="restaurant_not_found",
+                status=404,
+            )
 
         return restaurant
 
-    if table_id:
-        try:
-            return Table.objects.select_related("restaurant").get(
-                id=table_id,
-                is_active=True,
-                restaurant__is_active=True,
-            ).restaurant
-        except (Table.DoesNotExist, TypeError, ValueError):
-            raise CartValidationError("Стол не найден.", code="table_not_found")
+    return None
 
-    if table_number:
-        tables = list(
-            Table.objects.select_related("restaurant")
-            .filter(
-                number=str(table_number).strip(),
-                is_active=True,
-                restaurant__is_active=True,
-            )
-            .order_by("restaurant_id", "id")
-            [:2]
+
+def _order_mode_from_payload(payload):
+    raw_mode = _clean_payload_value(
+        payload,
+        "order_source",
+        "order_mode",
+        "fulfillment",
+        "source",
+    ).casefold()
+
+    aliases = {
+        "qr": OrderMode.TABLE.value,
+        "dine_in": OrderMode.TABLE.value,
+        "dine-in": OrderMode.TABLE.value,
+        "eat_in": OrderMode.TABLE.value,
+        "eat-in": OrderMode.TABLE.value,
+        "takeaway": "pickup",
+        "takeout": "pickup",
+        "self_pickup": "pickup",
+        "front_desk": "counter",
+        "desk": "counter",
+    }
+    mode = aliases.get(raw_mode, raw_mode)
+
+    if not mode:
+        return None
+
+    try:
+        return OrderMode(mode)
+    except ValueError:
+        raise CartValidationError(
+            "Некорректный режим заказа.",
+            code="invalid_order_mode",
         )
 
-        if len(tables) > 1:
+
+def _has_untrusted_table_reference(payload):
+    return bool(
+        _clean_payload_value(payload, "table_id")
+        or _clean_payload_value(payload, "table_number", "table")
+    )
+
+
+def _log_untrusted_table_reference(payload, reason):
+    logger.warning(
+        "Rejected untrusted table reference: reason=%s table_id=%r table_number=%r order_mode=%r restaurant=%r",
+        reason,
+        payload.get("table_id"),
+        payload.get("table_number") or payload.get("table"),
+        _clean_payload_value(payload, "order_source", "order_mode", "fulfillment", "source"),
+        payload.get("restaurant_slug") or payload.get("restaurant_id") or payload.get("restaurant"),
+    )
+
+
+def _context_for_table_token(table_token):
+    if not TABLE_TOKEN_PATTERN.fullmatch(table_token):
+        raise CartValidationError(
+            "Некорректный QR-токен стола.",
+            code="invalid_table_token",
+            status=400,
+        )
+
+    table_token_hash = hash_table_qr_token(table_token)
+    table = (
+        Table.objects.select_related("restaurant")
+        .filter(qr_token_hash=table_token_hash)
+        .first()
+    )
+
+    if table is None:
+        if TableQrTokenAudit.objects.filter(
+            token_hash=table_token_hash,
+            action=TableQrTokenAudit.Action.REVOKED,
+        ).exists():
             raise CartValidationError(
-                "Уточните ресторан для выбранного стола.",
+                "QR-токен стола больше не действует.",
+                code="table_token_revoked",
+                status=410,
+            )
+
+        raise CartValidationError(
+            "QR-токен стола не найден.",
+            code="table_token_not_found",
+            status=404,
+        )
+
+    if (
+        table.qr_token_revoked_at
+        or not table.is_active
+        or not table.restaurant.is_active
+    ):
+        raise CartValidationError(
+            "QR-токен стола больше не действует.",
+            code="table_token_revoked",
+            status=410,
+        )
+
+    if (
+        table.qr_token_expires_at
+        and table.qr_token_expires_at <= timezone.now()
+    ):
+        raise CartValidationError(
+            "QR-токен стола истёк.",
+            code="table_token_expired",
+            status=410,
+        )
+
+    return OrderingContext(
+        restaurant_id=table.restaurant_id,
+        table_id=table.id,
+        table_token=table_token,
+        source=OrderMode.TABLE.value,
+    )
+
+
+def get_table_for_qr_token(table_token):
+    ordering_context = _context_for_table_token(table_token)
+    return get_table_for_ordering_context(ordering_context)
+
+
+def resolve_ordering_context(
+    payload,
+    *,
+    restaurant=None,
+    allow_menu_context=False,
+    allow_missing=False,
+):
+    if not isinstance(payload, dict):
+        raise CartValidationError("Некорректная корзина.")
+
+    table_token = _clean_payload_value(payload, "table_token", "qr_token")
+
+    if table_token:
+        return _context_for_table_token(table_token)
+
+    if _has_untrusted_table_reference(payload):
+        _log_untrusted_table_reference(payload, "missing_table_token")
+        raise CartValidationError(
+            "Для заказа за столом нужен QR-токен стола.",
+            code="table_token_required",
+        )
+
+    if restaurant is not None:
+        return OrderingContext(
+            restaurant_id=restaurant.id,
+            table_id=None,
+            table_token=None,
+            source="menu" if allow_menu_context else "restaurant",
+        )
+
+    order_mode = _order_mode_from_payload(payload)
+    explicit_restaurant = _get_restaurant_by_payload_identity(payload)
+
+    if order_mode == OrderMode.TABLE:
+        _log_untrusted_table_reference(payload, "table_mode_without_token")
+        raise CartValidationError(
+            "Для заказа за столом нужен QR-токен стола.",
+            code="table_token_required",
+        )
+
+    if order_mode in NO_TABLE_ORDER_MODES:
+        if explicit_restaurant is None:
+            raise CartValidationError(
+                "Для заказа нужен ресторан.",
                 code="restaurant_required",
             )
 
-        if tables:
-            return tables[0].restaurant
+        return OrderingContext(
+            restaurant_id=explicit_restaurant.id,
+            table_id=None,
+            table_token=None,
+            source=order_mode.value,
+        )
 
-    return get_default_restaurant()
+    if allow_menu_context and explicit_restaurant is not None:
+        return OrderingContext(
+            restaurant_id=explicit_restaurant.id,
+            table_id=None,
+            table_token=None,
+            source="menu",
+        )
+
+    if allow_missing and explicit_restaurant is None and order_mode is None:
+        return None
+
+    if explicit_restaurant is None:
+        raise CartValidationError(
+            "Ресторан заказа не определён.",
+            code="restaurant_required",
+        )
+
+    raise CartValidationError(
+        "Выберите режим заказа: за столом, самовывоз, заказ у стойки или доставка.",
+        code="order_mode_required",
+    )
+
+
+def get_restaurant_for_ordering_context(ordering_context):
+    try:
+        return Restaurant.objects.get(
+            id=ordering_context.restaurant_id,
+            is_active=True,
+        )
+    except Restaurant.DoesNotExist:
+        raise CartValidationError(
+            "Ресторан не найден.",
+            code="restaurant_not_found",
+            status=404,
+        )
+
+
+def get_restaurant_for_payload(payload):
+    ordering_context = resolve_ordering_context(
+        payload,
+        allow_menu_context=True,
+    )
+    return get_restaurant_for_ordering_context(ordering_context)
 
 
 def _get_dishes_by_id(dish_ids, restaurant):
@@ -448,8 +839,16 @@ def _normalize_modifiers(dish, raw_modifiers):
     return tuple(normalized)
 
 
-def validate_cart(payload, language="ru", restaurant=None):
-    restaurant = restaurant or get_restaurant_for_payload(payload)
+def validate_cart(payload, language="ru", restaurant=None, ordering_context=None):
+    ordering_context = ordering_context or resolve_ordering_context(
+        payload,
+        restaurant=restaurant,
+        allow_menu_context=True,
+    )
+
+    if restaurant is None or restaurant.id != ordering_context.restaurant_id:
+        restaurant = get_restaurant_for_ordering_context(ordering_context)
+
     normalized_items = normalize_cart_payload(payload)
     dishes = _get_dishes_by_id([item["dish_id"] for item in normalized_items], restaurant)
     validated_items = []
@@ -477,18 +876,33 @@ def validate_cart(payload, language="ru", restaurant=None):
             )
         )
 
-    return ValidatedCart(
+    cart = ValidatedCart(
         restaurant=restaurant,
+        ordering_context=ordering_context,
         items=tuple(validated_items),
         subtotal=subtotal,
         total=subtotal,
         currency="RUB",
-        fingerprint=build_cart_fingerprint(payload, restaurant, normalized_items=normalized_items),
+        fingerprint=build_cart_fingerprint(
+            payload,
+            restaurant,
+            normalized_items=normalized_items,
+            ordering_context=ordering_context,
+        ),
+        pricing_revision="",
     )
+    return replace(cart, pricing_revision=build_pricing_revision(cart))
 
 
-def quote_cart(payload, language="ru", restaurant=None):
-    cart = validate_cart(payload, language=language, restaurant=restaurant)
+def quote_cart(payload, language="ru", restaurant=None, ordering_context=None):
+    cart = validate_cart(
+        payload,
+        language=language,
+        restaurant=restaurant,
+        ordering_context=ordering_context,
+    )
+    expires_at = timezone.now() + timedelta(seconds=QUOTE_TTL_SECONDS)
+    quote_id = build_quote_id(cart, expires_at)
     response_items = []
 
     for item in cart.items:
@@ -513,6 +927,10 @@ def quote_cart(payload, language="ru", restaurant=None):
         )
 
     return {
+        "quote_id": quote_id,
+        "pricing_revision": cart.pricing_revision,
+        "expires_at": expires_at.isoformat(),
+        "fingerprint": cart.fingerprint,
         "currency": cart.currency,
         "items": response_items,
         "subtotal": _format_money(cart.subtotal),
@@ -520,44 +938,62 @@ def quote_cart(payload, language="ru", restaurant=None):
     }
 
 
-def get_table_for_payload(payload, restaurant):
-    table_id = payload.get("table_id")
-    table_number = payload.get("table_number") or payload.get("table")
+def get_table_for_ordering_context(ordering_context):
+    if ordering_context.table_id is None:
+        return None
 
-    if table_id:
-        try:
-            return Table.objects.get(
-                id=table_id,
-                restaurant=restaurant,
-                is_active=True,
-            )
-        except Table.DoesNotExist:
-            raise CartValidationError("Стол не найден.", code="table_not_found")
-
-    if table_number:
-        return Table.objects.filter(
-            restaurant=restaurant,
-            number=str(table_number).strip(),
+    try:
+        return Table.objects.get(
+            id=ordering_context.table_id,
+            restaurant_id=ordering_context.restaurant_id,
             is_active=True,
-        ).first()
+        )
+    except Table.DoesNotExist:
+        raise CartValidationError(
+            "Стол не найден.",
+            code="table_not_found",
+            status=404,
+        )
 
-    return None
+
+def get_table_for_payload(payload, restaurant):
+    ordering_context = resolve_ordering_context(
+        payload,
+        restaurant=restaurant,
+        allow_menu_context=True,
+    )
+    return get_table_for_ordering_context(ordering_context)
 
 
-@transaction.atomic
 def create_order_from_payload(payload, request=None, language="ru"):
+    ordering_context = resolve_ordering_context(payload)
     idempotency_key = get_idempotency_key(payload, request=request)
-    existing_order = Order.objects.filter(idempotency_key=idempotency_key).first()
+    restaurant = get_restaurant_for_ordering_context(ordering_context)
+    actor_scope = get_idempotency_actor_scope(request)
+    existing_order = Order.objects.filter(
+        idempotency_actor_scope=actor_scope,
+        restaurant=restaurant,
+        idempotency_key=idempotency_key,
+    ).first()
 
     if existing_order:
-        restaurant = get_restaurant_for_payload(payload)
-        idempotency_fingerprint = build_cart_fingerprint(payload, restaurant)
+        idempotency_fingerprint = build_cart_fingerprint(
+            payload,
+            restaurant,
+            ordering_context=ordering_context,
+        )
         return _return_idempotent_order(existing_order, idempotency_fingerprint)
 
-    cart = validate_cart(payload, language=language)
+    cart = validate_cart(
+        payload,
+        language=language,
+        restaurant=restaurant,
+        ordering_context=ordering_context,
+    )
     restaurant = cart.restaurant
     idempotency_fingerprint = cart.fingerprint
-    table = get_table_for_payload(payload, restaurant)
+    validate_quote_for_cart(payload, cart)
+    table = get_table_for_ordering_context(ordering_context)
     payment_method = payload.get("payment_method") or payload.get("payment")
 
     if payment_method not in Payment.Method.values:
@@ -585,42 +1021,60 @@ def create_order_from_payload(payload, request=None, language="ru"):
                 user=user,
                 session_key=session_key,
                 idempotency_key=idempotency_key,
+                idempotency_actor_scope=actor_scope,
                 idempotency_fingerprint=idempotency_fingerprint,
                 guests_count=normalize_quantity(payload.get("guests_count") or payload.get("persons") or 1),
-                comment=(payload.get("comment") or "").strip()[:2000],
+                comment=normalize_order_comment(payload.get("comment")),
                 currency=cart.currency,
                 subtotal_amount=cart.subtotal,
                 total_amount=cart.total,
             )
-    except IntegrityError:
-        existing_order = Order.objects.get(idempotency_key=idempotency_key)
-        return _return_idempotent_order(existing_order, idempotency_fingerprint)
 
-    for item in cart.items:
-        order_item = OrderItem.objects.create(
-            order=order,
-            dish=item.dish,
-            dish_name=item.name,
-            quantity=item.quantity,
-            unit_price=item.unit_price,
-            line_total=item.line_total,
-            note=item.note,
-        )
+            for item in cart.items:
+                order_item = OrderItem.objects.create(
+                    order=order,
+                    dish=item.dish,
+                    dish_name=item.name,
+                    quantity=item.quantity,
+                    unit_price=item.unit_price,
+                    line_total=item.line_total,
+                    note=item.note,
+                )
 
-        for modifier in item.modifiers:
-            OrderItemModifier.objects.create(
-                order_item=order_item,
-                type=modifier.type,
-                dish_ingredient=modifier.dish_ingredient,
-                name=modifier.name,
-                price_delta=modifier.price_delta,
+                for modifier in item.modifiers:
+                    OrderItemModifier.objects.create(
+                        order_item=order_item,
+                        type=modifier.type,
+                        dish_ingredient=modifier.dish_ingredient,
+                        name=modifier.name,
+                        price_delta=modifier.price_delta,
+                    )
+
+            Payment.objects.create(
+                order=order,
+                method=payment_method,
+                amount=order.total_amount,
+                currency=order.currency,
             )
 
-    Payment.objects.create(
-        order=order,
-        method=payment_method,
-        amount=order.total_amount,
-        currency=order.currency,
-    )
+            OrderStatusHistory.objects.create(
+                order=order,
+                from_status="",
+                to_status=Order.Status.CREATED,
+                changed_by=user,
+                reason="Order created",
+                order_version=order.version,
+            )
+    except IntegrityError:
+        existing_order = Order.objects.filter(
+            idempotency_actor_scope=actor_scope,
+            restaurant=restaurant,
+            idempotency_key=idempotency_key,
+        ).first()
+
+        if existing_order is None:
+            raise
+
+        return _return_idempotent_order(existing_order, idempotency_fingerprint)
 
     return order

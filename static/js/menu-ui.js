@@ -267,9 +267,9 @@
         tr: "İçerir",
       },
       mayContainAllergens: {
-        ru: "Может содержать",
-        en: "May contain",
-        tr: "İçerebilir",
+        ru: "Может содержать следы",
+        en: "May contain traces",
+        tr: "İz içerebilir",
       },
       traceAllergens: {
         ru: "Возможны следы",
@@ -277,9 +277,9 @@
         tr: "İz bulunabilir",
       },
       unknownAllergens: {
-        ru: "Аллергенный состав не подтверждён",
-        en: "Allergen data is unverified",
-        tr: "Alerjen bilgisi doğrulanmadı",
+        ru: "Информация уточняется",
+        en: "Information is being verified",
+        tr: "Bilgi doğrulanıyor",
       },
       add: {
         ru: "Добавить",
@@ -408,10 +408,15 @@
       addGroup("may_contain", "mayContainAllergens");
       addGroup("traces", "traceAllergens");
 
-      if (groups.unknown) {
+      if (Array.isArray(groups.unknown) && groups.unknown.length) {
         rows.push([
           '<span class="dish-detail__allergen-group dish-detail__allergen-group--unknown">',
-          '<strong>', detailLabel("unknownAllergens"), '</strong>',
+          '<small>', detailLabel("unknownAllergens"), '</small>',
+          '<strong>',
+          groups.unknown.map(function (allergen) {
+            return '<span>' + langSpans(allergen) + '</span>';
+          }).join('<span class="dish-detail__comma">, </span>'),
+          '</strong>',
           '</span>',
         ].join(''));
       }

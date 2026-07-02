@@ -23,6 +23,14 @@ class ChatSession(models.Model):
         blank=True,
     )
 
+    restaurant = models.ForeignKey(
+        "orders.Restaurant",
+        on_delete=models.SET_NULL,
+        related_name="ai_chat_sessions",
+        null=True,
+        blank=True,
+    )
+
     session_key = models.CharField(
         max_length=64,
         blank=True,

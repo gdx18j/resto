@@ -3,7 +3,8 @@ import io
 
 from django.conf import settings
 from django.contrib import admin, messages
-from django.utils.html import format_html
+from django.utils import timezone
+from django.utils.html import format_html, format_html_join
 
 from .models import (
     Order,
@@ -13,6 +14,7 @@ from .models import (
     Payment,
     Restaurant,
     Table,
+    TableQrTokenAudit,
 )
 from .statuses import OrderTransitionError, transition_order
 
@@ -34,31 +36,92 @@ class RestaurantAdmin(admin.ModelAdmin):
 
 @admin.register(Table)
 class TableAdmin(admin.ModelAdmin):
-    list_display = ("restaurant", "number", "title", "seats", "is_active", "qr_thumb")
+    list_display = (
+        "restaurant",
+        "number",
+        "title",
+        "seats",
+        "is_active",
+        "qr_token_version",
+        "qr_token_kind",
+        "qr_token_status",
+        "qr_thumb",
+    )
     list_filter = ("restaurant", "is_active")
-    search_fields = ("number", "title", "qr_token", "restaurant__name")
-    readonly_fields = ("qr_token", "qr_link", "qr_preview", "created_at")
+    search_fields = ("number", "title", "qr_token_hash", "restaurant__name")
+    readonly_fields = (
+        "qr_token_hash_short",
+        "qr_token_version",
+        "qr_token_kind",
+        "qr_token_status",
+        "qr_token_created_at",
+        "qr_token_rotated_at",
+        "qr_token_revoked_at",
+        "qr_token_expires_at",
+        "qr_link",
+        "qr_preview",
+        "created_at",
+    )
     fields = (
         "restaurant",
         "number",
         "title",
         "seats",
         "is_active",
-        "qr_token",
+        "qr_token_hash_short",
+        "qr_token_version",
+        "qr_token_kind",
+        "qr_token_status",
+        "qr_token_created_at",
+        "qr_token_rotated_at",
+        "qr_token_revoked_at",
+        "qr_token_expires_at",
         "qr_link",
         "qr_preview",
         "created_at",
     )
+    actions = ("rotate_qr_tokens", "revoke_qr_tokens")
+    inlines = ()
 
-    def _full_url(self, obj):
+    def _full_url(self, obj, token=None):
         site_url = getattr(settings, "SITE_URL", "http://localhost:8000")
-        return f"{site_url.rstrip('/')}{obj.menu_url_path()}"
+        token = token or obj.plain_qr_token
+
+        if not token:
+            return ""
+
+        return f"{site_url.rstrip('/')}{obj.menu_url_path(token)}"
+
+    def qr_token_hash_short(self, obj):
+        if not obj.qr_token_hash:
+            return "—"
+
+        return f"{obj.qr_token_hash[:16]}…"
+
+    qr_token_hash_short.short_description = "Hash QR"
+
+    def qr_token_status(self, obj):
+        if not obj.qr_token_hash:
+            return "Нет токена"
+        if obj.qr_token_revoked_at:
+            return "Отозван"
+        if obj.qr_token_expires_at and obj.qr_token_expires_at <= timezone.now():
+            return "Истёк"
+        if not obj.is_active:
+            return "Стол неактивен"
+
+        return "Активен"
+
+    qr_token_status.short_description = "Статус QR"
 
     def qr_link(self, obj):
         if not obj.pk:
             return "—"
 
         url = self._full_url(obj)
+        if not url:
+            return "Plaintext QR-токен не хранится. Перевыпустите QR, чтобы получить новую ссылку для печати."
+
         return format_html('<a href="{0}" target="_blank" rel="noopener">{0}</a>', url)
 
     qr_link.short_description = "Ссылка для QR"
@@ -67,7 +130,12 @@ class TableAdmin(admin.ModelAdmin):
         if not QRCODE_AVAILABLE or not obj.pk:
             return None
 
-        image = qrcode.make(self._full_url(obj), box_size=box_size, border=2)
+        url = self._full_url(obj)
+
+        if not url:
+            return None
+
+        image = qrcode.make(url, box_size=box_size, border=2)
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         return base64.b64encode(buffer.getvalue()).decode("ascii")
@@ -91,6 +159,9 @@ class TableAdmin(admin.ModelAdmin):
             return "Установите пакет qrcode[pil]."
 
         b64 = self._qr_base64(obj, box_size=8)
+        if not b64:
+            return "Plaintext QR-токен не хранится. Используйте действие «Перевыпустить QR» и распечатайте новую ссылку сразу."
+
         return format_html(
             '<div style="margin-top:8px">'
             '<img src="data:image/png;base64,{}" width="220" height="220" alt="QR">'
@@ -101,6 +172,105 @@ class TableAdmin(admin.ModelAdmin):
         )
 
     qr_preview.short_description = "QR-код для печати"
+
+    def _show_plain_qr_token_message(self, request, obj, verb):
+        url = self._full_url(obj)
+
+        if not url:
+            return
+
+        self.message_user(
+            request,
+            format_html(
+                "{}. Ссылка доступна только сейчас: <a href=\"{}\" target=\"_blank\" rel=\"noopener\">{}</a>",
+                verb,
+                url,
+                url,
+            ),
+            level=messages.WARNING,
+        )
+
+    def response_add(self, request, obj, post_url_continue=None):
+        response = super().response_add(request, obj, post_url_continue=post_url_continue)
+        self._show_plain_qr_token_message(request, obj, "QR-токен выпущен")
+        return response
+
+    def response_change(self, request, obj):
+        response = super().response_change(request, obj)
+        self._show_plain_qr_token_message(request, obj, "QR-токен выпущен")
+        return response
+
+    @admin.action(description="Перевыпустить QR")
+    def rotate_qr_tokens(self, request, queryset):
+        links = []
+
+        for table in queryset.select_related("restaurant"):
+            token = table.rotate_qr_token(
+                actor=request.user,
+                reason="Django admin action",
+            )
+            url = self._full_url(table, token)
+            links.append((str(table), url, url))
+
+        if not links:
+            return
+
+        self.message_user(
+            request,
+            format_html(
+                "QR перевыпущен. Plaintext-ссылки доступны только сейчас:<br>{}",
+                format_html_join(
+                    "<br>",
+                    "{}: <a href=\"{}\" target=\"_blank\" rel=\"noopener\">{}</a>",
+                    links,
+                ),
+            ),
+            level=messages.WARNING,
+        )
+
+    @admin.action(description="Отозвать QR")
+    def revoke_qr_tokens(self, request, queryset):
+        count = 0
+
+        for table in queryset:
+            if not table.qr_token_revoked_at:
+                table.revoke_qr_token(
+                    actor=request.user,
+                    reason="Django admin action",
+                )
+                count += 1
+
+        if count:
+            self.message_user(request, f"Отозвано QR-токенов: {count}.", level=messages.SUCCESS)
+
+
+class TableQrTokenAuditInline(admin.TabularInline):
+    model = TableQrTokenAudit
+    extra = 0
+    readonly_fields = (
+        "action",
+        "token_version",
+        "token_kind",
+        "token_hash_short",
+        "actor",
+        "reason",
+        "created_at",
+    )
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def token_hash_short(self, obj):
+        if not obj.token_hash:
+            return "—"
+
+        return f"{obj.token_hash[:16]}…"
+
+    token_hash_short.short_description = "Hash QR"
+
+
+TableAdmin.inlines = (TableQrTokenAuditInline,)
 
 
 class OrderItemModifierInline(admin.TabularInline):
@@ -243,6 +413,40 @@ class OrderStatusHistoryAdmin(admin.ModelAdmin):
         "order_version",
         "created_at",
     )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(TableQrTokenAudit)
+class TableQrTokenAuditAdmin(admin.ModelAdmin):
+    list_display = ("table", "action", "token_version", "token_kind", "token_hash_short", "actor", "created_at")
+    list_filter = ("action", "token_kind", "created_at")
+    search_fields = ("table__number", "table__restaurant__name", "token_hash", "reason", "actor__email")
+    readonly_fields = (
+        "table",
+        "action",
+        "token_version",
+        "token_kind",
+        "token_hash",
+        "actor",
+        "reason",
+        "created_at",
+    )
+
+    def token_hash_short(self, obj):
+        if not obj.token_hash:
+            return "—"
+
+        return f"{obj.token_hash[:16]}…"
+
+    token_hash_short.short_description = "Hash QR"
 
     def has_add_permission(self, request):
         return False

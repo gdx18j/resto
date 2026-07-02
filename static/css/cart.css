@@ -545,6 +545,18 @@ body.cart-bar-suppressed .cart-bar.cart-bar--visible {
 }
 .cart-comment:focus { outline: none; border-color: var(--accent); }
 .cart-comment::placeholder { color: var(--muted); }
+.cart-comment-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+.cart-comment-meta .is-over-limit {
+  color: var(--danger);
+  font-weight: 700;
+}
 
 /* ── Футер: две строки + кнопка (стиль Lovin скрин 2) ─────────── */
 .cart-panel__footer {

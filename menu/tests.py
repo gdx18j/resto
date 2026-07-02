@@ -3,15 +3,23 @@ from io import StringIO
 import tempfile
 from pathlib import Path
 
+from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import IntegrityError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from orders.models import Restaurant
+from orders.models import Restaurant, Table
 
-from .models import Category, CategoryTranslation, Dish, DishTranslation
+from .models import (
+    Allergen,
+    Category,
+    CategoryTranslation,
+    Dish,
+    DishAllergen,
+    DishTranslation,
+)
 from .translations import localized_dish_string
 
 
@@ -68,6 +76,87 @@ class MenuRenderingTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f'id="dish-{second_dish.id}"')
         self.assertNotContains(response, f'id="dish-{self.dish.id}"')
+        self.assertContains(response, 'data-cart-restaurant-slug="second-caesar"')
+
+    def test_qr_menu_exposes_table_token_to_cart(self):
+        table = Table.objects.create(
+            restaurant=self.dish.restaurant,
+            number="5",
+        )
+        table_token = table.plain_qr_token
+
+        response = self.client.get(reverse("menu:table_menu", args=[table_token]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            f'data-cart-restaurant-slug="{self.dish.restaurant.slug}"',
+        )
+        self.assertContains(response, f'data-cart-table-token="{table_token}"')
+
+    @override_settings(
+        RATE_LIMIT_RULES={
+            "menu:table_menu": {
+                "methods": ["GET"],
+                "identity": "ip",
+                "limits": [
+                    {
+                        "name": "test",
+                        "limit": 1,
+                        "window": 60,
+                    }
+                ],
+            }
+        }
+    )
+    def test_qr_menu_is_rate_limited(self):
+        cache.clear()
+        table = Table.objects.create(
+            restaurant=self.dish.restaurant,
+            number="6",
+        )
+        table_token = table.plain_qr_token
+
+        first_response = self.client.get(reverse("menu:table_menu", args=[table_token]))
+        second_response = self.client.get(reverse("menu:table_menu", args=[table_token]))
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 429)
+        self.assertEqual(second_response["Retry-After"], "60")
+
+    def test_dish_detail_payload_separates_allergen_confidence(self):
+        milk = Allergen.objects.create(name="Milk", code="milk-test")
+        nuts = Allergen.objects.create(name="Nuts", code="nuts-test")
+        soy = Allergen.objects.create(name="Soy", code="soy-test")
+        DishAllergen.objects.create(
+            dish=self.dish,
+            allergen=milk,
+            relation_type=DishAllergen.RelationType.CONTAINS,
+            source=DishAllergen.Source.RECIPE,
+            verification_status=DishAllergen.VerificationStatus.VERIFIED,
+        )
+        DishAllergen.objects.create(
+            dish=self.dish,
+            allergen=nuts,
+            relation_type=DishAllergen.RelationType.CROSS_CONTAMINATION,
+            source=DishAllergen.Source.MANUAL,
+            verification_status=DishAllergen.VerificationStatus.VERIFIED,
+        )
+        DishAllergen.objects.create(
+            dish=self.dish,
+            allergen=soy,
+            relation_type=DishAllergen.RelationType.CONTAINS,
+            source=DishAllergen.Source.HEURISTIC,
+            verification_status=DishAllergen.VerificationStatus.SUGGESTED,
+        )
+
+        response = self.client.get(reverse("menu:dish_list"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.context["dish_details"][f"dish-{self.dish.id}"]
+        self.assertEqual(payload["allergen_groups"]["contains"][0]["ru"], "Milk")
+        self.assertEqual(payload["allergen_groups"]["traces"][0]["ru"], "Nuts")
+        self.assertEqual(payload["allergen_groups"]["unknown"][0]["ru"], "Soy")
 
 
 class MenuTranslationTests(TestCase):

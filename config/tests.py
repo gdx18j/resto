@@ -144,6 +144,7 @@ class CleanMigrationSeedTests(SimpleTestCase):
 
         self.assertIn(("menu", "0006_alter_category_options_and_more"), applied_migrations)
         self.assertIn(("orders", "0004_table_qr_token"), applied_migrations)
+        self.assertIn(("orders", "0005_table_qr_token_security"), applied_migrations)
         self.assertIn("orders_order", tables)
         self.assertIn("orders_table", tables)
         self.assertGreaterEqual(table_count, 1)

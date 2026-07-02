@@ -30,19 +30,6 @@ def _language(request):
     return value if value in {"ru", "en", "tr"} else "ru"
 
 
-def _payload_with_session_table(payload, request):
-    if not isinstance(payload, dict):
-        return payload
-
-    table_id = request.session.get("table_id")
-    if table_id and not payload.get("table_id"):
-        payload = payload.copy()
-        payload["table_id"] = table_id
-        payload.setdefault("table_number", request.session.get("table_number", ""))
-
-    return payload
-
-
 def _error_response(error, status=400):
     return JsonResponse(
         {
@@ -64,7 +51,7 @@ def _order_visible_to_request(order, request):
 @require_POST
 def quote(request):
     try:
-        payload = _payload_with_session_table(_json_payload(request), request)
+        payload = _json_payload(request)
         data = quote_cart(payload, language=_language(request))
     except CartValidationError as error:
         return _error_response(error)
@@ -75,7 +62,7 @@ def quote(request):
 @require_POST
 def create(request):
     try:
-        payload = _payload_with_session_table(_json_payload(request), request)
+        payload = _json_payload(request)
         order = create_order_from_payload(
             payload,
             request=request,

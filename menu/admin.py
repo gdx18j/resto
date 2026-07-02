@@ -6,6 +6,7 @@ from .models import (
     Category,
     CategoryTranslation,
     Dish,
+    DishAllergen,
     DishIngredient,
     DishTranslation,
     Ingredient,
@@ -82,6 +83,19 @@ class DishTranslationInline(admin.TabularInline):
     extra = 0
 
 
+class DishAllergenInline(admin.TabularInline):
+    model = DishAllergen
+    extra = 0
+    autocomplete_fields = ("allergen",)
+    fields = (
+        "allergen",
+        "relation_type",
+        "source",
+        "verification_status",
+        "notes",
+    )
+
+
 @admin.register(Dish)
 class DishAdmin(StableCodeAdminMixin, admin.ModelAdmin):
     list_display = (
@@ -117,8 +131,23 @@ class DishAdmin(StableCodeAdminMixin, admin.ModelAdmin):
     inlines = (
         DishTranslationInline,
         DishIngredientInline,
+        DishAllergenInline,
     )
 
     @admin.display(description="Translations")
     def translation_count(self, obj):
         return obj.translations.count()
+
+
+@admin.register(DishAllergen)
+class DishAllergenAdmin(admin.ModelAdmin):
+    list_display = (
+        "dish",
+        "allergen",
+        "relation_type",
+        "source",
+        "verification_status",
+    )
+    list_filter = ("relation_type", "source", "verification_status")
+    search_fields = ("dish__name", "allergen__name", "notes")
+    autocomplete_fields = ("dish", "allergen")

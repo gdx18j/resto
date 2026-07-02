@@ -6,6 +6,8 @@
 (function () {
   'use strict';
 
+  var ORDER_COMMENT_MAX_LENGTH = 2000;
+
   /* ─── State ─────────────────────────────────────────────────── */
   var cart = {
     items: {},      // { dishId: { name, price, qty, modifiers } }
@@ -25,6 +27,11 @@
     noteTimer: null,
     restaurantSlug: '',
     tableToken: '',
+    orderSource: '',
+    lastQuote: null,
+    lastSuccessfulQuoteFingerprint: '',
+    quoteAbortController: null,
+    quoteRequestId: 0,
   };
   var modalManager = window.CaesarModal || null;
   var lastOrderTrigger = null;
@@ -146,6 +153,55 @@
   /* ─── Persist to sessionStorage ──────────────────────────────── */
   function save() {
     try { sessionStorage.setItem('cc_cart', JSON.stringify(cart)); } catch (_) {}
+  }
+
+  function clearCartState() {
+    cart.items = {};
+    cart.persons = 1;
+    cart.payment = null;
+    cart.comment = '';
+    cartApi.lastQuote = null;
+    cartApi.lastSuccessfulQuoteFingerprint = '';
+    save();
+  }
+
+  function saveOrderRecoverySnapshot(order, confirmationUrl) {
+    try {
+      sessionStorage.setItem('cc_recent_order', JSON.stringify({
+        id: order && order.id ? String(order.id) : '',
+        confirmationUrl: confirmationUrl || '',
+        createdAt: Date.now(),
+      }));
+      sessionStorage.setItem('cc_cart_recovery_snapshot', JSON.stringify({
+        cart: cart,
+        confirmationUrl: confirmationUrl || '',
+        orderId: order && order.id ? String(order.id) : '',
+        createdAt: Date.now(),
+      }));
+    } catch (_) {}
+  }
+
+  function clearRecoveredCartIfReceiptLoaded() {
+    var receipt = qs('[data-confirmed-order-id]');
+    if (!receipt) return;
+
+    var confirmedOrderId = String(receipt.getAttribute('data-confirmed-order-id') || '');
+    var recentOrder = null;
+
+    try {
+      recentOrder = JSON.parse(sessionStorage.getItem('cc_recent_order') || 'null');
+    } catch (_) {
+      recentOrder = null;
+    }
+
+    if (recentOrder && String(recentOrder.id || '') === confirmedOrderId) {
+      clearCartState();
+      try {
+        sessionStorage.removeItem('cc_cart_recovery_snapshot');
+        sessionStorage.removeItem('cc_recent_order');
+        sessionStorage.removeItem('cc_order_idempotency');
+      } catch (_) {}
+    }
   }
 
   function load() {
@@ -376,6 +432,7 @@
     cartApi.createUrl = shell ? shell.dataset.cartCreateUrl || '' : '';
     cartApi.restaurantSlug = shell ? shell.dataset.cartRestaurantSlug || '' : '';
     cartApi.tableToken = shell ? shell.dataset.cartTableToken || '' : '';
+    cartApi.orderSource = shell ? shell.dataset.cartOrderSource || '' : '';
   }
 
   function cartPayload() {
@@ -403,6 +460,10 @@
 
     if (cartApi.tableToken) {
       payload.table_token = cartApi.tableToken;
+    }
+
+    if (cartApi.orderSource) {
+      payload.order_source = cartApi.orderSource;
     }
 
     return payload;
@@ -496,8 +557,26 @@
     return stored.key;
   }
 
-  function cartItemsKey() {
-    return JSON.stringify(cartPayload().items);
+  function stableStringify(value) {
+    if (Array.isArray(value)) {
+      return '[' + value.map(stableStringify).join(',') + ']';
+    }
+
+    if (value && typeof value === 'object') {
+      return '{' + Object.keys(value).sort().map(function (key) {
+        return JSON.stringify(key) + ':' + stableStringify(value[key]);
+      }).join(',') + '}';
+    }
+
+    return JSON.stringify(value);
+  }
+
+  function cartPayloadFingerprint(payload) {
+    return stableStringify(payload || cartPayload());
+  }
+
+  function currentCartFingerprint() {
+    return cartPayloadFingerprint(cartPayload());
   }
 
   function cartHeaders() {
@@ -524,6 +603,13 @@
   }
 
   function applyQuote(data) {
+    cartApi.lastQuote = data && data.quote_id ? {
+      quoteId: data.quote_id,
+      pricingRevision: data.pricing_revision || '',
+      expiresAt: data.expires_at || '',
+      fingerprint: data.fingerprint || '',
+    } : null;
+
     var serverItems = Array.isArray(data.items) ? data.items : [];
     var nextItems = {};
 
@@ -543,16 +629,28 @@
 
     cart.items = nextItems;
     save();
+    cartApi.lastSuccessfulQuoteFingerprint = cartApi.lastQuote ? currentCartFingerprint() : '';
     renderAll();
   }
 
   function requestQuote() {
-    var requestKey = cartItemsKey();
-
     if (!cartApi.quoteUrl || totalItems() === 0) {
+      cartApi.lastQuote = null;
+      cartApi.lastSuccessfulQuoteFingerprint = '';
       return Promise.resolve(null);
     }
 
+    if (cartApi.quoteAbortController) {
+      cartApi.quoteAbortController.abort();
+    }
+
+    var payload = cartPayload();
+    var requestFingerprint = cartPayloadFingerprint(payload);
+    var requestId = cartApi.quoteRequestId + 1;
+    var abortController = window.AbortController ? new AbortController() : null;
+
+    cartApi.quoteRequestId = requestId;
+    cartApi.quoteAbortController = abortController;
     cartApi.quotePending = true;
     updateSubmit();
 
@@ -560,25 +658,42 @@
       method: 'POST',
       headers: cartHeaders(),
       credentials: 'same-origin',
-      body: JSON.stringify(cartPayload()),
+      signal: abortController ? abortController.signal : undefined,
+      body: JSON.stringify(payload),
     })
       .then(parseCartResponse)
       .then(function (data) {
-        if (cartItemsKey() === requestKey) {
+        if (requestId !== cartApi.quoteRequestId) {
+          return null;
+        }
+
+        if (currentCartFingerprint() === requestFingerprint) {
           applyQuote(data);
-        } else {
+        } else if (totalItems() > 0) {
           scheduleQuote();
         }
 
         return data;
       })
       .catch(function (error) {
+        if (error && error.name === 'AbortError') {
+          return null;
+        }
+
+        if (requestId === cartApi.quoteRequestId) {
+          cartApi.lastQuote = null;
+          cartApi.lastSuccessfulQuoteFingerprint = '';
+        }
+
         showCartNote(error.message || t('cartSyncFailed'), 'error');
         throw error;
       })
       .finally(function () {
-        cartApi.quotePending = false;
-        renderAll();
+        if (requestId === cartApi.quoteRequestId) {
+          cartApi.quotePending = false;
+          cartApi.quoteAbortController = null;
+          renderAll();
+        }
       });
   }
 
@@ -586,7 +701,14 @@
     clearTimeout(cartApi.quoteTimer);
 
     if (totalItems() === 0) {
+      if (cartApi.quoteAbortController) {
+        cartApi.quoteAbortController.abort();
+        cartApi.quoteAbortController = null;
+      }
       cartApi.quotePending = false;
+      cartApi.lastQuote = null;
+      cartApi.lastSuccessfulQuoteFingerprint = '';
+      updateSubmit();
       return;
     }
 
@@ -635,7 +757,17 @@
 
   function syncCommentUI() {
     qsa('[data-cart-comment]').forEach(function (el) {
+      el.setAttribute('maxlength', String(ORDER_COMMENT_MAX_LENGTH));
       if (el.value !== cart.comment) el.value = cart.comment;
+    });
+    syncCommentCount();
+  }
+
+  function syncCommentCount() {
+    qsa('[data-cart-comment-count]').forEach(function (el) {
+      var length = String(cart.comment || '').length;
+      el.textContent = length + '/' + ORDER_COMMENT_MAX_LENGTH;
+      el.classList.toggle('is-over-limit', length > ORDER_COMMENT_MAX_LENGTH);
     });
   }
 
@@ -728,7 +860,7 @@
     return Boolean(els.panel && els.panel.classList.contains('cart-panel--open'));
   };
 
-  window.CaesarCart.repeatOrder = function (items, opener) {
+  window.CaesarCart.repeatOrder = function (items, opener, repeatResult) {
     if (!Array.isArray(items) || items.length === 0) {
       return false;
     }
@@ -758,6 +890,11 @@
     renderAll();
     scheduleQuote();
     openPanel(opener || getCartFallbackOpener());
+    if (repeatResult && Array.isArray(repeatResult.unavailable) && repeatResult.unavailable.length) {
+      showCartNote('\u041d\u0435\u043a\u043e\u0442\u043e\u0440\u044b\u0435 \u043f\u043e\u0437\u0438\u0446\u0438\u0438 \u0443\u0436\u0435 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b.', 'error');
+    } else if (repeatResult && Array.isArray(repeatResult.changed) && repeatResult.changed.length) {
+      showCartNote('\u0427\u0430\u0441\u0442\u044c \u043f\u043e\u0437\u0438\u0446\u0438\u0439 \u043f\u043e\u0432\u0442\u043e\u0440\u0435\u043d\u0430 \u0441 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u043c\u0438 \u0434\u0430\u043d\u043d\u044b\u043c\u0438.', 'info');
+    }
     return true;
   };
 
@@ -773,18 +910,25 @@
   }
 
   function submitOrder() {
-    if (cartApi.submitting || totalItems() === 0) {
-      return;
-    }
+    var submitState = getSubmitState();
 
-    if (!cart.payment) {
+    if (submitState.missingPayment) {
       showCartNote(t('selectPayment'), 'error');
       updateSubmit();
       return;
     }
 
-    if (!cartApi.createUrl) {
+    if (submitState.missingContext) {
       showCartNote(t('orderFailed'), 'error');
+      return;
+    }
+
+    if (submitState.quoteInvalid && !submitState.quotePending && !submitState.cartEmpty) {
+      requestQuote().catch(function () {});
+    }
+
+    if (submitState.disabled) {
+      updateSubmit();
       return;
     }
 
@@ -792,14 +936,21 @@
     clearCartNote();
     renderAll();
 
-    requestQuote()
-      .then(function () {
+    Promise.resolve(cartApi.lastQuote)
+      .then(function (quoteData) {
         var payload = cartPayload();
         var idempotencyKey = idempotencyKeyForPayload(payload);
         var headers = cartHeaders();
+        var quote = quoteData && quoteData.quoteId ? quoteData : null;
 
         headers['Idempotency-Key'] = idempotencyKey;
         payload.idempotency_key = idempotencyKey;
+
+        if (quote) {
+          payload.quote_id = quote.quoteId;
+          payload.pricing_revision = quote.pricingRevision || '';
+          payload.quote_fingerprint = quote.fingerprint || '';
+        }
 
         return fetch(withLanguage(cartApi.createUrl), {
           method: 'POST',
@@ -813,18 +964,15 @@
         var order = data.order || {};
         var confirmationUrl = data.confirmation_url || order.confirmation_url || '';
 
-        cart.items = {};
-        cart.persons = 1;
-        cart.payment = null;
-        cart.comment = '';
-        save();
-        renderAll();
+        saveOrderRecoverySnapshot(order, confirmationUrl);
 
         if (confirmationUrl) {
           window.location.href = confirmationUrl;
           return;
         }
 
+        clearCartState();
+        renderAll();
         showCartNote(t('orderCreated') + (order.id ? ' #' + order.id : ''), 'success');
       })
       .catch(function (error) {
@@ -1099,6 +1247,15 @@
     }
   }
 
+  function parseRepeatResult(raw) {
+    try {
+      var result = JSON.parse(raw || '{}');
+      return result && typeof result === 'object' ? result : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
 
   /* ─── Swipe-to-close на мобиле ───────────────────────────────── */
   function initSwipe() {
@@ -1165,10 +1322,13 @@
     if (repeatBtn) {
       e.preventDefault();
       e.stopPropagation();
-      var repeatItems = parseRepeatItems(repeatBtn.getAttribute('data-items'));
+      var repeatResult = parseRepeatResult(repeatBtn.getAttribute('data-repeat-result'));
+      var repeatItems = repeatResult
+        ? [].concat(repeatResult.available || [], repeatResult.changed || [])
+        : parseRepeatItems(repeatBtn.getAttribute('data-items'));
       if (repeatItems.length) {
         closeOrderModal({ restoreFocus: false });
-        window.CaesarCart.repeatOrder(repeatItems, getCartFallbackOpener());
+        window.CaesarCart.repeatOrder(repeatItems, getCartFallbackOpener(), repeatResult);
       }
       return;
     }
@@ -1275,12 +1435,12 @@
     // Persons
     if (target.closest('[data-persons-dec]')) {
       cart.persons = Math.max(1, cart.persons - 1);
-      save(); syncPersonsUI();
+      save(); syncPersonsUI(); updateSubmit(); scheduleQuote();
       return;
     }
     if (target.closest('[data-persons-inc]')) {
       cart.persons = Math.min(20, cart.persons + 1);
-      save(); syncPersonsUI();
+      save(); syncPersonsUI(); updateSubmit(); scheduleQuote();
       return;
     }
 
@@ -1289,7 +1449,7 @@
     if (payBtn) {
       cart.payment = payBtn.dataset.pay;
       clearCartNote();
-      save(); syncPaymentUI(); updateSubmit();
+      save(); syncPaymentUI(); updateSubmit(); scheduleQuote();
       return;
     }
   }
@@ -1297,7 +1457,10 @@
   function handleInput(e) {
     if (e.target.matches('[data-cart-comment]')) {
       cart.comment = e.target.value;
+      syncCommentCount();
       save();
+      updateSubmit();
+      scheduleQuote();
     }
   }
 
@@ -1481,7 +1644,12 @@
       '    </label>',
       '    <textarea class="cart-comment" id="cart-comment" data-cart-comment',
       '      placeholder="' + escHtml(t('commentPlaceholder')) + '"',
+      '      maxlength="' + ORDER_COMMENT_MAX_LENGTH + '"',
       '      rows="3"></textarea>',
+      '    <div class="cart-comment-meta">',
+      '      <span></span>',
+      '      <span data-cart-comment-count>0/' + ORDER_COMMENT_MAX_LENGTH + '</span>',
+      '    </div>',
       '  </div>',
 
       '  </div>',  /* /cart-extras */
@@ -1546,15 +1714,37 @@
   }
 
   /* ─── Submit button state ─────────────────────────────────────── */
+  function getSubmitState() {
+    var cartEmpty = totalItems() === 0;
+    var currentFingerprint = cartEmpty ? '' : currentCartFingerprint();
+    var quoteInvalid = !cartEmpty
+      && currentFingerprint !== cartApi.lastSuccessfulQuoteFingerprint;
+    var missingPayment = !cartEmpty && !cart.payment;
+    var missingContext = !cartApi.createUrl;
+    var disabled = cartEmpty
+      || cartApi.quotePending
+      || quoteInvalid
+      || missingPayment
+      || missingContext
+      || cartApi.submitting;
+
+    return {
+      cartEmpty: cartEmpty,
+      quotePending: cartApi.quotePending,
+      quoteInvalid: quoteInvalid,
+      missingPayment: missingPayment,
+      missingContext: missingContext,
+      submitting: cartApi.submitting,
+      disabled: disabled,
+    };
+  }
+
   function updateSubmit() {
     if (!els.submitBtn) return;
-    var needsPayment = totalItems() > 0 && !cart.payment;
-    els.submitBtn.disabled = totalItems() === 0
-      || cartApi.quotePending
-      || cartApi.submitting
-      || !cartApi.createUrl;
+    var submitState = getSubmitState();
+    els.submitBtn.disabled = submitState.disabled;
     els.submitBtn.setAttribute('aria-busy', cartApi.submitting ? 'true' : 'false');
-    els.submitBtn.title = needsPayment ? t('selectPayment') : '';
+    els.submitBtn.title = submitState.missingPayment ? t('selectPayment') : '';
   }
 
   var _renderAll = renderAll;
@@ -1567,6 +1757,7 @@
   function init() {
     load();
     readCartApi();
+    clearRecoveredCartIfReceiptLoaded();
     buildHTML();
     buildToast();
     attachDishButtons();

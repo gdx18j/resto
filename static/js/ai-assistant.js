@@ -12,7 +12,18 @@
     var endpoint = root.dataset.endpoint;
     var historyEndpoint = root.dataset.historyEndpoint || "";
     var isAccountBound = root.dataset.accountBound === "1";
-    var storageKey = root.dataset.storageKey || "resto.aiAssistant.v3";
+    var shell = document.querySelector(".app-shell");
+    var restaurantSlug = shell ? shell.dataset.cartRestaurantSlug || "" : "";
+    var tableToken = shell ? shell.dataset.cartTableToken || "" : "";
+    var contextStorageKey = "global";
+
+    if (tableToken) {
+      contextStorageKey = "table:" + tableToken;
+    } else if (restaurantSlug) {
+      contextStorageKey = "restaurant:" + restaurantSlug;
+    }
+
+    var storageKey = (root.dataset.storageKey || "resto.aiAssistant.v3") + ":" + contextStorageKey;
     var launcher = root.querySelector("[data-ai-open]");
     var backdrop = root.querySelector("[data-ai-backdrop]");
     var panel = root.querySelector("[data-ai-panel]");
@@ -524,6 +535,14 @@
 
       url = new URL(historyEndpoint, window.location.href);
       url.searchParams.set("language", getCurrentLanguage());
+
+      if (restaurantSlug) {
+        url.searchParams.set("restaurant_slug", restaurantSlug);
+      }
+
+      if (tableToken) {
+        url.searchParams.set("table_token", tableToken);
+      }
 
       if (state.sessionId) {
         url.searchParams.set("session_id", state.sessionId);
@@ -1358,6 +1377,14 @@
           controller.abort();
         }
       }, REQUEST_TIMEOUT_MS);
+
+      if (restaurantSlug) {
+        payload.restaurant_slug = restaurantSlug;
+      }
+
+      if (tableToken) {
+        payload.table_token = tableToken;
+      }
 
       if (state.sessionId) {
         payload.session_id = state.sessionId;

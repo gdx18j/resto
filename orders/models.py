@@ -1,10 +1,27 @@
+import hashlib
 import secrets
 from decimal import Decimal
 
 from django.conf import settings
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxLengthValidator, MinValueValidator
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
+
+
+QR_TOKEN_BYTES = 32
+QR_TOKEN_HASH_LENGTH = 64
+ORDER_COMMENT_MAX_LENGTH = 2000
+ORDER_ITEM_NOTE_MAX_LENGTH = 255
+
+
+def generate_table_qr_token():
+    return secrets.token_urlsafe(QR_TOKEN_BYTES)
+
+
+def hash_table_qr_token(token):
+    token = str(token or "").strip()
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 class OrderQuerySet(models.QuerySet):
@@ -49,11 +66,41 @@ class Table(models.Model):
     )
     number = models.CharField(max_length=24, verbose_name="Номер")
     title = models.CharField(max_length=80, blank=True, verbose_name="Название")
-    qr_token = models.CharField(
-        max_length=32,
+    qr_token_hash = models.CharField(
+        max_length=QR_TOKEN_HASH_LENGTH,
         unique=True,
         blank=True,
-        verbose_name="Токен QR",
+        verbose_name="Hash токена QR",
+    )
+    qr_token_version = models.PositiveIntegerField(default=0, verbose_name="Версия QR")
+    qr_token_kind = models.CharField(
+        max_length=20,
+        choices=(
+            ("current", "Новый"),
+            ("legacy", "Старый"),
+        ),
+        default="current",
+        verbose_name="Тип QR",
+    )
+    qr_token_created_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="QR создан",
+    )
+    qr_token_rotated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="QR перевыпущен",
+    )
+    qr_token_revoked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="QR отозван",
+    )
+    qr_token_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="QR истекает",
     )
     seats = models.PositiveSmallIntegerField(default=2, verbose_name="Мест")
     is_active = models.BooleanField(default=True, verbose_name="Активен")
@@ -74,14 +121,195 @@ class Table(models.Model):
         label = self.title or self.number
         return f"{self.restaurant}: {label}"
 
+    @property
+    def plain_qr_token(self):
+        return getattr(self, "_plain_qr_token", "")
+
+    @property
+    def is_qr_token_usable(self):
+        if not self.qr_token_hash or self.qr_token_revoked_at:
+            return False
+
+        return not (
+            self.qr_token_expires_at
+            and self.qr_token_expires_at <= timezone.now()
+        )
+
+    def _assign_qr_token(
+        self,
+        token,
+        *,
+        kind="current",
+        expires_at=None,
+        rotated=False,
+    ):
+        now = timezone.now()
+        self.qr_token_hash = hash_table_qr_token(token)
+        self.qr_token_version = (self.qr_token_version or 0) + 1
+        self.qr_token_kind = kind
+        self.qr_token_created_at = now
+        self.qr_token_rotated_at = now if rotated else None
+        self.qr_token_revoked_at = None
+        self.qr_token_expires_at = expires_at
+        self._plain_qr_token = token
+
+    def _new_unique_qr_token(self):
+        token = generate_table_qr_token()
+        token_hash = hash_table_qr_token(token)
+
+        while type(self).objects.filter(qr_token_hash=token_hash).exclude(pk=self.pk).exists():
+            token = generate_table_qr_token()
+            token_hash = hash_table_qr_token(token)
+
+        return token
+
     def save(self, *args, **kwargs):
-        if not self.qr_token:
-            self.qr_token = secrets.token_urlsafe(8)
+        issued_token = False
+
+        if not self.qr_token_hash:
+            self._assign_qr_token(self._new_unique_qr_token())
+            issued_token = True
+            update_fields = kwargs.get("update_fields")
+
+            if update_fields is not None:
+                kwargs["update_fields"] = set(update_fields) | {
+                    "qr_token_hash",
+                    "qr_token_version",
+                    "qr_token_kind",
+                    "qr_token_created_at",
+                    "qr_token_rotated_at",
+                    "qr_token_revoked_at",
+                    "qr_token_expires_at",
+                }
 
         super().save(*args, **kwargs)
 
-    def menu_url_path(self):
-        return f"/t/{self.qr_token}/"
+        if issued_token:
+            TableQrTokenAudit.objects.create(
+                table=self,
+                action=TableQrTokenAudit.Action.ISSUED,
+                token_version=self.qr_token_version,
+                token_kind=self.qr_token_kind,
+                token_hash=self.qr_token_hash,
+                reason="Table created",
+            )
+
+    def menu_url_path(self, token=None):
+        token = token or self.plain_qr_token
+
+        if not token:
+            raise ValueError("Plain QR token is not stored. Rotate the QR token to get a printable URL.")
+
+        return f"/t/{token}/"
+
+    def rotate_qr_token(self, *, actor=None, reason="", expires_at=None):
+        old_version = self.qr_token_version
+        old_kind = self.qr_token_kind
+        old_hash_prefix = self.qr_token_hash[:16] if self.qr_token_hash else ""
+
+        if old_hash_prefix and not self.qr_token_revoked_at:
+            self.qr_token_revoked_at = timezone.now()
+            TableQrTokenAudit.objects.create(
+                table=self,
+                actor=actor,
+                action=TableQrTokenAudit.Action.REVOKED,
+                token_version=old_version,
+                token_kind=old_kind,
+                token_hash=self.qr_token_hash,
+                reason=reason or "QR token rotated",
+            )
+
+        token = self._new_unique_qr_token()
+        self._assign_qr_token(
+            token,
+            kind="current",
+            expires_at=expires_at,
+            rotated=True,
+        )
+        self.save(
+            update_fields=[
+                "qr_token_hash",
+                "qr_token_version",
+                "qr_token_kind",
+                "qr_token_created_at",
+                "qr_token_rotated_at",
+                "qr_token_revoked_at",
+                "qr_token_expires_at",
+            ]
+        )
+        TableQrTokenAudit.objects.create(
+            table=self,
+            actor=actor,
+            action=TableQrTokenAudit.Action.ROTATED,
+            token_version=self.qr_token_version,
+            token_kind=self.qr_token_kind,
+            token_hash=self.qr_token_hash,
+            reason=reason or "QR token rotated",
+        )
+
+        return token
+
+    def revoke_qr_token(self, *, actor=None, reason=""):
+        if self.qr_token_revoked_at:
+            return
+
+        self.qr_token_revoked_at = timezone.now()
+        self.save(update_fields=["qr_token_revoked_at"])
+        TableQrTokenAudit.objects.create(
+            table=self,
+            actor=actor,
+            action=TableQrTokenAudit.Action.REVOKED,
+            token_version=self.qr_token_version,
+            token_kind=self.qr_token_kind,
+            token_hash=self.qr_token_hash,
+            reason=reason or "QR token revoked",
+        )
+
+
+class TableQrTokenAudit(models.Model):
+    class Action(models.TextChoices):
+        ISSUED = "issued", "Выпущен"
+        MIGRATED = "migrated", "Мигрирован"
+        ROTATED = "rotated", "Перевыпущен"
+        REVOKED = "revoked", "Отозван"
+
+    table = models.ForeignKey(
+        Table,
+        on_delete=models.CASCADE,
+        related_name="qr_token_audit_events",
+        verbose_name="Стол",
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="qr_token_audit_events",
+        verbose_name="Кто изменил",
+    )
+    action = models.CharField(
+        max_length=20,
+        choices=Action.choices,
+        verbose_name="Действие",
+    )
+    token_version = models.PositiveIntegerField(verbose_name="Версия QR")
+    token_kind = models.CharField(max_length=20, blank=True, verbose_name="Тип QR")
+    token_hash = models.CharField(max_length=QR_TOKEN_HASH_LENGTH, blank=True, verbose_name="Hash QR")
+    reason = models.CharField(max_length=255, blank=True, verbose_name="Причина")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создано")
+
+    class Meta:
+        verbose_name = "Аудит QR-токена"
+        verbose_name_plural = "Аудит QR-токенов"
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["table", "-created_at"], name="table_qr_audit_created_idx"),
+            models.Index(fields=["action", "-created_at"], name="table_qr_audit_action_idx"),
+            models.Index(fields=["token_hash"], name="table_qr_audit_hash_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.table_id}: {self.action} v{self.token_version}"
 
 
 class Order(models.Model):
@@ -136,9 +364,14 @@ class Order(models.Model):
         max_length=128,
         null=True,
         blank=True,
-        unique=True,
         db_index=True,
         verbose_name="Idempotency key",
+    )
+    idempotency_actor_scope = models.CharField(
+        max_length=255,
+        blank=True,
+        db_index=True,
+        verbose_name="Idempotency actor scope",
     )
     idempotency_fingerprint = models.CharField(
         max_length=64,
@@ -158,7 +391,11 @@ class Order(models.Model):
         validators=[MinValueValidator(1)],
         verbose_name="Гостей",
     )
-    comment = models.TextField(blank=True, verbose_name="Комментарий")
+    comment = models.TextField(
+        blank=True,
+        validators=[MaxLengthValidator(ORDER_COMMENT_MAX_LENGTH)],
+        verbose_name="Комментарий",
+    )
     currency = models.CharField(max_length=3, default="RUB", verbose_name="Валюта")
     subtotal_amount = models.DecimalField(
         max_digits=12,
@@ -185,6 +422,25 @@ class Order(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["status", "-created_at"], name="order_status_created_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["idempotency_actor_scope", "restaurant", "idempotency_key"],
+                condition=Q(idempotency_key__isnull=False),
+                name="unique_order_idempotency_per_actor_restaurant",
+            ),
+            models.CheckConstraint(
+                condition=Q(subtotal_amount__gte=0),
+                name="order_subtotal_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(total_amount__gte=0),
+                name="order_total_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(total_amount=models.F("subtotal_amount")),
+                name="order_total_matches_subtotal",
+            ),
         ]
 
     def __str__(self):
@@ -253,6 +509,7 @@ class OrderStatusHistory(models.Model):
     from_status = models.CharField(
         max_length=20,
         choices=Order.Status.choices,
+        blank=True,
         verbose_name="Из статуса",
     )
     to_status = models.CharField(
@@ -282,6 +539,15 @@ class OrderStatusHistory(models.Model):
 
     def __str__(self):
         return f"Заказ #{self.order_id}: {self.from_status} -> {self.to_status}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValueError("Order status history is append-only.")
+
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("Order status history is append-only.")
 
 
 class OrderItem(models.Model):
@@ -314,13 +580,31 @@ class OrderItem(models.Model):
         validators=[MinValueValidator(Decimal("0.00"))],
         verbose_name="Сумма строки",
     )
-    note = models.CharField(max_length=255, blank=True, verbose_name="Комментарий")
+    note = models.CharField(
+        max_length=ORDER_ITEM_NOTE_MAX_LENGTH,
+        blank=True,
+        verbose_name="Комментарий",
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создано")
 
     class Meta:
         verbose_name = "Позиция заказа"
         verbose_name_plural = "Позиции заказа"
         ordering = ["id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(quantity__gte=1),
+                name="order_item_quantity_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(unit_price__gte=0),
+                name="order_item_unit_price_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(line_total=models.F("unit_price") * models.F("quantity")),
+                name="order_item_line_total_matches",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.dish_name} x {self.quantity}"
@@ -419,6 +703,12 @@ class Payment(models.Model):
         verbose_name = "Платеж"
         verbose_name_plural = "Платежи"
         ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount__gte=0),
+                name="payment_amount_nonnegative",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.get_method_display()} {self.amount} {self.currency}"

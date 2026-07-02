@@ -434,6 +434,14 @@ RATE_LIMIT_RULES = {
             rate_limit("ai_ask_per_hour", 120, 3600),
         ],
     },
+    "menu:table_menu": {
+        "methods": ["GET"],
+        "identity": "ip",
+        "limits": [
+            rate_limit("qr_menu_per_minute", 30, 60),
+            rate_limit("qr_menu_per_hour", 300, 3600),
+        ],
+    },
     "orders:quote": {
         "methods": ["POST"],
         "identity": "ip+actor",
@@ -615,6 +623,10 @@ AI_STREAM_CONCURRENCY_USER = int(
 
 AI_STREAM_LOCK_TIMEOUT_SECONDS = int(
     os.getenv("AI_STREAM_LOCK_TIMEOUT_SECONDS", "180")
+)
+
+AI_SESSION_LOCK_TIMEOUT_SECONDS = int(
+    os.getenv("AI_SESSION_LOCK_TIMEOUT_SECONDS", str(AI_STREAM_LOCK_TIMEOUT_SECONDS))
 )
 
 AI_ABUSE_BLOCK_THRESHOLD = int(

@@ -13,6 +13,15 @@ class OrderVersionConflict(OrderTransitionError):
     pass
 
 
+def normalize_status_reason(reason):
+    value = str(reason or "").strip()
+
+    if len(value) > 255:
+        raise OrderTransitionError("Status transition reason is too long.")
+
+    return value
+
+
 def _changed_by(actor):
     if actor is not None and getattr(actor, "is_authenticated", False):
         return actor
@@ -63,7 +72,7 @@ def transition_order(order_or_id, next_status, *, expected_version=None, actor=N
             from_status=previous_status,
             to_status=next_status,
             changed_by=_changed_by(actor),
-            reason=str(reason or "").strip()[:255],
+            reason=normalize_status_reason(reason),
             order_version=next_version,
         )
 

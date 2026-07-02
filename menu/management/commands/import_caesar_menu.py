@@ -14,6 +14,7 @@ from menu.models import (
     Allergen,
     Category,
     Dish,
+    DishAllergen,
     DishIngredient,
     Ingredient,
 )
@@ -64,20 +65,17 @@ def get_or_create_allergen(name):
     )
 
 
-def assign_detected_allergens_to_ingredient(ingredient):
+def detect_allergens_for_ingredient(ingredient):
     allergen_codes = get_allergen_codes_for_ingredient(
         ingredient.name,
     )
 
     if not allergen_codes:
-        return
+        return Allergen.objects.none()
 
-    allergens = Allergen.objects.filter(
+    return Allergen.objects.filter(
         code__in=allergen_codes,
     )
-
-    if allergens:
-        ingredient.allergens.add(*allergens)
 
 
 class Command(BaseCommand):
@@ -238,6 +236,13 @@ class Command(BaseCommand):
                 updated_dishes += 1
 
             dish.dish_ingredients.all().delete()
+            dish.allergen_links.filter(
+                source__in=[
+                    DishAllergen.Source.IMPORT,
+                    DishAllergen.Source.HEURISTIC,
+                ],
+                verification_status=DishAllergen.VerificationStatus.SUGGESTED,
+            ).delete()
 
             ingredients_text = str(
                 item.get("ingredients_text_ru", "")
@@ -260,7 +265,7 @@ class Command(BaseCommand):
                         "is_active": True,
                     },
                 )
-                assign_detected_allergens_to_ingredient(ingredient)
+                detected_allergens = detect_allergens_for_ingredient(ingredient)
 
                 DishIngredient.objects.create(
                     dish=dish,
@@ -270,6 +275,23 @@ class Command(BaseCommand):
                     can_be_removed=False,
                     notes="Количество не указано в источнике",
                 )
+
+                for allergen in detected_allergens:
+                    DishAllergen.objects.update_or_create(
+                        dish=dish,
+                        allergen=allergen,
+                        relation_type=DishAllergen.RelationType.CONTAINS,
+                        defaults={
+                            "source": DishAllergen.Source.HEURISTIC,
+                            "verification_status": (
+                                DishAllergen.VerificationStatus.SUGGESTED
+                            ),
+                            "notes": (
+                                "Предложено эвристикой по названию ингредиента: "
+                                f"{ingredient.name}"
+                            ),
+                        },
+                    )
 
             dish.may_contain_allergens.clear()
 
@@ -293,7 +315,20 @@ class Command(BaseCommand):
                         )
                         continue
 
-                    dish.may_contain_allergens.add(allergen)
+                    DishAllergen.objects.update_or_create(
+                        dish=dish,
+                        allergen=allergen,
+                        relation_type=(
+                            DishAllergen.RelationType.CROSS_CONTAMINATION
+                        ),
+                        defaults={
+                            "source": DishAllergen.Source.IMPORT,
+                            "verification_status": (
+                                DishAllergen.VerificationStatus.SUGGESTED
+                            ),
+                            "notes": "Предложено импортом из suggested_allergens.",
+                        },
+                    )
 
         self.stdout.write(
             self.style.SUCCESS(
