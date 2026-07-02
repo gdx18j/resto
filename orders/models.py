@@ -1,3 +1,4 @@
+import secrets
 from decimal import Decimal
 
 from django.conf import settings
@@ -48,8 +49,15 @@ class Table(models.Model):
     )
     number = models.CharField(max_length=24, verbose_name="Номер")
     title = models.CharField(max_length=80, blank=True, verbose_name="Название")
+    qr_token = models.CharField(
+        max_length=32,
+        unique=True,
+        blank=True,
+        verbose_name="Токен QR",
+    )
     seats = models.PositiveSmallIntegerField(default=2, verbose_name="Мест")
     is_active = models.BooleanField(default=True, verbose_name="Активен")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создан")
 
     class Meta:
         verbose_name = "Стол"
@@ -65,6 +73,15 @@ class Table(models.Model):
     def __str__(self):
         label = self.title or self.number
         return f"{self.restaurant}: {label}"
+
+    def save(self, *args, **kwargs):
+        if not self.qr_token:
+            self.qr_token = secrets.token_urlsafe(8)
+
+        super().save(*args, **kwargs)
+
+    def menu_url_path(self):
+        return f"/t/{self.qr_token}/"
 
 
 class Order(models.Model):

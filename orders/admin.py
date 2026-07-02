@@ -1,4 +1,9 @@
+import base64
+import io
+
+from django.conf import settings
 from django.contrib import admin, messages
+from django.utils.html import format_html
 
 from .models import (
     Order,
@@ -11,6 +16,13 @@ from .models import (
 )
 from .statuses import OrderTransitionError, transition_order
 
+try:
+    import qrcode
+
+    QRCODE_AVAILABLE = True
+except ImportError:
+    QRCODE_AVAILABLE = False
+
 
 @admin.register(Restaurant)
 class RestaurantAdmin(admin.ModelAdmin):
@@ -22,9 +34,73 @@ class RestaurantAdmin(admin.ModelAdmin):
 
 @admin.register(Table)
 class TableAdmin(admin.ModelAdmin):
-    list_display = ("restaurant", "number", "title", "seats", "is_active")
+    list_display = ("restaurant", "number", "title", "seats", "is_active", "qr_thumb")
     list_filter = ("restaurant", "is_active")
-    search_fields = ("number", "title", "restaurant__name")
+    search_fields = ("number", "title", "qr_token", "restaurant__name")
+    readonly_fields = ("qr_token", "qr_link", "qr_preview", "created_at")
+    fields = (
+        "restaurant",
+        "number",
+        "title",
+        "seats",
+        "is_active",
+        "qr_token",
+        "qr_link",
+        "qr_preview",
+        "created_at",
+    )
+
+    def _full_url(self, obj):
+        site_url = getattr(settings, "SITE_URL", "http://localhost:8000")
+        return f"{site_url.rstrip('/')}{obj.menu_url_path()}"
+
+    def qr_link(self, obj):
+        if not obj.pk:
+            return "—"
+
+        url = self._full_url(obj)
+        return format_html('<a href="{0}" target="_blank" rel="noopener">{0}</a>', url)
+
+    qr_link.short_description = "Ссылка для QR"
+
+    def _qr_base64(self, obj, box_size=6):
+        if not QRCODE_AVAILABLE or not obj.pk:
+            return None
+
+        image = qrcode.make(self._full_url(obj), box_size=box_size, border=2)
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+    def qr_thumb(self, obj):
+        b64 = self._qr_base64(obj, box_size=3)
+        if not b64:
+            return "—"
+
+        return format_html(
+            '<img src="data:image/png;base64,{}" width="60" height="60" alt="QR">',
+            b64,
+        )
+
+    qr_thumb.short_description = "QR"
+
+    def qr_preview(self, obj):
+        if not obj.pk:
+            return "Сохраните стол, чтобы увидеть QR-код."
+        if not QRCODE_AVAILABLE:
+            return "Установите пакет qrcode[pil]."
+
+        b64 = self._qr_base64(obj, box_size=8)
+        return format_html(
+            '<div style="margin-top:8px">'
+            '<img src="data:image/png;base64,{}" width="220" height="220" alt="QR">'
+            '<p style="margin-top:6px;color:#777;font-size:12px">'
+            "Сканирование откроет меню и привяжет заказ к этому столу."
+            "</p></div>",
+            b64,
+        )
+
+    qr_preview.short_description = "QR-код для печати"
 
 
 class OrderItemModifierInline(admin.TabularInline):

@@ -1,7 +1,7 @@
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
 from django.views.decorators.csrf import ensure_csrf_cookie
 
-from orders.models import Restaurant
+from orders.models import Restaurant, Table
 
 from .models import Category, Dish
 from .services import (
@@ -36,8 +36,25 @@ def get_menu_restaurant(request):
 
 
 @ensure_csrf_cookie
-def dish_list(request):
-    restaurant = get_menu_restaurant(request)
+def dish_list(request, qr_token=None):
+    current_table_number = None
+
+    if qr_token:
+        table = get_object_or_404(
+            Table.objects.select_related("restaurant"),
+            qr_token=qr_token,
+            is_active=True,
+            restaurant__is_active=True,
+        )
+        request.session["table_id"] = table.id
+        request.session["table_number"] = table.number
+        restaurant = table.restaurant
+        current_table_number = table.number
+    else:
+        request.session.pop("table_id", None)
+        request.session.pop("table_number", None)
+        restaurant = get_menu_restaurant(request)
+
     dishes = (
         Dish.objects.filter(
             restaurant=restaurant,
@@ -105,6 +122,7 @@ def dish_list(request):
         "menu_sections": menu_sections,
         "restaurant": restaurant,
         "user_allergens": get_confirmed_user_allergens(request.user),
+        "current_table_number": current_table_number,
     }
 
     return render(

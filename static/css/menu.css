@@ -2516,3 +2516,108 @@ body.dish-detail-open {
     animation-iteration-count: 1 !important;
   }
 }
+
+/* ── Бейдж "Стол N" в шапке ─────────────────────────────────────── */
+.table-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-soft);
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.table-badge svg { color: var(--accent); flex: 0 0 auto; }
+
+@media (max-width: 640px) {
+  .table-badge { display: none; } /* на мобиле в шапке тесно — прячем, видно в корзине */
+}
+
+/* ── Страница результата оплаты ───────────────────────────────── */
+.order-success {
+  max-width: 460px;
+  margin: 48px auto 64px;
+  padding: 36px 28px 28px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 6px);
+  background: var(--surface-raised, var(--surface));
+  text-align: center;
+  box-shadow: 0 24px 48px -28px rgba(0, 0, 0, 0.28);
+}
+.order-success__icon {
+  width: 76px; height: 76px;
+  margin: 0 auto 20px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  animation: order-success-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.order-success__icon svg { width: 34px; height: 34px; }
+.order-success__icon--ok {
+  background: var(--safe-soft);
+  color: var(--safe);
+  box-shadow: 0 0 0 8px color-mix(in srgb, var(--safe) 10%, transparent);
+}
+.order-success__icon--pending { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.order-success__icon--error { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+
+@keyframes order-success-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.order-success h1 { margin: 0 0 10px; font: 400 30px/1.2 "Forum", Georgia, serif; }
+
+.order-success__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-soft);
+}
+
+.order-success__sub { margin: 0 0 26px; color: var(--text-soft); font-size: 14px; line-height: 1.55; }
+
+.order-success__items {
+  margin: 0 0 22px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  text-align: left;
+}
+.order-success__item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  font-size: 13.5px;
+  color: var(--text-soft);
+}
+.order-success__item span:first-child { color: var(--text); }
+.order-success__total {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 12px;
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.order-success__actions {
+  display: grid;
+  gap: 10px;
+}
+.order-success__back { display: inline-block; margin-top: 0; }

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Симуляция оплаты | Caesar &amp; Company{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'css/mock_pay.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="mock-pay">
+  <div class="mock-pay__badge">
+    ЮKassa mock mode: деньги не списываются.
+  </div>
+
+  <h1>Оплата заказа №{{ order.id }}</h1>
+  <p class="mock-pay__sub">
+    {% if order.table %}Стол {{ order.table.number }} · {% endif %}{{ order.items_count }} поз.
+  </p>
+
+  <div class="mock-pay__items">
+    {% for item in order.items.all %}
+      <div class="mock-pay__item">
+        <span>{{ item.dish_name }} x {{ item.quantity }}</span>
+        <span>{{ item.line_total }} ₽</span>
+      </div>
+    {% endfor %}
+    <div class="mock-pay__total">
+      <span>К оплате</span>
+      <span>{{ order.total_amount }} ₽</span>
+    </div>
+  </div>
+
+  <div class="mock-pay__card">
+    <div class="mock-pay__card-row">
+      <span class="mock-pay__card-label">Тестовая карта</span>
+      <span class="mock-pay__card-value">5555 5555 5555 4444</span>
+    </div>
+    {% if payment %}
+      <div class="mock-pay__card-row">
+        <span class="mock-pay__card-label">Платеж</span>
+        <span class="mock-pay__card-value">{{ payment.external_id }}</span>
+      </div>
+    {% endif %}
+  </div>
+
+  <form method="post" class="mock-pay__actions">
+    {% csrf_token %}
+    <button type="submit" name="outcome" value="success" class="mock-pay__button mock-pay__button--success">
+      Оплатить успешно
+    </button>
+    <button type="submit" name="outcome" value="fail" class="mock-pay__button mock-pay__button--fail">
+      Отклонить оплату
+    </button>
+  </form>
+</div>
+{% endblock %}

@@ -449,3 +449,16 @@ AI_TRUST_X_FORWARDED_FOR = os.getenv(
     "AI_TRUST_X_FORWARDED_FOR",
     "False",
 ).lower() in {"1", "true", "yes", "on"}
+
+
+# Site URL is used to build printable table QR links.
+SITE_URL = env_value("SITE_URL", "http://localhost:8000")
+
+# Optional payment-provider settings. Real payments are not invoked by the
+# current checkout flow, but these values keep the helper ready for future use.
+YOOKASSA_SHOP_ID = env_value("YOOKASSA_SHOP_ID", "")
+YOOKASSA_SECRET_KEY = env_value("YOOKASSA_SECRET_KEY", "")
+YOOKASSA_MOCK = env_bool("YOOKASSA_MOCK", False)
+
+if IS_PRODUCTION and YOOKASSA_MOCK:
+    raise ImproperlyConfigured("YOOKASSA_MOCK must be False in production.")

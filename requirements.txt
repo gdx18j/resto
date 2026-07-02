@@ -14,3 +14,4 @@ typing_extensions==4.15.0
 tzdata==2026.2
 google-genai>=2.3,<3
 gunicorn==23.0.0
+qrcode[pil]==8.0

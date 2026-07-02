@@ -46,6 +46,16 @@ done
 echo "Applying database migrations..."
 python manage.py migrate --noinput
 
+if [ "${IMPORT_SEED_DATA_ON_STARTUP:-False}" = "True" ]; then
+    echo "Importing seed menu data..."
+    python manage.py import_caesar_menu /app/data/caesar_and_company_menu_seed.json --with-allergens
+fi
+
+if [ "${IMPORT_SEED_IMAGES_ON_STARTUP:-False}" = "True" ]; then
+    echo "Importing seed menu images..."
+    python manage.py import_caesar_images
+fi
+
 echo "Collecting static files..."
 python manage.py collectstatic --noinput --clear
 

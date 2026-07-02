@@ -10,7 +10,7 @@ from django.urls import reverse
 from menu.models import Category, Dish, DishIngredient, Ingredient
 from orders import services as order_services
 from orders.admin import OrderAdmin
-from orders.models import Order, OrderItemModifier, OrderStatusHistory, Payment, Restaurant
+from orders.models import Order, OrderItemModifier, OrderStatusHistory, Payment, Restaurant, Table
 from orders.services import ValidatedCartModifier
 from orders.statuses import OrderTransitionError, OrderVersionConflict, transition_order
 
@@ -455,6 +455,33 @@ class OrderApiTests(TestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Order.objects.get().payments.get().method, Payment.Method.ONLINE)
+
+    def test_create_order_uses_table_from_session(self):
+        table = Table.objects.create(
+            restaurant=self.dish.restaurant,
+            number="12",
+        )
+        session = self.client.session
+        session["table_id"] = table.id
+        session["table_number"] = table.number
+        session.save()
+
+        response = self.post_json(
+            reverse("orders:create"),
+            {
+                "payment_method": Payment.Method.CARD,
+                "items": [
+                    {
+                        "dish_id": self.dish.id,
+                        "quantity": 1,
+                    }
+                ],
+            },
+            idempotency_key=self.next_idempotency_key(),
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Order.objects.get().table, table)
 
     def test_create_order_requires_idempotency_key(self):
         response = self.post_json(

@@ -12,4 +12,9 @@ urlpatterns = [
         views.dish_list,
         name="dish_list",
     ),
+    path(
+        "t/<str:qr_token>/",
+        views.dish_list,
+        name="table_menu",
+    ),
 ]
