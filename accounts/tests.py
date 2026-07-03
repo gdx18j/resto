@@ -13,6 +13,7 @@ from django.urls import reverse
 
 from ai_assistant.models import ChatMessage, ChatSession
 from menu.models import Allergen
+from orders.models import Restaurant
 
 from .models import UserAllergy, UserAllergyStatusChange
 from .services import MANUAL_PROFILE_UPDATE, update_manual_allergy_preferences
@@ -345,8 +346,13 @@ class AccountViewTests(TestCase):
             new_source=UserAllergy.Source.MANUAL,
             reason=MANUAL_PROFILE_UPDATE,
         )
+        restaurant, _ = Restaurant.objects.get_or_create(
+            slug="caesar-company",
+            defaults={"name": "Caesar & Company"},
+        )
         session = ChatSession.objects.create(
             user=user,
+            restaurant=restaurant,
             session_key="account-export",
             title="Диалог",
         )

@@ -2,16 +2,16 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.contrib.staticfiles.urls import staticfiles_urlpatterns
-from django.http import JsonResponse
 from django.urls import include, path
 
+from .health import health_live, health_ready
 
-def healthz(_request):
-    return JsonResponse({"status": "ok"})
 
 
 urlpatterns = [
-    path("healthz/", healthz, name="healthz"),
+    path("health/live/", health_live, name="health_live"),
+    path("health/ready/", health_ready, name="health_ready"),
+    path("healthz/", health_live, name="healthz"),
     path("admin/", admin.site.urls),
     path("accounts/", include("allauth.urls")),
     path("", include("menu.urls")),

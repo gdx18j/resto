@@ -14,7 +14,17 @@ urlpatterns = [
     ),
     path(
         "t/<str:qr_token>/",
-        views.dish_list,
+        views.table_menu_entry,
         name="table_menu",
+    ),
+    path(
+        "table/<str:table_context>/",
+        views.dish_list,
+        name="table_context_menu",
+    ),
+    path(
+        "api/restaurants/<slug:restaurant_slug>/dishes/<int:dish_id>/",
+        views.dish_detail,
+        name="dish_detail",
     ),
 ]

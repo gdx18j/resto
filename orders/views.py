@@ -13,15 +13,49 @@ from .models import Order, Payment
 from .presentation import decorate_order, decorate_orders
 from .services import (
     CartValidationError,
+    ORDER_REQUEST_MAX_BYTES,
     create_order_from_payload,
     quote_cart,
 )
 
 
 def _json_payload(request):
+    content_length = request.META.get("CONTENT_LENGTH")
+
+    if content_length:
+        try:
+            parsed_content_length = int(content_length)
+        except (TypeError, ValueError):
+            raise CartValidationError(
+                "Некорректный размер запроса.",
+                code="invalid_content_length",
+            )
+
+        if parsed_content_length < 0:
+            raise CartValidationError(
+                "Некорректный размер запроса.",
+                code="invalid_content_length",
+            )
+
+        if parsed_content_length > ORDER_REQUEST_MAX_BYTES:
+            raise CartValidationError(
+                "Запрос слишком большой.",
+                code="request_too_large",
+                status=413,
+            )
+
+    body = request.body
+
+    if len(body) > ORDER_REQUEST_MAX_BYTES:
+        raise CartValidationError(
+            "Запрос слишком большой.",
+            code="request_too_large",
+            status=413,
+        )
+
     try:
-        return json.loads(request.body.decode("utf-8") or "{}")
-    except json.JSONDecodeError:
+        return json.loads(body.decode("utf-8") or "{}")
+    except (UnicodeDecodeError, json.JSONDecodeError):
         raise CartValidationError("Некорректный JSON.", code="invalid_json")
 
 
@@ -80,6 +114,9 @@ def create(request):
             "order": {
                 "id": order.id,
                 "status": order.status,
+                "order_mode": order.order_mode,
+                "restaurant": order.display_restaurant_name,
+                "table_number": order.display_table_number,
                 "total": f"{order.total_amount:.2f}",
                 "currency": order.currency,
                 "confirmation_url": reverse("orders:success", args=[order.id]),
@@ -93,7 +130,7 @@ def create(request):
 @require_GET
 def success(request, order_id):
     order = get_object_or_404(
-        Order.objects.select_related("table", "user").prefetch_related("items__dish", "items__modifiers", "payments"),
+        Order.objects.select_related("restaurant", "table", "user").prefetch_related("items__dish", "items__modifiers", "payments"),
         id=order_id,
     )
 
@@ -108,6 +145,7 @@ def success(request, order_id):
         {
             "order": order,
             "items_json": order.items_json,
+            "cart_disabled": True,
         },
     )
 
@@ -118,7 +156,7 @@ def mock_pay(request, order_id):
         return JsonResponse({"ok": False, "error": "Mock payments are disabled."}, status=404)
 
     order = get_object_or_404(
-        Order.objects.select_related("table", "user").prefetch_related("items__dish", "items__modifiers", "payments"),
+        Order.objects.select_related("restaurant", "table", "user").prefetch_related("items__dish", "items__modifiers", "payments"),
         id=order_id,
     )
 
@@ -152,6 +190,7 @@ def mock_pay(request, order_id):
         {
             "order": order,
             "payment": payment,
+            "cart_disabled": True,
         },
     )
 
@@ -161,7 +200,7 @@ def mock_pay(request, order_id):
 def history(request):
     orders_queryset = (
         Order.objects.filter(user=request.user)
-        .select_related("table")
+        .select_related("restaurant", "table")
         .prefetch_related("items__dish", "items__modifiers", "payments")
         .order_by("-created_at")
     )
@@ -176,5 +215,6 @@ def history(request):
             "orders": decorate_orders(orders),
             "page_obj": page_obj,
             "paginator": paginator,
+            "cart_disabled": True,
         },
     )

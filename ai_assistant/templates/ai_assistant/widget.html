@@ -5,7 +5,11 @@
   data-history-endpoint="{% url 'ai_assistant:history' %}"
   data-account-bound="{% if request.user.is_authenticated %}1{% else %}0{% endif %}"
   data-storage-key="resto.aiAssistant.v3"
-  aria-label="ИИ-ассистент"
+  aria-label="{% if ui_language == 'en' %}AI assistant{% elif ui_language == 'tr' %}AI asistanı{% else %}ИИ-ассистент{% endif %}"
+  data-i18n-aria-label
+  data-aria-label-ru="ИИ-ассистент"
+  data-aria-label-en="AI assistant"
+  data-aria-label-tr="AI asistanı"
 >
   <div class="ai-assistant__backdrop" data-ai-backdrop aria-hidden="true"></div>
 
@@ -15,7 +19,16 @@
     data-ai-open
     aria-expanded="false"
     aria-controls="ai-assistant-panel"
-    title="Открыть ИИ-ассистента"
+    title="{% if ui_language == 'en' %}Open AI assistant{% elif ui_language == 'tr' %}AI asistanını aç{% else %}Открыть ИИ-ассистента{% endif %}"
+    aria-label="{% if ui_language == 'en' %}Open AI assistant{% elif ui_language == 'tr' %}AI asistanını aç{% else %}Открыть ИИ-ассистента{% endif %}"
+    data-i18n-title
+    data-i18n-aria-label
+    data-title-ru="Открыть ИИ-ассистента"
+    data-title-en="Open AI assistant"
+    data-title-tr="AI asistanını aç"
+    data-aria-label-ru="Открыть ИИ-ассистента"
+    data-aria-label-en="Open AI assistant"
+    data-aria-label-tr="AI asistanını aç"
   >
     <svg aria-hidden="true"><use href="#i-sparkles"/></svg>
     <span class="ai-assistant__launcher-text">AI</span>
@@ -54,7 +67,11 @@
           class="ai-assistant__icon-button"
           type="button"
           data-ai-close
-          aria-label="Свернуть чат"
+          aria-label="{% if ui_language == 'en' %}Close chat{% elif ui_language == 'tr' %}Sohbeti kapat{% else %}Свернуть чат{% endif %}"
+          data-i18n-aria-label
+          data-aria-label-ru="Свернуть чат"
+          data-aria-label-en="Close chat"
+          data-aria-label-tr="Sohbeti kapat"
         >
           <svg aria-hidden="true"><use href="#i-close"/></svg>
         </button>
@@ -100,7 +117,16 @@
         ></textarea>
       </label>
 
-      <button class="ai-assistant__send" type="submit" data-ai-send aria-label="Отправить">
+      <button
+        class="ai-assistant__send"
+        type="submit"
+        data-ai-send
+        aria-label="{% if ui_language == 'en' %}Send message{% elif ui_language == 'tr' %}Mesaj gönder{% else %}Отправить сообщение{% endif %}"
+        data-i18n-aria-label
+        data-aria-label-ru="Отправить сообщение"
+        data-aria-label-en="Send message"
+        data-aria-label-tr="Mesaj gönder"
+      >
         <svg aria-hidden="true"><use href="#i-send"/></svg>
       </button>
     </form>

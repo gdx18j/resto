@@ -3,6 +3,7 @@ import secrets
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxLengthValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
@@ -24,14 +25,47 @@ def hash_table_qr_token(token):
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+ORDER_SNAPSHOT_FIELDS = {
+    "restaurant_name_snapshot",
+    "restaurant_slug_snapshot",
+    "table_number_snapshot",
+    "table_title_snapshot",
+}
+
+ORDER_CONTEXT_FIELDS = {
+    "restaurant_id",
+    "table_id",
+    "order_mode",
+}
+
+ORDER_ITEM_SNAPSHOT_FIELDS = {
+    "order_id",
+    "dish_id",
+    "dish_name",
+    "dish_code_snapshot",
+    "category_name_snapshot",
+    "category_code_snapshot",
+    "unit_price",
+}
+
+
 class OrderQuerySet(models.QuerySet):
     def update(self, **kwargs):
         if "status" in kwargs:
             raise ValueError("Use orders.statuses.transition_order() to change order status.")
 
+        if ORDER_SNAPSHOT_FIELDS.intersection(kwargs):
+            raise ValueError("Order snapshots are immutable.")
+
+        if {"restaurant", "restaurant_id", "order_mode"}.intersection(kwargs):
+            raise ValueError("Order context is immutable.")
+
         return super().update(**kwargs)
 
     def transition_update(self, **kwargs):
+        if ORDER_SNAPSHOT_FIELDS.intersection(kwargs):
+            raise ValueError("Order snapshots are immutable.")
+
         return super().update(**kwargs)
 
 
@@ -313,6 +347,13 @@ class TableQrTokenAudit(models.Model):
 
 
 class Order(models.Model):
+    class Mode(models.TextChoices):
+        LEGACY = "legacy", "Старый формат"
+        TABLE = "table", "За столом"
+        PICKUP = "pickup", "Самовывоз"
+        COUNTER = "counter", "У стойки"
+        DELIVERY = "delivery", "Доставка"
+
     class Status(models.TextChoices):
         CREATED = "created", "Создан"
         CONFIRMED = "confirmed", "Подтвержден"
@@ -330,6 +371,7 @@ class Order(models.Model):
         Status.SERVED,
         Status.COMPLETED,
     )
+    SNAPSHOT_FIELDS = ORDER_SNAPSHOT_FIELDS
 
     objects = OrderManager()
 
@@ -346,6 +388,33 @@ class Order(models.Model):
         blank=True,
         related_name="orders",
         verbose_name="Стол",
+    )
+    order_mode = models.CharField(
+        max_length=20,
+        choices=Mode.choices,
+        default=Mode.LEGACY,
+        db_index=True,
+        verbose_name="Режим заказа",
+    )
+    restaurant_name_snapshot = models.CharField(
+        max_length=160,
+        blank=True,
+        verbose_name="Название ресторана при заказе",
+    )
+    restaurant_slug_snapshot = models.SlugField(
+        max_length=180,
+        blank=True,
+        verbose_name="Код ресторана при заказе",
+    )
+    table_number_snapshot = models.CharField(
+        max_length=24,
+        blank=True,
+        verbose_name="Номер стола при заказе",
+    )
+    table_title_snapshot = models.CharField(
+        max_length=80,
+        blank=True,
+        verbose_name="Название стола при заказе",
     )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -430,6 +499,40 @@ class Order(models.Model):
                 name="unique_order_idempotency_per_actor_restaurant",
             ),
             models.CheckConstraint(
+                condition=Q(
+                    order_mode__in=[
+                        "legacy",
+                        "table",
+                        "pickup",
+                        "counter",
+                        "delivery",
+                    ]
+                ),
+                name="order_mode_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    (
+                        Q(order_mode="table")
+                        & ~Q(table_number_snapshot="")
+                    )
+                    | (
+                        ~Q(order_mode="table")
+                        & Q(table__isnull=True)
+                        & Q(table_number_snapshot="")
+                        & Q(table_title_snapshot="")
+                    )
+                ),
+                name="order_mode_table_consistency",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(restaurant_name_snapshot="")
+                    & ~Q(restaurant_slug_snapshot="")
+                ),
+                name="order_restaurant_snapshot_present",
+            ),
+            models.CheckConstraint(
                 condition=Q(subtotal_amount__gte=0),
                 name="order_subtotal_nonnegative",
             ),
@@ -446,21 +549,133 @@ class Order(models.Model):
     def __str__(self):
         return f"Заказ #{self.pk or 'новый'}"
 
+    @property
+    def display_restaurant_name(self):
+        return self.restaurant_name_snapshot or self.restaurant.name
+
+    @property
+    def display_table_number(self):
+        if self.table_number_snapshot:
+            return self.table_number_snapshot
+
+        return self.table.number if self.table_id else ""
+
+    @property
+    def display_table_title(self):
+        if self.table_title_snapshot:
+            return self.table_title_snapshot
+
+        return self.table.title if self.table_id else ""
+
+    def _populate_missing_snapshots(self):
+        if self.restaurant_id and (
+            not self.restaurant_name_snapshot
+            or not self.restaurant_slug_snapshot
+        ):
+            restaurant = self._state.fields_cache.get("restaurant")
+
+            if restaurant is None:
+                restaurant = Restaurant.objects.only("name", "slug").get(pk=self.restaurant_id)
+
+            self.restaurant_name_snapshot = self.restaurant_name_snapshot or restaurant.name
+            self.restaurant_slug_snapshot = self.restaurant_slug_snapshot or restaurant.slug
+
+        if self.table_id:
+            table = self._state.fields_cache.get("table")
+
+            if table is None:
+                table = Table.objects.only(
+                    "number",
+                    "title",
+                    "restaurant_id",
+                ).get(pk=self.table_id)
+
+            if self.restaurant_id and table.restaurant_id != self.restaurant_id:
+                raise ValidationError(
+                    {"table": "Стол должен принадлежать ресторану заказа."}
+                )
+
+            self.table_number_snapshot = self.table_number_snapshot or table.number
+            self.table_title_snapshot = self.table_title_snapshot or table.title
+
+    def clean(self):
+        super().clean()
+
+        if self._state.adding and self.order_mode == self.Mode.LEGACY:
+            raise ValidationError(
+                {"order_mode": "Для нового заказа нужно явно указать режим."}
+            )
+
+        if self.order_mode == self.Mode.TABLE:
+            if not self.table_id and not self.table_number_snapshot:
+                raise ValidationError(
+                    {"table": "Для заказа за столом нужен стол или его исторический snapshot."}
+                )
+        elif self.table_id or self.table_number_snapshot or self.table_title_snapshot:
+            raise ValidationError(
+                {"table": "Стол допустим только для режима заказа за столом."}
+            )
+
     def save(self, *args, **kwargs):
+        if self._state.adding:
+            self._populate_missing_snapshots()
+            self.clean()
+
         update_fields = kwargs.get("update_fields")
 
-        if self.pk and not getattr(self, "_allow_status_save", False):
-            should_check_status = update_fields is None or "status" in update_fields
+        if self.pk:
+            should_check_status = (
+                not getattr(self, "_allow_status_save", False)
+                and (update_fields is None or "status" in update_fields)
+            )
+            should_check_snapshots = (
+                update_fields is None
+                or bool(self.SNAPSHOT_FIELDS.intersection(update_fields))
+            )
+            context_update_fields = {
+                "restaurant",
+                "restaurant_id",
+                "table",
+                "table_id",
+                "order_mode",
+            }
+            should_check_context = (
+                update_fields is None
+                or bool(context_update_fields.intersection(update_fields))
+            )
 
-            if should_check_status:
-                current_status = (
+            if should_check_status or should_check_snapshots or should_check_context:
+                fields = {"status"}
+
+                if should_check_snapshots:
+                    fields.update(self.SNAPSHOT_FIELDS)
+
+                if should_check_context:
+                    fields.update(ORDER_CONTEXT_FIELDS)
+
+                current = (
                     type(self).objects.filter(pk=self.pk)
-                    .values_list("status", flat=True)
+                    .values(*fields)
                     .first()
                 )
 
-                if current_status is not None and current_status != self.status:
-                    raise ValueError("Use orders.statuses.transition_order() to change order status.")
+                if current is not None:
+                    if should_check_status and current["status"] != self.status:
+                        raise ValueError(
+                            "Use orders.statuses.transition_order() to change order status."
+                        )
+
+                    if should_check_snapshots and any(
+                        current[field] != getattr(self, field)
+                        for field in self.SNAPSHOT_FIELDS
+                    ):
+                        raise ValueError("Order snapshots are immutable.")
+
+                    if should_check_context and any(
+                        current[field] != getattr(self, field)
+                        for field in ORDER_CONTEXT_FIELDS
+                    ):
+                        raise ValueError("Order context is immutable.")
 
         super().save(*args, **kwargs)
 
@@ -564,6 +779,21 @@ class OrderItem(models.Model):
         verbose_name="Блюдо",
     )
     dish_name = models.CharField(max_length=200, verbose_name="Название блюда")
+    dish_code_snapshot = models.SlugField(
+        max_length=220,
+        blank=True,
+        verbose_name="Код блюда при заказе",
+    )
+    category_name_snapshot = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name="Категория при заказе",
+    )
+    category_code_snapshot = models.SlugField(
+        max_length=200,
+        blank=True,
+        verbose_name="Код категории при заказе",
+    )
     quantity = models.PositiveIntegerField(
         validators=[MinValueValidator(1)],
         verbose_name="Количество",
@@ -593,6 +823,10 @@ class OrderItem(models.Model):
         ordering = ["id"]
         constraints = [
             models.CheckConstraint(
+                condition=~Q(dish_code_snapshot=""),
+                name="order_item_dish_snapshot_present",
+            ),
+            models.CheckConstraint(
                 condition=Q(quantity__gte=1),
                 name="order_item_quantity_positive",
             ),
@@ -608,6 +842,72 @@ class OrderItem(models.Model):
 
     def __str__(self):
         return f"{self.dish_name} x {self.quantity}"
+
+    def _populate_missing_snapshots(self):
+        if not self.dish_id:
+            return
+
+        dish = self._state.fields_cache.get("dish")
+
+        if dish is None:
+            dish = (
+                type(self)._meta.get_field("dish").remote_field.model.objects
+                .select_related("category")
+                .only("code", "restaurant_id", "category__name", "category__code")
+                .get(pk=self.dish_id)
+            )
+
+        order = self._state.fields_cache.get("order")
+
+        if order is None:
+            order_restaurant_id = Order.objects.values_list(
+                "restaurant_id",
+                flat=True,
+            ).get(pk=self.order_id)
+        else:
+            order_restaurant_id = order.restaurant_id
+
+        if dish.restaurant_id != order_restaurant_id:
+            raise ValidationError(
+                {"dish": "Блюдо должно принадлежать ресторану заказа."}
+            )
+
+        self.dish_code_snapshot = self.dish_code_snapshot or dish.code
+
+        if dish.category_id:
+            self.category_name_snapshot = (
+                self.category_name_snapshot or dish.category.name
+            )
+            self.category_code_snapshot = (
+                self.category_code_snapshot or dish.category.code
+            )
+
+    def save(self, *args, **kwargs):
+        if self._state.adding:
+            self._populate_missing_snapshots()
+        elif self.pk:
+            update_fields = kwargs.get("update_fields")
+            item_update_fields = set(update_fields or ())
+            should_check_snapshots = (
+                update_fields is None
+                or bool(ORDER_ITEM_SNAPSHOT_FIELDS.intersection(item_update_fields))
+                or bool({"order", "dish"}.intersection(item_update_fields))
+            )
+
+            if should_check_snapshots:
+                current = (
+                    type(self).objects.filter(pk=self.pk)
+                    .values(*ORDER_ITEM_SNAPSHOT_FIELDS)
+                    .first()
+                )
+
+                if current is not None and any(
+                    current[field] != getattr(self, field)
+                    for field in ORDER_ITEM_SNAPSHOT_FIELDS
+                ):
+                    raise ValueError("Order item snapshots are immutable.")
+
+        super().save(*args, **kwargs)
 
     def recalculate(self):
         self.line_total = self.unit_price * self.quantity

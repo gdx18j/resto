@@ -58,6 +58,8 @@ def build_dish_detail_payload(dishes):
                 for allergen in dish.display_allergens
             ],
             "allergen_groups": dish.display_allergen_groups,
+            "allergen_data_status": dish.allergen_data_status,
+            "allergen_data_complete": dish.allergen_data_complete,
         }
 
     return details
@@ -154,23 +156,43 @@ def _add_grouped_allergen(groups, allergen, group):
 
 def _dish_allergen_groups(dish):
     groups = _new_allergen_group()
+    selected_links = {}
+    status_priority = {
+        DishAllergen.VerificationStatus.VERIFIED: 2,
+        DishAllergen.VerificationStatus.SUGGESTED: 1,
+    }
+    relation_priority = {
+        DishAllergen.RelationType.CONTAINS: 3,
+        DishAllergen.RelationType.CROSS_CONTAMINATION: 2,
+        DishAllergen.RelationType.MAY_CONTAIN: 1,
+    }
 
     for link in dish.allergen_links.all():
         if link.verification_status == DishAllergen.VerificationStatus.REJECTED:
             continue
 
+        candidate_priority = (
+            status_priority.get(link.verification_status, 0),
+            relation_priority.get(link.relation_type, 0),
+        )
+        current = selected_links.get(link.allergen_id)
+
+        if current is None or candidate_priority > current[0]:
+            selected_links[link.allergen_id] = (candidate_priority, link)
+
+    for _priority, link in selected_links.values():
         group = _allergen_group_for_relation(link.relation_type)
 
-        if link.verification_status != DishAllergen.VerificationStatus.VERIFIED:
+        if (
+            link.verification_status
+            != DishAllergen.VerificationStatus.VERIFIED
+            or link.reviewed_recipe_revision != dish.recipe_revision
+        ):
             group = "unknown"
 
         _add_grouped_allergen(groups, link.allergen, group)
 
     return groups
-
-
-def _has_grouped_allergens(groups):
-    return any(groups[group] for group in groups)
 
 
 def _flatten_grouped_allergens(groups):
@@ -335,32 +357,36 @@ def add_allergy_conflicts_to_dishes(dishes, user):
 
     for dish in dishes:
         allergen_groups = _dish_allergen_groups(dish)
-        ingredients = list(dish.ingredients.all())
+        dish_ingredients = list(dish.dish_ingredients.all())
+        ingredients = [
+            dish_ingredient.ingredient
+            for dish_ingredient in dish_ingredients
+            if dish_ingredient.ingredient is not None
+        ]
         ingredient_names = []
         display_ingredient_names = []
 
-        for dish_ingredient in dish.dish_ingredients.all():
+        for dish_ingredient in dish_ingredients:
             ingredient = dish_ingredient.ingredient
 
             if ingredient and ingredient.is_active:
                 display_ingredient_names.append(ingredient.name)
 
-        has_canonical_allergens = _has_grouped_allergens(allergen_groups)
-
-        if not has_canonical_allergens:
-            for allergen in dish.may_contain_allergens.all():
-                _add_grouped_allergen(allergen_groups, allergen, "traces")
-
         for ingredient in ingredients:
             ingredient_names.append(ingredient.name)
-
-            if not has_canonical_allergens:
-                for allergen in ingredient.allergens.all():
-                    _add_grouped_allergen(allergen_groups, allergen, "contains")
 
         dish.display_allergens = _flatten_grouped_allergens(allergen_groups)
         dish.display_allergen_groups = _localized_allergen_group_values(
             allergen_groups
+        )
+        dish.allergen_data_status = dish.public_allergen_data_status
+        dish.allergen_data_complete = dish.is_allergen_review_complete
+        verified_allergens = _flatten_grouped_allergens(
+            {
+                "contains": allergen_groups["contains"],
+                "traces": allergen_groups["traces"],
+                "unknown": {},
+            }
         )
         if not display_ingredient_names:
             display_ingredient_names = ingredient_names
@@ -386,7 +412,7 @@ def add_allergy_conflicts_to_dishes(dishes, user):
         allergen_search_values = {
             language: " ".join(
                 localized_allergen_values(allergen)[language]
-                for allergen in dish.display_allergens
+                for allergen in verified_allergens
             )
             for language in LANGUAGES
         }
@@ -406,12 +432,19 @@ def add_allergy_conflicts_to_dishes(dishes, user):
         )
         dish.conflicting_allergens = _flatten_grouped_allergens(
             {
-                group: {
+                "contains": {
                     allergen_id: allergen
-                    for allergen_id, allergen in allergens.items()
+                    for allergen_id, allergen
+                    in allergen_groups["contains"].items()
                     if allergen_id in user_allergen_ids
-                }
-                for group, allergens in allergen_groups.items()
+                },
+                "traces": {
+                    allergen_id: allergen
+                    for allergen_id, allergen
+                    in allergen_groups["traces"].items()
+                    if allergen_id in user_allergen_ids
+                },
+                "unknown": {},
             }
         )
         dish.has_allergy_conflict = bool(dish.conflicting_allergens)

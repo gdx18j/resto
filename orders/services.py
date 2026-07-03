@@ -5,8 +5,8 @@ import re
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from decimal import Decimal
-from enum import StrEnum
 
+from django.conf import settings
 from django.core import signing
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -52,15 +52,12 @@ class ValidatedCartModifier:
 class OrderingContext:
     restaurant_id: int
     table_id: int | None
-    table_token: str | None
     source: str
+    table_context: str | None = None
+    table_token_version: int | None = None
 
 
-class OrderMode(StrEnum):
-    TABLE = "table"
-    PICKUP = "pickup"
-    COUNTER = "counter"
-    DELIVERY = "delivery"
+OrderMode = Order.Mode
 
 
 @dataclass(frozen=True)
@@ -98,6 +95,15 @@ DISH_CART_ID_PATTERN = re.compile(r"^dish-(\d+)$")
 QUOTE_TTL_SECONDS = 180
 QUOTE_SIGNING_SALT = "orders.quote"
 GUEST_SCOPE_SIGNING_SALT = "orders.idempotency.guest"
+TABLE_CONTEXT_SIGNING_SALT = "orders.table-context"
+TABLE_CONTEXT_MAX_LENGTH = 512
+DEFAULT_TABLE_CONTEXT_TTL_SECONDS = 12 * 60 * 60
+ORDER_REQUEST_MAX_BYTES = 128 * 1024
+MAX_CART_LINE_ITEMS = 50
+MAX_CART_TOTAL_QUANTITY = 100
+MAX_MODIFIERS_PER_ITEM = 20
+MAX_CART_TOTAL_MODIFIERS = 200
+MAX_GUESTS_COUNT = 20
 
 
 def normalize_limited_text(value, max_length, error_message, error_code):
@@ -129,6 +135,9 @@ def normalize_dish_id(value):
 
 
 def normalize_quantity(value):
+    if isinstance(value, bool):
+        raise CartValidationError("Некорректное количество.")
+
     try:
         quantity = int(value)
     except (TypeError, ValueError):
@@ -141,6 +150,40 @@ def normalize_quantity(value):
         raise CartValidationError("Слишком большое количество в одной позиции.")
 
     return quantity
+
+
+def normalize_guests_count(value):
+    if isinstance(value, bool):
+        raise CartValidationError(
+            "Некорректное количество гостей.",
+            code="invalid_guests_count",
+        )
+
+    try:
+        guests_count = int(value)
+    except (TypeError, ValueError):
+        raise CartValidationError(
+            "Некорректное количество гостей.",
+            code="invalid_guests_count",
+        )
+
+    if guests_count < 1 or guests_count > MAX_GUESTS_COUNT:
+        raise CartValidationError(
+            f"Количество гостей должно быть от 1 до {MAX_GUESTS_COUNT}.",
+            code="invalid_guests_count",
+        )
+
+    return guests_count
+
+
+def guests_count_from_payload(payload):
+    if "guests_count" in payload:
+        return payload.get("guests_count")
+
+    if "persons" in payload:
+        return payload.get("persons")
+
+    return 1
 
 
 def normalize_item_note(value):
@@ -181,6 +224,12 @@ def normalize_modifier_payload(raw_modifier):
 def normalize_modifier_payloads(modifiers):
     if not isinstance(modifiers, list):
         raise CartValidationError("Некорректные модификаторы.")
+
+    if len(modifiers) > MAX_MODIFIERS_PER_ITEM:
+        raise CartValidationError(
+            f"В одной позиции можно указать не более {MAX_MODIFIERS_PER_ITEM} модификаторов.",
+            code="too_many_modifiers",
+        )
 
     normalized = [
         normalize_modifier_payload(modifier)
@@ -250,8 +299,16 @@ def normalize_cart_payload(payload):
     if not isinstance(raw_items, list) or not raw_items:
         raise CartValidationError("Корзина пуста.", code="empty_cart")
 
+    if len(raw_items) > MAX_CART_LINE_ITEMS:
+        raise CartValidationError(
+            f"В заказе может быть не более {MAX_CART_LINE_ITEMS} позиций.",
+            code="too_many_cart_lines",
+        )
+
     normalized = []
     seen = {}
+    total_quantity = 0
+    total_modifiers = 0
 
     for raw_item in raw_items:
         if not isinstance(raw_item, dict):
@@ -265,6 +322,21 @@ def normalize_cart_payload(payload):
         )
         modifiers = normalize_modifier_payloads(raw_item.get("modifiers") or [])
         note = normalize_item_note(raw_item.get("note"))
+        total_quantity += quantity
+        total_modifiers += len(modifiers)
+
+        if total_quantity > MAX_CART_TOTAL_QUANTITY:
+            raise CartValidationError(
+                f"В одном заказе может быть не более {MAX_CART_TOTAL_QUANTITY} блюд.",
+                code="cart_quantity_limit",
+            )
+
+        if total_modifiers > MAX_CART_TOTAL_MODIFIERS:
+            raise CartValidationError(
+                "В заказе слишком много модификаторов.",
+                code="cart_modifiers_limit",
+            )
+
         identity = cart_item_identity(dish_id, modifiers, note)
         cart_id = cart_item_id(raw_item, dish_id, modifiers, note)
 
@@ -340,7 +412,6 @@ def build_cart_fingerprint(
     ordering_context = ordering_context or OrderingContext(
         restaurant_id=restaurant.id,
         table_id=None,
-        table_token=None,
         source="legacy",
     )
     payment_method = payload.get("payment_method") or payload.get("payment") or ""
@@ -356,12 +427,12 @@ def build_cart_fingerprint(
     ]
     fingerprint_payload = {
         "items": fingerprint_items,
-        "guests_count": normalize_quantity(payload.get("guests_count") or payload.get("persons") or 1),
+        "guests_count": normalize_guests_count(guests_count_from_payload(payload)),
         "payment_method": str(payment_method),
         "comment": comment,
         "restaurant_id": ordering_context.restaurant_id,
         "table_id": str(ordering_context.table_id or ""),
-        "table_token": ordering_context.table_token or "",
+        "table_token_version": str(ordering_context.table_token_version or ""),
         "ordering_source": ordering_context.source,
     }
     fingerprint_json = json.dumps(
@@ -617,6 +688,131 @@ def _log_untrusted_table_reference(payload, reason):
     )
 
 
+def get_table_context_ttl_seconds():
+    try:
+        value = int(
+            getattr(
+                settings,
+                "TABLE_CONTEXT_TTL_SECONDS",
+                DEFAULT_TABLE_CONTEXT_TTL_SECONDS,
+            )
+        )
+    except (TypeError, ValueError):
+        value = DEFAULT_TABLE_CONTEXT_TTL_SECONDS
+
+    return max(60, value)
+
+
+def build_table_context_token(table):
+    return signing.dumps(
+        {
+            "restaurant_id": table.restaurant_id,
+            "table_id": table.id,
+            "token_version": table.qr_token_version,
+        },
+        salt=TABLE_CONTEXT_SIGNING_SALT,
+        compress=True,
+    )
+
+
+def _validate_table_for_context(table, token_version):
+    if (
+        table.qr_token_revoked_at
+        or not table.is_active
+        or not table.restaurant.is_active
+        or table.qr_token_version != token_version
+    ):
+        raise CartValidationError(
+            "Контекст стола больше не действует.",
+            code="table_context_revoked",
+            status=410,
+        )
+
+    if (
+        table.qr_token_expires_at
+        and table.qr_token_expires_at <= timezone.now()
+    ):
+        raise CartValidationError(
+            "Контекст стола истёк.",
+            code="table_context_expired",
+            status=410,
+        )
+
+
+def _context_for_table_context(table_context):
+    table_context = str(table_context or "").strip()
+
+    if not table_context or len(table_context) > TABLE_CONTEXT_MAX_LENGTH:
+        raise CartValidationError(
+            "Некорректный контекст стола.",
+            code="invalid_table_context",
+            status=400,
+        )
+
+    try:
+        context_payload = signing.loads(
+            table_context,
+            salt=TABLE_CONTEXT_SIGNING_SALT,
+            max_age=get_table_context_ttl_seconds(),
+        )
+    except signing.SignatureExpired:
+        raise CartValidationError(
+            "Контекст стола истёк.",
+            code="table_context_expired",
+            status=410,
+        )
+    except signing.BadSignature:
+        raise CartValidationError(
+            "Некорректный контекст стола.",
+            code="invalid_table_context",
+            status=400,
+        )
+
+    if not isinstance(context_payload, dict):
+        raise CartValidationError(
+            "Некорректный контекст стола.",
+            code="invalid_table_context",
+            status=400,
+        )
+
+    try:
+        restaurant_id = int(context_payload["restaurant_id"])
+        table_id = int(context_payload["table_id"])
+        token_version = int(context_payload["token_version"])
+    except (KeyError, TypeError, ValueError):
+        raise CartValidationError(
+            "Некорректный контекст стола.",
+            code="invalid_table_context",
+            status=400,
+        )
+
+    table = (
+        Table.objects.select_related("restaurant")
+        .filter(
+            id=table_id,
+            restaurant_id=restaurant_id,
+        )
+        .first()
+    )
+
+    if table is None:
+        raise CartValidationError(
+            "Контекст стола больше не действует.",
+            code="table_context_revoked",
+            status=410,
+        )
+
+    _validate_table_for_context(table, token_version)
+
+    return OrderingContext(
+        restaurant_id=table.restaurant_id,
+        table_id=table.id,
+        source=OrderMode.TABLE.value,
+        table_context=table_context,
+        table_token_version=token_version,
+    )
+
+
 def _context_for_table_token(table_token):
     if not TABLE_TOKEN_PATTERN.fullmatch(table_token):
         raise CartValidationError(
@@ -673,13 +869,19 @@ def _context_for_table_token(table_token):
     return OrderingContext(
         restaurant_id=table.restaurant_id,
         table_id=table.id,
-        table_token=table_token,
         source=OrderMode.TABLE.value,
+        table_context=build_table_context_token(table),
+        table_token_version=table.qr_token_version,
     )
 
 
 def get_table_for_qr_token(table_token):
     ordering_context = _context_for_table_token(table_token)
+    return get_table_for_ordering_context(ordering_context)
+
+
+def get_table_for_table_context(table_context):
+    ordering_context = _context_for_table_context(table_context)
     return get_table_for_ordering_context(ordering_context)
 
 
@@ -692,6 +894,11 @@ def resolve_ordering_context(
 ):
     if not isinstance(payload, dict):
         raise CartValidationError("Некорректная корзина.")
+
+    table_context = _clean_payload_value(payload, "table_context")
+
+    if table_context:
+        return _context_for_table_context(table_context)
 
     table_token = _clean_payload_value(payload, "table_token", "qr_token")
 
@@ -709,7 +916,6 @@ def resolve_ordering_context(
         return OrderingContext(
             restaurant_id=restaurant.id,
             table_id=None,
-            table_token=None,
             source="menu" if allow_menu_context else "restaurant",
         )
 
@@ -733,7 +939,6 @@ def resolve_ordering_context(
         return OrderingContext(
             restaurant_id=explicit_restaurant.id,
             table_id=None,
-            table_token=None,
             source=order_mode.value,
         )
 
@@ -741,7 +946,6 @@ def resolve_ordering_context(
         return OrderingContext(
             restaurant_id=explicit_restaurant.id,
             table_id=None,
-            table_token=None,
             source="menu",
         )
 
@@ -790,7 +994,7 @@ def _get_dishes_by_id(dish_ids, restaurant):
             id__in=dish_ids,
             is_active=True,
             is_available=True,
-        ).select_related("category")
+        ).select_related("category").prefetch_related("translations")
     }
 
     missing_ids = [dish_id for dish_id in dish_ids if dish_id not in dishes]
@@ -804,7 +1008,20 @@ def _get_dishes_by_id(dish_ids, restaurant):
     return dishes
 
 
-def _normalize_modifiers(dish, raw_modifiers):
+def _get_removable_dish_ingredients(dish_ingredient_ids):
+    if not dish_ingredient_ids:
+        return {}
+
+    return {
+        dish_ingredient.id: dish_ingredient
+        for dish_ingredient in DishIngredient.objects.filter(
+            id__in=dish_ingredient_ids,
+            can_be_removed=True,
+        ).select_related("ingredient")
+    }
+
+
+def _normalize_modifiers(dish, raw_modifiers, dish_ingredients_by_id):
     normalized = []
 
     for raw_modifier in raw_modifiers:
@@ -817,14 +1034,9 @@ def _normalize_modifiers(dish, raw_modifiers):
             raise CartValidationError("Сейчас доступны только модификаторы удаления.")
 
         dish_ingredient_id = raw_modifier.get("dish_ingredient_id")
+        dish_ingredient = dish_ingredients_by_id.get(dish_ingredient_id)
 
-        try:
-            dish_ingredient = DishIngredient.objects.select_related("ingredient").get(
-                id=dish_ingredient_id,
-                dish=dish,
-                can_be_removed=True,
-            )
-        except (DishIngredient.DoesNotExist, TypeError, ValueError):
+        if dish_ingredient is None or dish_ingredient.dish_id != dish.id:
             raise CartValidationError("Этот ингредиент нельзя убрать из блюда.")
 
         normalized.append(
@@ -851,13 +1063,24 @@ def validate_cart(payload, language="ru", restaurant=None, ordering_context=None
 
     normalized_items = normalize_cart_payload(payload)
     dishes = _get_dishes_by_id([item["dish_id"] for item in normalized_items], restaurant)
+    dish_ingredients_by_id = _get_removable_dish_ingredients(
+        {
+            modifier["dish_ingredient_id"]
+            for item in normalized_items
+            for modifier in item["modifiers"]
+        }
+    )
     validated_items = []
     subtotal = Decimal("0.00")
 
     for item in normalized_items:
         dish = dishes[item["dish_id"]]
         quantity = item["quantity"]
-        modifiers = _normalize_modifiers(dish, item["modifiers"])
+        modifiers = _normalize_modifiers(
+            dish,
+            item["modifiers"],
+            dish_ingredients_by_id,
+        )
         unit_price = _priced_unit_amount(dish.price, modifiers)
         line_total = unit_price * quantity
         subtotal += line_total
@@ -965,6 +1188,24 @@ def get_table_for_payload(payload, restaurant):
     return get_table_for_ordering_context(ordering_context)
 
 
+def get_order_mode_for_ordering_context(ordering_context):
+    try:
+        order_mode = Order.Mode(ordering_context.source)
+    except ValueError:
+        raise CartValidationError(
+            "Режим заказа не определён.",
+            code="order_mode_required",
+        )
+
+    if order_mode == Order.Mode.LEGACY:
+        raise CartValidationError(
+            "Старый режим заказа нельзя использовать для нового заказа.",
+            code="invalid_order_mode",
+        )
+
+    return order_mode
+
+
 def create_order_from_payload(payload, request=None, language="ru"):
     ordering_context = resolve_ordering_context(payload)
     idempotency_key = get_idempotency_key(payload, request=request)
@@ -994,6 +1235,7 @@ def create_order_from_payload(payload, request=None, language="ru"):
     idempotency_fingerprint = cart.fingerprint
     validate_quote_for_cart(payload, cart)
     table = get_table_for_ordering_context(ordering_context)
+    order_mode = get_order_mode_for_ordering_context(ordering_context)
     payment_method = payload.get("payment_method") or payload.get("payment")
 
     if payment_method not in Payment.Method.values:
@@ -1018,12 +1260,17 @@ def create_order_from_payload(payload, request=None, language="ru"):
             order = Order.objects.create(
                 restaurant=restaurant,
                 table=table,
+                order_mode=order_mode,
+                restaurant_name_snapshot=restaurant.name,
+                restaurant_slug_snapshot=restaurant.slug,
+                table_number_snapshot=table.number if table else "",
+                table_title_snapshot=table.title if table else "",
                 user=user,
                 session_key=session_key,
                 idempotency_key=idempotency_key,
                 idempotency_actor_scope=actor_scope,
                 idempotency_fingerprint=idempotency_fingerprint,
-                guests_count=normalize_quantity(payload.get("guests_count") or payload.get("persons") or 1),
+                guests_count=normalize_guests_count(guests_count_from_payload(payload)),
                 comment=normalize_order_comment(payload.get("comment")),
                 currency=cart.currency,
                 subtotal_amount=cart.subtotal,
@@ -1035,6 +1282,17 @@ def create_order_from_payload(payload, request=None, language="ru"):
                     order=order,
                     dish=item.dish,
                     dish_name=item.name,
+                    dish_code_snapshot=item.dish.code,
+                    category_name_snapshot=(
+                        item.dish.category.name
+                        if item.dish.category_id
+                        else ""
+                    ),
+                    category_code_snapshot=(
+                        item.dish.category.code
+                        if item.dish.category_id
+                        else ""
+                    ),
                     quantity=item.quantity,
                     unit_price=item.unit_price,
                     line_total=item.line_total,

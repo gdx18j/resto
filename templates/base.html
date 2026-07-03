@@ -1,6 +1,6 @@
 {% load socialaccount static %}
 <!doctype html>
-<html lang="ru" data-language="ru">
+<html lang="{{ ui_language|default:'ru' }}" data-language="{{ ui_language|default:'ru' }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -8,25 +8,7 @@
   <meta name="description" content="{% block meta_description %}Цифровое меню ресторана Caesar & Company.{% endblock %}">
   <title>{% block title %}Caesar &amp; Company{% endblock %}</title>
 
-  <script>
-    (function () {
-      var supported = { ru: true, en: true, tr: true };
-      var language = "ru";
-
-      try {
-        language = window.localStorage.getItem("cc_language") || language;
-      } catch (error) {
-        language = "ru";
-      }
-
-      if (!supported[language]) {
-        language = "ru";
-      }
-
-      document.documentElement.dataset.language = language;
-      document.documentElement.lang = language;
-    })();
-  </script>
+  <script src="{% static 'js/ui-preferences.js' %}"></script>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -37,12 +19,17 @@
   {% block extra_head %}{% endblock %}
 </head>
 <body>
+  <a class="skip-link" href="#menu">
+    <span class="lang lang--ru">Перейти к содержимому</span>
+    <span class="lang lang--en">Skip to content</span>
+    <span class="lang lang--tr">İçeriğe geç</span>
+  </a>
   <input class="state-control" type="checkbox" id="theme-toggle" checked>
   <input class="state-control" type="checkbox" id="profile-toggle">
 
-  <input class="state-control" type="radio" name="language" id="lang-ru" checked>
-  <input class="state-control" type="radio" name="language" id="lang-en">
-  <input class="state-control" type="radio" name="language" id="lang-tr">
+  <input class="state-control" type="radio" name="language" id="lang-ru"{% if ui_language == "ru" %} checked{% endif %}>
+  <input class="state-control" type="radio" name="language" id="lang-en"{% if ui_language == "en" %} checked{% endif %}>
+  <input class="state-control" type="radio" name="language" id="lang-tr"{% if ui_language == "tr" %} checked{% endif %}>
 
   <svg class="icon-sprite" aria-hidden="true">
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
@@ -67,16 +54,22 @@
 
   <div
     class="app-shell"
-    onclick=""
-    data-cart-quote-url="{% url 'orders:quote' %}"
-    data-cart-create-url="{% url 'orders:create' %}"
+    data-ordering-enabled="{% if cart_disabled %}0{% else %}1{% endif %}"
+    data-cart-quote-url="{% if not cart_disabled %}{% url 'orders:quote' %}{% endif %}"
+    data-cart-create-url="{% if not cart_disabled %}{% url 'orders:create' %}{% endif %}"
     data-cart-restaurant-slug="{% if cart_restaurant %}{{ cart_restaurant.slug }}{% endif %}"
-    data-cart-table-token="{{ cart_table_token|default:'' }}"
+    data-cart-table-context="{{ cart_table_context|default:'' }}"
+    data-cart-table-number="{{ current_table_number|default:'' }}"
     data-cart-order-source="{{ cart_order_source|default:'' }}"
+    data-cart-storage-scope="{{ cart_storage_scope|default:'' }}"
+    data-table-context-activation-url="{{ table_context_activation_url|default:'' }}"
+    data-table-context-clean-url="{{ table_context_clean_url|default:'' }}"
+    data-table-context-ttl-seconds="{{ table_context_ttl_seconds|default:43200 }}"
+    data-table-context-clear="{% if clear_table_context %}1{% else %}0{% endif %}"
   >
     <header class="site-header">
       <div class="header-inner page-width">
-        <a class="brand" href="{% url 'menu:dish_list' %}" aria-label="Caesar & Company">
+        <a class="brand" href="{{ menu_home_url|default:'/' }}" aria-label="Caesar & Company">
           <span class="brand-mark">C</span>
           <span class="brand-copy">
             <strong>CAESAR</strong>
@@ -84,16 +77,32 @@
           </span>
         </a>
 
-        {% if request.session.table_number %}
-          <span class="table-badge" title="Ваш стол">
+        {% if current_table_number %}
+          <span
+            class="table-badge"
+            title="{% if ui_language == 'en' %}Your table{% elif ui_language == 'tr' %}Masanız{% else %}Ваш стол{% endif %}"
+            data-i18n-title
+            data-title-ru="Ваш стол"
+            data-title-en="Your table"
+            data-title-tr="Masanız"
+          >
             <svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14"><path d="M3 9h18M3 9l1.5 11h15L21 9M3 9l1-5h16l1 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Стол {{ request.session.table_number }}
+            <span class="lang lang--ru">Стол {{ current_table_number }}</span>
+            <span class="lang lang--en">Table {{ current_table_number }}</span>
+            <span class="lang lang--tr">Masa {{ current_table_number }}</span>
           </span>
         {% endif %}
 
         <div class="header-actions">
           <details class="language-menu">
-            <summary class="icon-button language-summary" aria-label="Выбрать язык">
+            <summary
+              class="icon-button language-summary"
+              aria-label="{% if ui_language == 'en' %}Choose language{% elif ui_language == 'tr' %}Dil seçin{% else %}Выбрать язык{% endif %}"
+              data-i18n-aria-label
+              data-aria-label-ru="Выбрать язык"
+              data-aria-label-en="Choose language"
+              data-aria-label-tr="Dil seçin"
+            >
               <svg><use href="#i-globe"/></svg>
               <span class="current-language">
                 <span class="lang lang--ru">RU</span>
@@ -108,7 +117,15 @@
             </div>
           </details>
 
-          <label class="icon-button" for="theme-toggle" aria-label="Переключить тему">
+          <label
+            class="icon-button"
+            for="theme-toggle"
+            aria-label="{% if ui_language == 'en' %}Switch theme{% elif ui_language == 'tr' %}Temayı değiştir{% else %}Переключить тему{% endif %}"
+            data-i18n-aria-label
+            data-aria-label-ru="Переключить тему"
+            data-aria-label-en="Switch theme"
+            data-aria-label-tr="Temayı değiştir"
+          >
             <svg class="theme-icon theme-icon--light"><use href="#i-sun"/></svg>
             <svg class="theme-icon theme-icon--dark"><use href="#i-moon"/></svg>
           </label>
@@ -117,7 +134,11 @@
             class="icon-button profile-button"
             type="button"
             data-modal-open="profile-popover"
-            aria-label="Личный кабинет"
+            aria-label="{% if ui_language == 'en' %}Personal account{% elif ui_language == 'tr' %}Kişisel hesap{% else %}Личный кабинет{% endif %}"
+            data-i18n-aria-label
+            data-aria-label-ru="Личный кабинет"
+            data-aria-label-en="Personal account"
+            data-aria-label-tr="Kişisel hesap"
           >
             <svg><use href="#i-user"/></svg>
             <span class="profile-button__label">
@@ -144,7 +165,14 @@
             <span class="lang lang--tr">Dijital restoran menüsü.</span>
           </p>
         </div>
-        <nav class="footer__links" aria-label="Навигация">
+        <nav
+          class="footer__links"
+          aria-label="{% if ui_language == 'en' %}Navigation{% elif ui_language == 'tr' %}Gezinme{% else %}Навигация{% endif %}"
+          data-i18n-aria-label
+          data-aria-label-ru="Навигация"
+          data-aria-label-en="Navigation"
+          data-aria-label-tr="Gezinme"
+        >
           <a href="{% url 'menu:dish_list' %}">
             <span class="lang lang--ru">Меню</span>
             <span class="lang lang--en">Menu</span>
@@ -165,7 +193,7 @@
           {% endif %}
         </nav>
       </div>
-      <div class="footer__bottom page-width">© 2026 Caesar &amp; Company</div>
+      <div class="footer__bottom page-width">© {% now "Y" %} Caesar &amp; Company</div>
     </footer>
 
     <div
@@ -174,9 +202,27 @@
       data-modal-toggle-id="profile-toggle"
       aria-hidden="true"
     >
-      <button class="profile-popover-backdrop" type="button" data-modal-close aria-label="Закрыть"></button>
+      <button
+        class="profile-popover-backdrop"
+        type="button"
+        data-modal-close
+        aria-label="{% if ui_language == 'en' %}Close{% elif ui_language == 'tr' %}Kapat{% else %}Закрыть{% endif %}"
+        data-i18n-aria-label
+        data-aria-label-ru="Закрыть"
+        data-aria-label-en="Close"
+        data-aria-label-tr="Kapat"
+      ></button>
       <aside class="profile-popover" role="dialog" aria-modal="true" aria-labelledby="profile-popover-title" data-modal-dialog>
-        <button class="close-button" type="button" data-modal-close aria-label="Закрыть">
+        <button
+          class="close-button"
+          type="button"
+          data-modal-close
+          aria-label="{% if ui_language == 'en' %}Close{% elif ui_language == 'tr' %}Kapat{% else %}Закрыть{% endif %}"
+          data-i18n-aria-label
+          data-aria-label-ru="Закрыть"
+          data-aria-label-en="Close"
+          data-aria-label-tr="Kapat"
+        >
           <svg><use href="#i-close"/></svg>
         </button>
 
@@ -277,18 +323,21 @@
       </aside>
     </div>
 
-    {% if not hide_ai_widget %}
+    {% if not hide_ai_widget and cart_restaurant %}
       {% include "ai_assistant/widget.html" %}
     {% endif %}
   </div>
 
+  <script src="{% static 'js/table-context.js' %}" defer></script>
   <script src="{% static 'js/theme.js' %}" defer></script>
   <script src="{% static 'js/modal-manager.js' %}" defer></script>
   <script src="{% static 'js/menu-ui.js' %}" defer></script>
   <script src="{% static 'js/language-menu.js' %}" defer></script>
   <script src="{% static 'js/password-toggle.js' %}" defer></script>
   <script src="{% static 'js/ai-assistant.js' %}" defer></script>
-  <script src="{% static 'js/cart.js' %}" defer></script>
+  {% if not cart_disabled %}
+    <script src="{% static 'js/cart.js' %}" defer></script>
+  {% endif %}
   {% block extra_scripts %}{% endblock %}
 </body>
 </html>

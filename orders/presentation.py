@@ -52,9 +52,15 @@ def repeat_order_result(order):
         "available": [],
         "changed": [],
         "unavailable": [],
+        "context": {
+            "restaurant_slug": order.restaurant_slug_snapshot,
+            "order_mode": order.order_mode,
+            "table_number": order.table_number_snapshot,
+        },
     }
 
-    dish_ids = [item.dish_id for item in order.items.all()]
+    items = list(order.items.all())
+    dish_ids = [item.dish_id for item in items]
     dishes = {
         dish.id: dish
         for dish in Dish.objects.filter(
@@ -64,10 +70,23 @@ def repeat_order_result(order):
             is_available=True,
         )
     }
+    dish_ingredient_ids = {
+        modifier.dish_ingredient_id
+        for item in items
+        for modifier in item.modifiers.all()
+        if modifier.dish_ingredient_id is not None
+    }
+    current_modifiers = {
+        dish_ingredient.id: dish_ingredient
+        for dish_ingredient in DishIngredient.objects.select_related("ingredient").filter(
+            id__in=dish_ingredient_ids,
+            can_be_removed=True,
+        )
+    }
 
-    for item in order.items.all():
+    for item in items:
         base_payload = {
-            "id": f"dish-{item.dish_id}",
+            "id": f"repeat-order-item-{item.id}",
             "dish_id": item.dish_id,
             "name": item.dish_name,
             "price": f"{item.unit_price:.2f}",
@@ -103,17 +122,9 @@ def repeat_order_result(order):
                 changed_reasons.append("modifier_changed")
                 continue
 
-            current_modifier = (
-                DishIngredient.objects.select_related("ingredient")
-                .filter(
-                    id=modifier.dish_ingredient_id,
-                    dish=dish,
-                    can_be_removed=True,
-                )
-                .first()
-            )
+            current_modifier = current_modifiers.get(modifier.dish_ingredient_id)
 
-            if current_modifier is None:
+            if current_modifier is None or current_modifier.dish_id != dish.id:
                 modifier_unavailable = True
                 result["unavailable"].append(
                     {
@@ -196,6 +207,10 @@ def decorate_order(order):
     order.repeat_result = repeat_order_result(order)
     order.repeat_result_json = _safe_json(order.repeat_result)
     order.repeat_available_items_json = _safe_json(order.repeat_result["available"])
+    order.can_repeat_in_table_context = (
+        order.order_mode == Order.Mode.TABLE
+        and bool(order.restaurant_slug_snapshot)
+    )
     order.items_count = sum(item.quantity for item in items)
     order.preview_items = items[:2]
     order.hidden_items_count = max(0, len(items) - len(order.preview_items))

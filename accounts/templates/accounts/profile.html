@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Профиль | Caesar &amp; Company{% endblock %}
+{% block title %}{% if ui_language == "en" %}Profile{% elif ui_language == "tr" %}Profil{% else %}Профиль{% endif %} | Caesar &amp; Company{% endblock %}
 
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'css/accounts.css' %}">
@@ -129,15 +129,19 @@
       {% if recent_orders %}
         <div class="profile-recent-orders">
           {% for order in recent_orders %}
-            <article
-              class="profile-recent-order"
-              data-order-trigger
-              data-order-id="{{ order.id }}"
-              tabindex="0"
-              role="button"
-              aria-haspopup="dialog"
-              aria-label="Подробности заказа №{{ order.id }}"
-            >
+            <article class="profile-recent-order">
+              <button
+                class="profile-recent-order__open"
+                type="button"
+                data-order-trigger
+                data-order-id="{{ order.id }}"
+                aria-haspopup="dialog"
+                aria-label="{% if ui_language == 'en' %}Order #{{ order.id }} details{% elif ui_language == 'tr' %}Sipariş #{{ order.id }} detayları{% else %}Подробности заказа №{{ order.id }}{% endif %}"
+                data-i18n-aria-label
+                data-aria-label-ru="Подробности заказа №{{ order.id }}"
+                data-aria-label-en="Order #{{ order.id }} details"
+                data-aria-label-tr="Sipariş #{{ order.id }} detayları"
+              ></button>
               <div class="profile-recent-order__main">
                 <span class="profile-recent-order__id">
                   <span class="lang lang--ru">Заказ №{{ order.id }}</span>

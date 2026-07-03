@@ -1,32 +1,57 @@
 import json
+import uuid
+
+import httpx
 from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
+from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import UserAllergy
+from menu.allergen_review import review_dish_allergen_link
 from menu.models import Allergen, Category, Dish, DishAllergen
 from orders.models import Restaurant, Table
 
-from .models import AIUsageEvent, ChatMessage, ChatSession
+from .models import AIRequestRecord, AIUsageEvent, ChatMessage, ChatSession
 from .services import (
+    AIProviderUsage,
     AIResult,
     AIServiceError,
+    AIStreamHandle,
     build_menu_context,
     build_user_context,
     detect_response_language,
     get_configured_model_names,
+    generate_ai_answer,
     get_gemini_client,
+    parse_ai_response,
 )
-from .throttling import AIStreamSlot
+from .retrieval import retrieve_menu_dishes
+from .throttling import (
+    AIQuotaReservation,
+    AIStreamSlot,
+    ReservedCounter,
+    _acquire_lease,
+    _release_lease,
+    acquire_ai_request_slot,
+    reconcile_ai_quota_reservation,
+    release_ai_request_slot,
+)
 
 
 class GeminiServiceTests(TestCase):
+    def setUp(self):
+        self.restaurant = Restaurant.objects.create(
+            name="AI Service Test Restaurant",
+            slug="ai-service-test",
+        )
+
     @override_settings(GEMINI_API_KEY="")
     def test_requires_api_key(self):
         get_gemini_client.cache_clear()
@@ -54,7 +79,7 @@ class GeminiServiceTests(TestCase):
     def test_menu_context_handles_empty_menu(self):
         self.assertIn(
             "No active available dishes",
-            build_menu_context(),
+            build_menu_context(self.restaurant.id),
         )
 
     def test_menu_context_uses_supplied_restaurant_id(self):
@@ -109,19 +134,29 @@ class GeminiServiceTests(TestCase):
             name="Suggested soy",
             code="suggested-soy-ai",
         )
-        DishAllergen.objects.create(
+        verified_link = DishAllergen.objects.create(
             dish=dish,
             allergen=verified,
             relation_type=DishAllergen.RelationType.CONTAINS,
             source=DishAllergen.Source.RECIPE,
-            verification_status=DishAllergen.VerificationStatus.VERIFIED,
+            verification_status=DishAllergen.VerificationStatus.SUGGESTED,
         )
-        DishAllergen.objects.create(
+        trace_link = DishAllergen.objects.create(
             dish=dish,
             allergen=trace,
             relation_type=DishAllergen.RelationType.CROSS_CONTAMINATION,
             source=DishAllergen.Source.MANUAL,
-            verification_status=DishAllergen.VerificationStatus.VERIFIED,
+            verification_status=DishAllergen.VerificationStatus.SUGGESTED,
+        )
+        review_dish_allergen_link(
+            verified_link.pk,
+            decision=DishAllergen.VerificationStatus.VERIFIED,
+            actor=None,
+        )
+        review_dish_allergen_link(
+            trace_link.pk,
+            decision=DishAllergen.VerificationStatus.VERIFIED,
+            actor=None,
         )
         DishAllergen.objects.create(
             dish=dish,
@@ -186,7 +221,11 @@ class GeminiServiceTests(TestCase):
             allergen=allergen,
             status=UserAllergy.Status.CONFIRMED,
         )
-        session = ChatSession.objects.create(user=user, session_key="private")
+        session = ChatSession.objects.create(
+            user=user,
+            restaurant=self.restaurant,
+            session_key="private",
+        )
 
         context = build_user_context(session)
 
@@ -209,7 +248,11 @@ class GeminiServiceTests(TestCase):
             allergen=allergen,
             status=UserAllergy.Status.CONFIRMED,
         )
-        session = ChatSession.objects.create(user=user, session_key="shared")
+        session = ChatSession.objects.create(
+            user=user,
+            restaurant=self.restaurant,
+            session_key="shared",
+        )
 
         context = build_user_context(session)
 
@@ -217,10 +260,106 @@ class GeminiServiceTests(TestCase):
         self.assertIn("No other profile fields are included", context)
         self.assertNotIn(user.email, context)
 
+    def test_menu_context_includes_stable_dish_ids(self):
+        dish = Dish.objects.create(
+            restaurant=self.restaurant,
+            name="Structured menu dish",
+            price="190.00",
+            is_active=True,
+            is_available=True,
+        )
+
+        context = build_menu_context(
+            self.restaurant.id,
+            prompt="Structured menu dish",
+        )
+
+        self.assertIn(f"dish_id: {dish.id}", context)
+        self.assertIn("menu_candidates", context)
+
+    def test_structured_response_filters_unknown_and_duplicate_ids(self):
+        result = parse_ai_response(
+            json.dumps(
+                {
+                    "answer": "Try the first option.",
+                    "recommended_dish_ids": [11, 999, 11],
+                }
+            ),
+            model_name="gemini-test",
+            candidate_dish_ids=(11, 12),
+        )
+
+        self.assertEqual(result.text, "Try the first option.")
+        self.assertEqual(result.recommended_dish_ids, (11,))
+
+    def test_retrieval_uses_current_menu_data_instead_of_named_rules(self):
+        food_category = Category.objects.create(
+            restaurant=self.restaurant,
+            name="Hot meals",
+        )
+        drink_category = Category.objects.create(
+            restaurant=self.restaurant,
+            name="Coffee",
+        )
+        matching = Dish.objects.create(
+            restaurant=self.restaurant,
+            category=food_category,
+            name="Turkey Fire Wrap",
+            description="Spicy turkey sandwich with vegetables",
+            price="390.00",
+            is_active=True,
+            is_available=True,
+        )
+        Dish.objects.create(
+            restaurant=self.restaurant,
+            category=drink_category,
+            name="Dark Roast",
+            description="Hot black coffee",
+            price="150.00",
+            is_active=True,
+            is_available=True,
+        )
+
+        result = retrieve_menu_dishes(
+            restaurant_id=self.restaurant.id,
+            prompt="Recommend a spicy turkey sandwich",
+            language="en",
+            limit=2,
+        )
+
+        self.assertEqual(result.dishes[0].id, matching.id)
+
+
+    @override_settings(
+        GEMINI_MODEL="gemini-primary",
+        GEMINI_FALLBACK_MODEL="gemini-fallback",
+    )
+    @patch("ai_assistant.services._prepare_ai_request", return_value=object())
+    @patch(
+        "ai_assistant.services.generate_with_model",
+        side_effect=httpx.ReadTimeout("provider timed out"),
+    )
+    def test_provider_timeout_does_not_double_total_deadline_with_fallback(
+        self,
+        generate_with_model_mock,
+        _prepare_request_mock,
+    ):
+        session = ChatSession(restaurant=self.restaurant)
+
+        with self.assertRaises(AIServiceError) as error_context:
+            generate_ai_answer(session)
+
+        self.assertEqual(error_context.exception.code, "provider_timeout")
+        self.assertEqual(generate_with_model_mock.call_count, 1)
+
 
 class AskViewTests(TestCase):
     def setUp(self):
         cache.clear()
+        self.restaurant, _ = Restaurant.objects.get_or_create(
+            slug="caesar-company",
+            defaults={"name": "Caesar & Company"},
+        )
 
     def post_prompt(
         self,
@@ -229,22 +368,31 @@ class AskViewTests(TestCase):
         language=None,
         restaurant_slug=None,
         table_token=None,
+        table_context=None,
+        request_id=None,
     ):
         payload = {
             "prompt": prompt,
+            "request_id": str(request_id or uuid.uuid4()),
         }
 
         if session_id:
-            payload["session_id"] = session_id
+            payload["session_id"] = str(session_id)
 
         if language:
             payload["language"] = language
+
+        if restaurant_slug is None:
+            restaurant_slug = self.restaurant.slug
 
         if restaurant_slug:
             payload["restaurant_slug"] = restaurant_slug
 
         if table_token:
             payload["table_token"] = table_token
+
+        if table_context:
+            payload["table_context"] = table_context
 
         return self.client.post(
             reverse("ai_assistant:ask"),
@@ -266,6 +414,29 @@ class AskViewTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("JSON", response.json()["error"])
+
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        return_value=AIResult(text="Legacy client answer", model_name="gemini-test"),
+    )
+    def test_missing_request_id_is_generated_for_cached_legacy_client(
+        self,
+        _generate_ai_answer_mock,
+    ):
+        response = self.client.post(
+            reverse("ai_assistant:ask"),
+            data=json.dumps(
+                {
+                    "prompt": "Hello from cached JavaScript",
+                    "restaurant_slug": self.restaurant.slug,
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        generated_request_id = uuid.UUID(response.json()["request_id"])
+        self.assertTrue(AIRequestRecord.objects.filter(pk=generated_request_id).exists())
 
     def test_rejects_non_object_json(self):
         response = self.client.post(
@@ -344,13 +515,7 @@ class AskViewTests(TestCase):
         self.assertEqual(usage_event.model_name, "gemini-test")
         self.assertGreater(usage_event.estimated_total_tokens, 0)
 
-    @patch(
-        "ai_assistant.views.generate_ai_answer",
-        return_value=AIResult(
-            text="I recommend Only Branch B AI Dish.",
-            model_name="gemini-test",
-        ),
-    )
+    @patch("ai_assistant.views.generate_ai_answer")
     def test_ai_uses_qr_restaurant_context_for_session_and_cards(self, generate_ai_answer_mock):
         restaurant_b = Restaurant.objects.create(
             name="AI Branch B",
@@ -367,6 +532,11 @@ class AskViewTests(TestCase):
             price="250.00",
             is_active=True,
             is_available=True,
+        )
+        generate_ai_answer_mock.return_value = AIResult(
+            text="I recommend Only Branch B AI Dish.",
+            model_name="gemini-test",
+            recommended_dish_ids=(dish_b.id,),
         )
         table_b = Table.objects.create(
             restaurant=restaurant_b,
@@ -393,8 +563,11 @@ class AskViewTests(TestCase):
         self.assertEqual(ChatSession.objects.get().restaurant, restaurant_b)
         dishes = response.json()["recommended_dishes"]
         self.assertEqual(dishes[0]["id"], dish_b.id)
+        table_context = session.ordering_context.table_context
+        self.assertTrue(table_context)
+        self.assertNotIn(table_b_token, dishes[0]["url"])
         self.assertIn(
-            reverse("menu:table_menu", args=[table_b_token]),
+            reverse("menu:table_context_menu", args=[table_context]),
             dishes[0]["url"],
         )
 
@@ -541,7 +714,7 @@ class AskViewTests(TestCase):
     ):
         response = self.client.post(
             reverse("ai_assistant:ask"),
-            data=json.dumps({"prompt": "Stream please"}),
+            data=json.dumps({"prompt": "Stream please", "restaurant_slug": self.restaurant.slug, "request_id": str(uuid.uuid4())}),
             content_type="application/json",
             HTTP_ACCEPT="application/x-ndjson",
             HTTP_X_AI_STREAM="1",
@@ -551,8 +724,7 @@ class AskViewTests(TestCase):
         self.assertEqual(response["Retry-After"], "180")
         acquire_ai_stream_slot_mock.assert_called_once()
         generate_ai_answer_stream_mock.assert_not_called()
-        session = ChatSession.objects.get()
-        self.assertEqual(session.messages.count(), 0)
+        self.assertEqual(ChatSession.objects.count(), 0)
         usage_event = AIUsageEvent.objects.get()
         self.assertEqual(usage_event.status, AIUsageEvent.Status.THROTTLED)
         self.assertEqual(usage_event.limit_reason, "actor_stream_concurrency")
@@ -590,8 +762,7 @@ class AskViewTests(TestCase):
         acquire_ai_session_slot_mock.assert_called_once()
         generate_ai_answer_mock.assert_not_called()
 
-        session = ChatSession.objects.get()
-        self.assertEqual(session.messages.count(), 0)
+        self.assertEqual(ChatSession.objects.count(), 0)
         usage_event = AIUsageEvent.objects.get()
         self.assertEqual(usage_event.status, AIUsageEvent.Status.THROTTLED)
         self.assertEqual(usage_event.limit_reason, "session_in_progress")
@@ -628,6 +799,7 @@ class AskViewTests(TestCase):
             password="strong-pass-123",
         )
         old_session = ChatSession.objects.create(
+            restaurant=self.restaurant,
             user=user,
             session_key="old-session",
             title="Old chat",
@@ -638,6 +810,7 @@ class AskViewTests(TestCase):
             content="Старый вопрос",
         )
         latest_session = ChatSession.objects.create(
+            restaurant=self.restaurant,
             user=user,
             session_key="latest-session",
             title="Latest chat",
@@ -660,7 +833,10 @@ class AskViewTests(TestCase):
         ChatSession.objects.filter(id=latest_session.id).update(updated_at=now)
         self.client.force_login(user)
 
-        response = self.client.get(reverse("ai_assistant:history"))
+        response = self.client.get(
+            reverse("ai_assistant:history"),
+            {"restaurant_slug": self.restaurant.slug},
+        )
 
         self.assertEqual(response.status_code, 200)
 
@@ -682,6 +858,7 @@ class AskViewTests(TestCase):
             password="strong-pass-123",
         )
         requested_session = ChatSession.objects.create(
+            restaurant=self.restaurant,
             user=user,
             session_key="requested-session",
             title="Requested chat",
@@ -692,6 +869,7 @@ class AskViewTests(TestCase):
             content="Верни этот диалог",
         )
         ChatSession.objects.create(
+            restaurant=self.restaurant,
             user=user,
             session_key="latest-session",
             title="Latest chat",
@@ -702,6 +880,7 @@ class AskViewTests(TestCase):
             reverse("ai_assistant:history"),
             {
                 "session_id": str(requested_session.id),
+                "restaurant_slug": self.restaurant.slug,
             },
         )
 
@@ -718,6 +897,7 @@ class AskViewTests(TestCase):
             password="strong-pass-123",
         )
         owned_session = ChatSession.objects.create(
+            restaurant=self.restaurant,
             user=user,
             session_key="owned-export",
             title="Owned export",
@@ -728,6 +908,7 @@ class AskViewTests(TestCase):
             content="Мой вопрос",
         )
         other_session = ChatSession.objects.create(
+            restaurant=self.restaurant,
             user=other_user,
             session_key="other-export",
             title="Other export",
@@ -765,6 +946,7 @@ class AskViewTests(TestCase):
             password="strong-pass-123",
         )
         owned_session = ChatSession.objects.create(
+            restaurant=self.restaurant,
             user=user,
             session_key="owned-delete",
             title="Owned delete",
@@ -780,6 +962,7 @@ class AskViewTests(TestCase):
             status=AIUsageEvent.Status.COMPLETED,
         )
         other_session = ChatSession.objects.create(
+            restaurant=self.restaurant,
             user=other_user,
             session_key="other-delete",
             title="Other delete",
@@ -803,13 +986,7 @@ class AskViewTests(TestCase):
         self.assertFalse(AIUsageEvent.objects.filter(id=owned_event.id).exists())
         self.assertTrue(AIUsageEvent.objects.filter(id=other_event.id).exists())
 
-    @patch(
-        "ai_assistant.views.generate_ai_answer",
-        return_value=AIResult(
-            text="Советую Caesar Salad: легкий салат с понятным составом.",
-            model_name="gemini-test",
-        ),
-    )
+    @patch("ai_assistant.views.generate_ai_answer")
     def test_answer_includes_recommended_dish_cards(self, generate_ai_answer_mock):
         dish = Dish.objects.create(
             name="Caesar Salad",
@@ -819,6 +996,11 @@ class AskViewTests(TestCase):
             is_available=True,
         )
 
+        generate_ai_answer_mock.return_value = AIResult(
+            text="Советую Caesar Salad: легкий салат с понятным составом.",
+            model_name="gemini-test",
+            recommended_dish_ids=(dish.id,),
+        )
         response = self.post_prompt("Посоветуй салат")
 
         self.assertEqual(response.status_code, 200)
@@ -831,13 +1013,7 @@ class AskViewTests(TestCase):
         )
         generate_ai_answer_mock.assert_called_once()
 
-    @patch(
-        "ai_assistant.views.generate_ai_answer",
-        return_value=AIResult(
-            text="Пиццы сейчас нет, но есть похожие варианты.",
-            model_name="gemini-test",
-        ),
-    )
+    @patch("ai_assistant.views.generate_ai_answer")
     def test_pizza_request_includes_closest_food_alternative_cards(self, generate_ai_answer_mock):
         category = Category.objects.create(name="Другие блюда")
         dish = Dish.objects.create(
@@ -849,19 +1025,18 @@ class AskViewTests(TestCase):
             is_available=True,
         )
 
+        generate_ai_answer_mock.return_value = AIResult(
+            text="Пиццы сейчас нет, но есть похожие варианты.",
+            model_name="gemini-test",
+            recommended_dish_ids=(dish.id,),
+        )
         response = self.post_prompt("Хочу пиццу")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["recommended_dishes"][0]["name"], dish.name)
         generate_ai_answer_mock.assert_called_once()
 
-    @patch(
-        "ai_assistant.views.generate_ai_answer",
-        return_value=AIResult(
-            text="Могу предложить Americano.",
-            model_name="gemini-test",
-        ),
-    )
+    @patch("ai_assistant.views.generate_ai_answer")
     def test_savory_request_does_not_recommend_coffee_cards(self, generate_ai_answer_mock):
         sandwich_category = Category.objects.create(name="Сэндвичи")
         coffee_category = Category.objects.create(name="Горячий кофе")
@@ -882,6 +1057,11 @@ class AskViewTests(TestCase):
             is_available=True,
         )
 
+        generate_ai_answer_mock.return_value = AIResult(
+            text="Могу предложить сэндвич Crassus.",
+            model_name="gemini-test",
+            recommended_dish_ids=(sandwich.id,),
+        )
         response = self.post_prompt("Хочу шаурму")
 
         self.assertEqual(response.status_code, 200)
@@ -890,19 +1070,7 @@ class AskViewTests(TestCase):
         self.assertNotIn("Americano", names)
         generate_ai_answer_mock.assert_called_once()
 
-    @patch(
-        "ai_assistant.views.generate_ai_answer",
-        side_effect=[
-            AIResult(
-                text="Попробуйте Focaccia, Pompei Magnus и Octavian.",
-                model_name="gemini-test",
-            ),
-            AIResult(
-                text="Можно взять Crassus или Focaccia.",
-                model_name="gemini-test",
-            ),
-        ],
-    )
+    @patch("ai_assistant.views.generate_ai_answer")
     def test_other_options_request_excludes_previous_suggestions(self, generate_ai_answer_mock):
         category = Category.objects.create(name="Сэндвичи")
         previous_dish = Dish.objects.create(
@@ -922,6 +1090,18 @@ class AskViewTests(TestCase):
             is_available=True,
         )
 
+        generate_ai_answer_mock.side_effect = [
+            AIResult(
+                text="Попробуйте Focaccia.",
+                model_name="gemini-test",
+                recommended_dish_ids=(previous_dish.id,),
+            ),
+            AIResult(
+                text="Можно взять Crassus.",
+                model_name="gemini-test",
+                recommended_dish_ids=(new_dish.id,),
+            ),
+        ]
         first_response = self.post_prompt("Посоветуй что-нибудь")
         session_id = first_response.json()["session_id"]
         second_response = self.post_prompt("Дай другие варианты", session_id=session_id)
@@ -952,11 +1132,15 @@ class AskViewTests(TestCase):
             is_active=True,
             is_available=True,
         )
-        generate_ai_answer_stream_mock.return_value = ("gemini-test", broken_stream())
+        generate_ai_answer_stream_mock.return_value = AIStreamHandle(
+            model_name="gemini-test",
+            stream=broken_stream(),
+            candidate_dish_ids=(),
+        )
 
         response = self.client.post(
             reverse("ai_assistant:ask"),
-            data=json.dumps({"prompt": "Хочу пиццу"}),
+            data=json.dumps({"prompt": "Хочу пиццу", "restaurant_slug": self.restaurant.slug, "request_id": str(uuid.uuid4())}),
             content_type="application/json",
             HTTP_ACCEPT="application/x-ndjson",
             HTTP_X_AI_STREAM="1",
@@ -972,7 +1156,7 @@ class AskViewTests(TestCase):
         assistant_message = ChatMessage.objects.filter(
             role=ChatMessage.Role.ASSISTANT,
         ).get()
-        self.assertEqual(assistant_message.model_name, "local-quota-fallback")
+        self.assertEqual(assistant_message.model_name, "local-menu-fallback")
 
     @patch(
         "ai_assistant.views.generate_ai_answer",
@@ -991,6 +1175,345 @@ class AskViewTests(TestCase):
         self.assertEqual(session.messages.count(), 1)
         self.assertEqual(session.messages.get().role, ChatMessage.Role.USER)
         generate_ai_answer_mock.assert_called_once_with(session)
+
+    def test_ai_request_requires_explicit_restaurant_context(self):
+        response = self.post_prompt(
+            "Hello",
+            restaurant_slug="",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "restaurant_required")
+        self.assertFalse(ChatSession.objects.exists())
+
+    def test_chat_session_requires_restaurant_at_database_level(self):
+        with self.assertRaises(IntegrityError):
+            ChatSession.objects.create(
+                session_key="missing-restaurant",
+                title="Invalid session",
+            )
+
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        return_value=AIResult(
+            text="The answer mentions Caesar Salad but does not recommend it.",
+            model_name="gemini-test",
+            recommended_dish_ids=(),
+        ),
+    )
+    def test_text_mention_does_not_attach_dish_card(self, generate_ai_answer_mock):
+        Dish.objects.create(
+            restaurant=self.restaurant,
+            name="Caesar Salad",
+            price="590.00",
+            is_active=True,
+            is_available=True,
+        )
+
+        response = self.post_prompt("Tell me about the menu")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["recommended_dishes"], [])
+        assistant_message = ChatMessage.objects.get(
+            role=ChatMessage.Role.ASSISTANT,
+        )
+        self.assertEqual(assistant_message.recommended_dish_ids, [])
+        generate_ai_answer_mock.assert_called_once()
+
+    def test_history_uses_persisted_recommendation_ids(self):
+        dish = Dish.objects.create(
+            restaurant=self.restaurant,
+            name="Persistent card dish",
+            price="320.00",
+            is_active=True,
+            is_available=True,
+        )
+        session = ChatSession.objects.create(
+            restaurant=self.restaurant,
+            session_key="persistent-card-session",
+            title="Persistent cards",
+        )
+        ChatMessage.objects.create(
+            session=session,
+            role=ChatMessage.Role.ASSISTANT,
+            content="This text does not contain the dish name.",
+            model_name="gemini-test",
+            recommended_dish_ids=[dish.id],
+        )
+        self.client.cookies.clear()
+        session.session_key = self.client.session.session_key or ""
+        if not session.session_key:
+            browser_session = self.client.session
+            browser_session.save()
+            session.session_key = browser_session.session_key
+        session.save(update_fields=["session_key", "updated_at"])
+
+        response = self.client.get(
+            reverse("ai_assistant:history"),
+            {
+                "restaurant_slug": self.restaurant.slug,
+                "session_id": str(session.id),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        cards = response.json()["messages"][0]["dishes"]
+        self.assertEqual([card["id"] for card in cards], [dish.id])
+
+
+
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        return_value=AIResult(
+            text="Idempotent answer",
+            model_name="gemini-test",
+        ),
+    )
+    def test_completed_request_is_replayed_without_second_provider_call(
+        self,
+        generate_ai_answer_mock,
+    ):
+        request_id = uuid.uuid4()
+
+        first = self.post_prompt("Hello", request_id=request_id)
+        second = self.post_prompt("Hello", request_id=request_id)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertFalse(first.json()["replayed"])
+        self.assertTrue(second.json()["replayed"])
+        self.assertEqual(first.json()["message_id"], second.json()["message_id"])
+        self.assertEqual(generate_ai_answer_mock.call_count, 1)
+        self.assertEqual(ChatMessage.objects.count(), 2)
+        request_record = AIRequestRecord.objects.get(pk=request_id)
+        self.assertEqual(request_record.status, AIRequestRecord.Status.COMPLETED)
+
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        return_value=AIResult(
+            text="First answer",
+            model_name="gemini-test",
+        ),
+    )
+    def test_request_id_cannot_be_reused_for_different_payload(
+        self,
+        generate_ai_answer_mock,
+    ):
+        request_id = uuid.uuid4()
+        first = self.post_prompt("Hello", request_id=request_id)
+        second = self.post_prompt("Different", request_id=request_id)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 409)
+        self.assertEqual(second.json()["code"], "ai_request_payload_conflict")
+        self.assertEqual(generate_ai_answer_mock.call_count, 1)
+
+    @override_settings(
+        AI_DAILY_QUOTA_GUEST=1,
+        AI_DAILY_QUOTA_IP=100,
+        AI_DAILY_TOKEN_BUDGET_GUEST=999999,
+        AI_DAILY_TOKEN_BUDGET_IP=999999,
+        AI_RATE_LIMIT_GUEST_PER_MINUTE=100,
+        AI_RATE_LIMIT_IP_PER_MINUTE=100,
+    )
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        return_value=AIResult(text="Valid answer", model_name="gemini-test"),
+    )
+    def test_invalid_session_is_rejected_before_quota_reservation(
+        self,
+        generate_ai_answer_mock,
+    ):
+        invalid = self.post_prompt("Invalid", session_id=uuid.uuid4())
+        valid = self.post_prompt("Valid")
+
+        self.assertEqual(invalid.status_code, 404)
+        self.assertEqual(valid.status_code, 200)
+        self.assertEqual(generate_ai_answer_mock.call_count, 1)
+        self.assertEqual(AIUsageEvent.objects.count(), 1)
+
+    @override_settings(
+        AI_DAILY_TOKEN_BUDGET_GUEST=1,
+        AI_DAILY_TOKEN_BUDGET_IP=999999,
+        AI_DAILY_QUOTA_GUEST=100,
+        AI_DAILY_QUOTA_IP=100,
+        AI_RATE_LIMIT_GUEST_PER_MINUTE=1,
+        AI_RATE_LIMIT_IP_PER_MINUTE=100,
+    )
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        return_value=AIResult(text="Allowed", model_name="gemini-test"),
+    )
+    def test_failed_budget_check_does_not_partially_consume_minute_limit(
+        self,
+        generate_ai_answer_mock,
+    ):
+        denied = self.post_prompt("Hello")
+        self.assertEqual(denied.status_code, 429)
+
+        with self.settings(AI_DAILY_TOKEN_BUDGET_GUEST=999999):
+            allowed = self.post_prompt("Hello again")
+
+        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual(generate_ai_answer_mock.call_count, 1)
+
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        return_value=AIResult(
+            text="Measured answer",
+            model_name="gemini-test",
+            provider_usage=AIProviderUsage(
+                prompt_tokens=12,
+                response_tokens=7,
+                total_tokens=19,
+                response_id="provider-response-1",
+            ),
+        ),
+    )
+    def test_provider_usage_is_saved_separately_from_estimate(
+        self,
+        generate_ai_answer_mock,
+    ):
+        response = self.post_prompt("Measure this")
+
+        self.assertEqual(response.status_code, 200)
+        event = AIUsageEvent.objects.get()
+        self.assertEqual(event.actual_prompt_tokens, 12)
+        self.assertEqual(event.actual_response_tokens, 7)
+        self.assertEqual(event.actual_total_tokens, 19)
+        self.assertEqual(event.provider_response_id, "provider-response-1")
+        self.assertGreater(event.estimated_total_tokens, 0)
+
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        return_value=AIResult(text="Initial answer", model_name="gemini-test"),
+    )
+    def test_processing_duplicate_returns_conflict_without_provider_call(
+        self,
+        generate_ai_answer_mock,
+    ):
+        request_id = uuid.uuid4()
+        first = self.post_prompt("Hello", request_id=request_id)
+        self.assertEqual(first.status_code, 200)
+        AIRequestRecord.objects.filter(pk=request_id).update(
+            status=AIRequestRecord.Status.PROCESSING,
+            assistant_message=None,
+            completed_at=None,
+        )
+
+        duplicate = self.post_prompt("Hello", request_id=request_id)
+
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertEqual(duplicate.json()["code"], "ai_request_in_progress")
+        self.assertEqual(generate_ai_answer_mock.call_count, 1)
+
+    def test_missing_provider_usage_keeps_conservative_token_reservation(self):
+        key = "ai-test-token-reservation"
+        cache.set(key, 25, timeout=60)
+        reservation = AIQuotaReservation(
+            allowed=True,
+            counters=[
+                ReservedCounter(
+                    key=key,
+                    amount=25,
+                    timeout=60,
+                    kind="tokens",
+                )
+            ],
+        )
+
+        reconcile_ai_quota_reservation(reservation, None)
+
+        self.assertEqual(cache.get(key), 25)
+        self.assertTrue(reservation.reconciled)
+
+    def test_old_lease_cannot_release_new_owner(self):
+        key = "ai-test-owned-lease"
+        old_lease = _acquire_lease(key, 60)
+        self.assertIsNotNone(old_lease)
+        cache.delete(key)
+        new_lease = _acquire_lease(key, 60)
+        self.assertIsNotNone(new_lease)
+
+        _release_lease(old_lease)
+
+        self.assertEqual(cache.get(key), new_lease.token)
+        _release_lease(new_lease)
+
+
+    def test_request_lease_is_held_until_non_stream_provider_finishes(self):
+        request_id = uuid.uuid4()
+
+        def generate_answer(_session):
+            competing_slot = acquire_ai_request_slot(request_id)
+            self.assertFalse(competing_slot.allowed)
+            release_ai_request_slot(competing_slot)
+            return AIResult(text="Lease-protected answer", model_name="gemini-test")
+
+        with patch(
+            "ai_assistant.views.generate_ai_answer",
+            side_effect=generate_answer,
+        ):
+            response = self.post_prompt("Hello", request_id=request_id)
+
+        self.assertEqual(response.status_code, 200)
+        available_after_completion = acquire_ai_request_slot(request_id)
+        self.assertTrue(available_after_completion.allowed)
+        release_ai_request_slot(available_after_completion)
+
+    @patch(
+        "ai_assistant.views.generate_ai_answer",
+        return_value=AIResult(text="Constraint answer", model_name="gemini-test"),
+    )
+    def test_database_rejects_terminal_request_without_completion_time(
+        self,
+        _generate_ai_answer_mock,
+    ):
+        request_id = uuid.uuid4()
+        response = self.post_prompt("Hello", request_id=request_id)
+        self.assertEqual(response.status_code, 200)
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            AIRequestRecord.objects.filter(pk=request_id).update(
+                status=AIRequestRecord.Status.FAILED,
+                assistant_message=None,
+                completed_at=None,
+            )
+
+    @patch("ai_assistant.views.generate_ai_answer_stream")
+    def test_closing_stream_marks_request_as_canceled(
+        self,
+        generate_ai_answer_stream_mock,
+    ):
+        generate_ai_answer_stream_mock.return_value = AIStreamHandle(
+            model_name="gemini-test",
+            stream=iter(()),
+            candidate_dish_ids=(),
+        )
+        request_id = uuid.uuid4()
+        response = self.client.post(
+            reverse("ai_assistant:ask"),
+            data=json.dumps(
+                {
+                    "prompt": "Stream please",
+                    "restaurant_slug": self.restaurant.slug,
+                    "request_id": str(request_id),
+                }
+            ),
+            content_type="application/json",
+            HTTP_ACCEPT="application/x-ndjson",
+            HTTP_X_AI_STREAM="1",
+        )
+        iterator = iter(response.streaming_content)
+        next(iterator)
+        response.close()
+
+        request_record = AIRequestRecord.objects.get(pk=request_id)
+        usage_event = AIUsageEvent.objects.get(request_record=request_record)
+        self.assertEqual(request_record.status, AIRequestRecord.Status.CANCELED)
+        self.assertEqual(request_record.error_code, "client_disconnected")
+        self.assertEqual(usage_event.status, AIUsageEvent.Status.CANCELED)
+
 
 
 class AssistantWidgetTests(TestCase):
@@ -1016,6 +1539,12 @@ class AssistantWidgetTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f'id="dish-{dish.id}"')
+
+    def test_non_menu_page_without_restaurant_context_hides_ai_widget(self):
+        response = self.client.get(reverse("account_login"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "data-ai-assistant")
 
     def test_standalone_ai_page_is_removed(self):
         response = self.client.get("/ai/")

@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
@@ -145,7 +146,11 @@ class Ingredient(models.Model):
         Allergen,
         blank=True,
         related_name="ingredients",
-        verbose_name="Аллергены",
+        verbose_name="Справочные аллергены ингредиента",
+        help_text=(
+            "Используются только как справочник для формирования предложений. "
+            "Публичная информация о блюде берётся из связей DishAllergen."
+        ),
     )
 
     description = models.TextField(
@@ -172,6 +177,12 @@ class Dish(models.Model):
     Блюдо ресторана.
     Все значения КБЖУ указываются на одну порцию.
     """
+
+    class AllergenReviewStatus(models.TextChoices):
+        UNKNOWN = "unknown", "Не проверено"
+        NEEDS_REVIEW = "needs_review", "Требует проверки"
+        PARTIAL = "partial", "Проверено частично"
+        COMPLETE = "complete", "Проверено полностью"
 
     restaurant = models.ForeignKey(
         "orders.Restaurant",
@@ -273,13 +284,6 @@ class Dish(models.Model):
         verbose_name="Ингредиенты",
     )
 
-    may_contain_allergens = models.ManyToManyField(
-        Allergen,
-        blank=True,
-        related_name="may_contain_dishes",
-        verbose_name="Может содержать следы аллергенов",
-    )
-
     is_available = models.BooleanField(
         default=True,
         verbose_name="Доступно для заказа",
@@ -288,6 +292,54 @@ class Dish(models.Model):
     is_active = models.BooleanField(
         default=True,
         verbose_name="Показывать в меню",
+    )
+
+    recipe_revision = models.PositiveIntegerField(
+        default=1,
+        editable=False,
+        verbose_name="Версия рецепта",
+        help_text=(
+            "Увеличивается при изменении состава блюда. Используется для "
+            "проверки актуальности аллергенных данных."
+        ),
+    )
+
+    allergen_review_status = models.CharField(
+        max_length=20,
+        choices=AllergenReviewStatus.choices,
+        default=AllergenReviewStatus.UNKNOWN,
+        db_index=True,
+        verbose_name="Полнота проверки аллергенов",
+    )
+
+    allergen_reviewed_revision = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name="Проверенная версия рецепта",
+    )
+
+    allergen_reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        editable=False,
+        related_name="reviewed_dish_allergen_profiles",
+        verbose_name="Проверил аллергены блюда",
+    )
+
+    allergen_reviewed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name="Аллергены проверены",
+    )
+
+    allergen_review_notes = models.CharField(
+        max_length=500,
+        blank=True,
+        verbose_name="Комментарий к проверке аллергенов",
     )
 
     created_at = models.DateTimeField(
@@ -314,6 +366,20 @@ class Dish(models.Model):
             models.UniqueConstraint(
                 fields=["restaurant", "code"],
                 name="unique_dish_code_per_restaurant",
+            ),
+            models.CheckConstraint(
+                condition=Q(recipe_revision__gte=1),
+                name="dish_recipe_revision_gte_1",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(allergen_review_status="complete")
+                    | (
+                        Q(allergen_reviewed_revision=models.F("recipe_revision"))
+                        & Q(allergen_reviewed_at__isnull=False)
+                    )
+                ),
+                name="dish_complete_review_has_metadata",
             ),
         ]
 
@@ -345,30 +411,55 @@ class Dish(models.Model):
                 {"category": "Категория должна принадлежать тому же ресторану, что и блюдо."}
             )
 
-    def get_allergens(self):
-        """
-        Возвращает все аллергены блюда:
+    @property
+    def is_allergen_review_complete(self):
+        return (
+            self.allergen_review_status == self.AllergenReviewStatus.COMPLETE
+            and self.allergen_reviewed_revision == self.recipe_revision
+            and self.allergen_reviewed_at is not None
+        )
 
-        1. аллергены, содержащиеся в ингредиентах;
-        2. аллергены, следы которых могут присутствовать.
-        """
+    @property
+    def public_allergen_data_status(self):
+        if self.is_allergen_review_complete:
+            return self.AllergenReviewStatus.COMPLETE
+
+        if self.allergen_review_status == self.AllergenReviewStatus.NEEDS_REVIEW:
+            return self.AllergenReviewStatus.NEEDS_REVIEW
+
+        if self.allergen_review_status == self.AllergenReviewStatus.PARTIAL:
+            return self.AllergenReviewStatus.PARTIAL
+
+        return self.AllergenReviewStatus.UNKNOWN
+
+    def get_verified_allergen_links(self):
+        """Возвращает подтверждённые связи для текущей версии рецепта."""
+
+        return self.allergen_links.filter(
+            verification_status=DishAllergen.VerificationStatus.VERIFIED,
+            reviewed_recipe_revision=self.recipe_revision,
+        )
+
+    def get_verified_allergens(self):
+        """Возвращает подтверждённые аллергены текущей версии рецепта."""
 
         return Allergen.objects.filter(
-            Q(ingredients__dishes=self)
-            | Q(may_contain_dishes=self)
-            | Q(
-                dish_links__dish=self,
-                dish_links__verification_status=DishAllergen.VerificationStatus.VERIFIED,
-            )
+            dish_links__dish=self,
+            dish_links__verification_status=(
+                DishAllergen.VerificationStatus.VERIFIED
+            ),
+            dish_links__reviewed_recipe_revision=self.recipe_revision,
         ).distinct()
 
-    def conflicts_with_allergens(self, allergen_ids):
-        """
-        Проверяет, конфликтует ли блюдо
-        с переданным набором аллергенов.
-        """
+    def get_allergens(self):
+        """Совместимый alias для подтверждённых аллергенов блюда."""
 
-        return self.get_allergens().filter(
+        return self.get_verified_allergens()
+
+    def conflicts_with_allergens(self, allergen_ids):
+        """Проверяет конфликт по актуальным подтверждённым связям."""
+
+        return self.get_verified_allergens().filter(
             id__in=allergen_ids
         ).exists()
 
@@ -426,6 +517,30 @@ class DishAllergen(models.Model):
         verbose_name="Статус проверки",
     )
 
+    reviewed_recipe_revision = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name="Проверено для версии рецепта",
+    )
+
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        editable=False,
+        related_name="reviewed_dish_allergen_links",
+        verbose_name="Проверил",
+    )
+
+    reviewed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name="Дата проверки",
+    )
+
     notes = models.CharField(
         max_length=255,
         blank=True,
@@ -441,8 +556,26 @@ class DishAllergen(models.Model):
         ordering = ["dish__name", "allergen__name", "relation_type"]
         constraints = [
             models.UniqueConstraint(
-                fields=["dish", "allergen", "relation_type"],
-                name="unique_dish_allergen_relation",
+                fields=["dish", "allergen"],
+                name="unique_dish_allergen",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        verification_status="suggested",
+                        reviewed_recipe_revision__isnull=True,
+                        reviewed_at__isnull=True,
+                    )
+                    | Q(
+                        verification_status__in=[
+                            "verified",
+                            "rejected",
+                        ],
+                        reviewed_recipe_revision__isnull=False,
+                        reviewed_at__isnull=False,
+                    )
+                ),
+                name="dish_allergen_review_metadata_matches_status",
             ),
         ]
         indexes = [
@@ -454,6 +587,86 @@ class DishAllergen(models.Model):
 
     def __str__(self):
         return f"{self.dish}: {self.allergen} ({self.get_relation_type_display()})"
+
+
+class DishAllergenReviewEvent(models.Model):
+    class Action(models.TextChoices):
+        VERIFIED = "verified", "Аллерген подтверждён"
+        REJECTED = "rejected", "Аллерген отклонён"
+        INVALIDATED = "invalidated", "Проверка устарела"
+        REVIEW_COMPLETED = "review_completed", "Проверка блюда завершена"
+        REVIEW_REOPENED = "review_reopened", "Проверка блюда открыта повторно"
+        SUGGESTED = "suggested", "Создано предложение"
+
+    dish = models.ForeignKey(
+        Dish,
+        on_delete=models.CASCADE,
+        related_name="allergen_review_events",
+        verbose_name="Блюдо",
+    )
+    allergen = models.ForeignKey(
+        Allergen,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="dish_review_events",
+        verbose_name="Аллерген",
+    )
+    action = models.CharField(
+        max_length=32,
+        choices=Action.choices,
+        db_index=True,
+        verbose_name="Действие",
+    )
+    recipe_revision = models.PositiveIntegerField(
+        verbose_name="Версия рецепта",
+    )
+    relation_type = models.CharField(
+        max_length=32,
+        choices=DishAllergen.RelationType.choices,
+        blank=True,
+        verbose_name="Тип связи",
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="dish_allergen_review_events",
+        verbose_name="Исполнитель",
+    )
+    notes = models.CharField(
+        max_length=500,
+        blank=True,
+        verbose_name="Комментарий",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Событие проверки аллергенов"
+        verbose_name_plural = "История проверки аллергенов"
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(
+                fields=["dish", "recipe_revision", "created_at"],
+                name="dish_allergen_review_event_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.dish}: {self.get_action_display()}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError(
+                "История проверки аллергенов неизменяема."
+            )
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError(
+            "История проверки аллергенов неизменяема."
+        )
 
 
 class CategoryTranslation(models.Model):

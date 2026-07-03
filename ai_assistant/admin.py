@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import AIUsageEvent, ChatMessage, ChatSession
+from .models import AIRequestRecord, AIUsageEvent, ChatMessage, ChatSession
 
 
 class ChatMessageInline(admin.TabularInline):
@@ -15,6 +15,7 @@ class ChatMessageInline(admin.TabularInline):
         "role",
         "content",
         "model_name",
+        "recommended_dish_ids",
         "created_at",
     )
 
@@ -22,6 +23,7 @@ class ChatMessageInline(admin.TabularInline):
         "role",
         "content",
         "model_name",
+        "recommended_dish_ids",
         "created_at",
     )
 
@@ -34,7 +36,14 @@ class ChatSessionAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "owner",
+        "restaurant",
         "title",
+        "created_at",
+        "updated_at",
+    )
+
+    list_filter = (
+        "restaurant",
         "created_at",
         "updated_at",
     )
@@ -69,6 +78,7 @@ class ChatMessageAdmin(admin.ModelAdmin):
         "role",
         "short_content",
         "model_name",
+        "recommended_dish_ids",
         "created_at",
     )
 
@@ -85,12 +95,62 @@ class ChatMessageAdmin(admin.ModelAdmin):
     )
 
     readonly_fields = (
+        "recommended_dish_ids",
         "created_at",
     )
 
     @admin.display(description="Сообщение")
     def short_content(self, obj):
         return obj.content[:80]
+
+
+@admin.register(AIRequestRecord)
+class AIRequestRecordAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "status",
+        "restaurant",
+        "user",
+        "chat_session",
+        "is_stream",
+        "created_at",
+        "completed_at",
+    )
+    list_filter = (
+        "status",
+        "restaurant",
+        "is_stream",
+        "created_at",
+    )
+    search_fields = (
+        "id",
+        "user__email",
+        "session_key",
+        "request_fingerprint",
+        "error_code",
+    )
+    readonly_fields = (
+        "id",
+        "user",
+        "session_key",
+        "restaurant",
+        "chat_session",
+        "user_message",
+        "assistant_message",
+        "request_fingerprint",
+        "status",
+        "error_code",
+        "is_stream",
+        "created_at",
+        "updated_at",
+        "completed_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(AIUsageEvent)
@@ -102,7 +162,8 @@ class AIUsageEventAdmin(admin.ModelAdmin):
         "actor_kind",
         "model_name",
         "estimated_total_tokens",
-        "estimated_cost_micros",
+        "actual_total_tokens",
+        "actual_cost_micros",
         "is_stream",
         "created_at",
     )
@@ -134,6 +195,12 @@ class AIUsageEventAdmin(admin.ModelAdmin):
         "estimated_response_tokens",
         "estimated_total_tokens",
         "estimated_cost_micros",
+        "actual_prompt_tokens",
+        "actual_response_tokens",
+        "actual_total_tokens",
+        "actual_cost_micros",
+        "provider_response_id",
+        "request_record",
         "model_name",
         "status",
         "limit_reason",

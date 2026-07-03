@@ -1,11 +1,12 @@
 import json
 import logging
-import unicodedata
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse
@@ -13,7 +14,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 from google.genai import errors
 
-from menu.models import Dish, get_default_restaurant_id
+from menu.models import Dish
 from menu.translations import (
     localized_category_values,
     localized_dish_string,
@@ -22,23 +23,43 @@ from menu.translations import (
 from orders.models import Restaurant
 from orders.services import CartValidationError, resolve_ordering_context
 
-from .models import AIUsageEvent, ChatMessage, ChatSession
+from .models import AIRequestRecord, AIUsageEvent, ChatMessage, ChatSession
 from .privacy import get_ai_history_retention_days, prune_expired_ai_history
+from .request_tracking import (
+    AIRequestConflict,
+    AIRequestIdError,
+    build_request_fingerprint,
+    get_existing_request_record,
+    mark_request_record,
+    normalize_request_id,
+    request_owner_values,
+    validate_existing_request_record,
+)
 from .services import (
+    AIProviderUsage,
     AIServiceError,
+    build_local_fallback_result,
     detect_response_language,
     generate_ai_answer,
     generate_ai_answer_stream,
+    is_provider_timeout_error,
+    parse_streamed_ai_response,
+    provider_usage_from_response,
 )
 from .throttling import (
+    acquire_ai_request_slot,
     acquire_ai_session_slot,
     acquire_ai_stream_slot,
-    check_ai_request_allowed,
     create_ai_usage_event,
     finish_ai_usage_event,
+    reconcile_ai_quota_reservation,
     record_throttled_ai_request,
+    refresh_ai_slot,
+    release_ai_quota_reservation,
+    release_ai_request_slot,
     release_ai_session_slot,
     release_ai_stream_slot,
+    reserve_ai_request_quota,
 )
 
 
@@ -46,81 +67,6 @@ logger = logging.getLogger(__name__)
 
 MAX_PROMPT_LENGTH = 4000
 MAX_RECOMMENDED_DISHES = 3
-
-SAVORY_REQUEST_MARKERS = (
-    "пицц",
-    "pizza",
-    "pide",
-    "шаур",
-    "шаверм",
-    "doner",
-    "döner",
-    "донер",
-    "кебаб",
-    "kebab",
-    "wrap",
-)
-
-DRINK_OR_DESSERT_REQUEST_MARKERS = (
-    "кофе",
-    "coffee",
-    "americano",
-    "latte",
-    "матча",
-    "matcha",
-    "напит",
-    "drink",
-    "десерт",
-    "dessert",
-    "слад",
-)
-
-NON_SAVORY_CATEGORY_MARKERS = (
-    "кофе",
-    "coffee",
-    "напит",
-    "drink",
-    "матча",
-    "matcha",
-    "десерт",
-    "dessert",
-)
-
-OTHER_OPTIONS_MARKERS = (
-    "друг",
-    "ещё",
-    "еще",
-    "another",
-    "other",
-    "else",
-    "more",
-)
-
-REQUEST_RECOMMENDATION_RULES = (
-    {
-        "markers": ("пицц", "pizza", "pide"),
-        "preferred_names": (
-            "Focaccia",
-            "Pompei Magnus",
-            "Octavian",
-            "Dana Sucuklu Peynirli Tost",
-        ),
-        "preferred_categories": ("Другие блюда", "Сэндвичи", "Тосты", "Меню"),
-        "keywords": ("фокач", "focaccia", "чиабат", "ciabatta", "сыр", "cheese", "салями", "salami"),
-    },
-    {
-        "markers": ("шаур", "шаверм", "doner", "döner", "донер", "кебаб", "kebab", "wrap"),
-        "preferred_names": (
-            "Crassus",
-            "Pompei Magnus",
-            "Octavian",
-            "Dana Sucuklu Peynirli Tost",
-        ),
-        "preferred_categories": ("Сэндвичи", "Тосты", "Меню"),
-        "keywords": ("чиабат", "ciabatta", "индей", "куриц", "салями", "сыр", "овощ", "соус"),
-    },
-)
-
 
 def _error_response(message, status, session=None, code=None):
     payload = {
@@ -146,12 +92,19 @@ def _ordering_error_response(error, session=None):
 
 
 def _rate_limited_response(decision, session=None):
+    unavailable_reasons = {
+        "quota_store_unavailable",
+        "guard_store_unavailable",
+    }
+    unavailable = decision.reason in unavailable_reasons
     response = _error_response(
         decision.message,
-        status=429,
+        status=503 if unavailable else 429,
         session=session,
+        code="ai_guard_unavailable" if unavailable else "ai_rate_limited",
     )
     response["Retry-After"] = str(decision.retry_after)
+    response["Cache-Control"] = "no-store"
     return response
 
 
@@ -206,18 +159,21 @@ def _get_existing_session(request, session_id):
         return None
 
 
-def _create_session(request, prompt, ordering_context=None):
-    session_key = _get_session_key(request)
+def _create_session(request, prompt, ordering_context):
+    if ordering_context is None:
+        raise CartValidationError(
+            "Для ИИ-ассистента нужен контекст ресторана.",
+            code="restaurant_required",
+        )
+
     session_data = {
         "title": prompt[:150],
-        "session_key": session_key,
+        "session_key": _get_session_key(request),
+        "restaurant_id": ordering_context.restaurant_id,
     }
 
     if request.user.is_authenticated:
         session_data["user"] = request.user
-
-    if ordering_context is not None:
-        session_data["restaurant_id"] = ordering_context.restaurant_id
 
     session = ChatSession.objects.create(**session_data)
     session.ordering_context = ordering_context
@@ -226,17 +182,12 @@ def _create_session(request, prompt, ordering_context=None):
 
 def _apply_ordering_context(session, ordering_context):
     if ordering_context is None:
-        return True
+        return False
 
-    if session.restaurant_id and session.restaurant_id != ordering_context.restaurant_id:
+    if session.restaurant_id != ordering_context.restaurant_id:
         return False
 
     session.ordering_context = ordering_context
-
-    if not session.restaurant_id:
-        session.restaurant_id = ordering_context.restaurant_id
-        session.save(update_fields=["restaurant", "updated_at"])
-
     return True
 
 
@@ -249,66 +200,22 @@ def _trim_card_text(value, max_length=130):
     return f"{value[: max_length - 1].rstrip()}..."
 
 
-def _normalize_match_text(value):
-    value = unicodedata.normalize("NFKD", str(value or ""))
-    value = "".join(char for char in value if not unicodedata.combining(char))
-    return value.casefold().replace("ı", "i").strip()
-
-
-def _request_matches_any(prompt_index, markers):
-    return any(_normalize_match_text(marker) in prompt_index for marker in markers)
-
-
-def _is_other_options_request(prompt_index):
-    return _request_matches_any(prompt_index, OTHER_OPTIONS_MARKERS)
-
-
-def _is_savory_alternative_request(prompt_index):
-    return (
-        _request_matches_any(prompt_index, SAVORY_REQUEST_MARKERS)
-        and not _request_matches_any(prompt_index, DRINK_OR_DESSERT_REQUEST_MARKERS)
-    )
-
-
-def _dish_index_text(dish):
-    ingredient_names = []
-
-    for dish_ingredient in dish.dish_ingredients.all():
-        ingredient_names.append(dish_ingredient.ingredient.name)
-
-    return _normalize_match_text(
-        " ".join(
-            [
-                dish.name,
-                dish.category.name if dish.category else "",
-                dish.description,
-                " ".join(ingredient_names),
-            ]
-        )
-    )
-
-
-def _is_poor_savory_match(dish):
-    category = _normalize_match_text(dish.category.name if dish.category else "")
-    name = _normalize_match_text(dish.name)
-    combined = f"{category} {name}"
-
-    return any(marker in combined for marker in NON_SAVORY_CATEGORY_MARKERS)
-
-
 def _restaurant_id_for_ai(session=None, ordering_context=None):
     if ordering_context is not None:
         return ordering_context.restaurant_id
 
-    if session is not None and getattr(session, "restaurant_id", None):
+    if session is not None and session.restaurant_id:
         return session.restaurant_id
 
-    return get_default_restaurant_id()
+    raise ValueError("AI restaurant context is required.")
 
 
 def _menu_url_for_recommendations(restaurant_id, ordering_context=None):
-    if ordering_context is not None and ordering_context.table_token:
-        return reverse("menu:table_menu", args=[ordering_context.table_token])
+    if ordering_context is not None and ordering_context.table_context:
+        return reverse(
+            "menu:table_context_menu",
+            args=[ordering_context.table_context],
+        )
 
     restaurant_slug = (
         Restaurant.objects.filter(id=restaurant_id)
@@ -323,158 +230,72 @@ def _menu_url_for_recommendations(restaurant_id, ordering_context=None):
     return menu_url
 
 
-def _score_prompt_dish_match(prompt_index, dish):
-    best_score = 0
-    dish_name = _normalize_match_text(dish.name)
-    category = _normalize_match_text(dish.category.name if dish.category else "")
-    dish_index = _dish_index_text(dish)
+def _normalize_recommended_ids(values):
+    normalized = []
 
-    for rule in REQUEST_RECOMMENDATION_RULES:
-        if not _request_matches_any(prompt_index, rule["markers"]):
+    if not isinstance(values, (list, tuple)):
+        return normalized
+
+    for value in values:
+        if not isinstance(value, int) or isinstance(value, bool):
             continue
 
-        score = 0
+        if value in normalized:
+            continue
 
-        for index, preferred_name in enumerate(rule["preferred_names"]):
-            if _normalize_match_text(preferred_name) in dish_name:
-                score += 650 - index * 45
-                break
+        normalized.append(value)
 
-        if any(_normalize_match_text(value) in category for value in rule["preferred_categories"]):
-            score += 240
+        if len(normalized) >= MAX_RECOMMENDED_DISHES:
+            break
 
-        for keyword in rule["keywords"]:
-            if _normalize_match_text(keyword) in dish_index:
-                score += 35
-
-        best_score = max(best_score, score)
-
-    return best_score
-
-
-def _get_previous_mentioned_dish_ids(
-    session,
-    current_message_id=None,
-    ordering_context=None,
-):
-    messages = session.messages.filter(role=ChatMessage.Role.ASSISTANT)
-
-    if current_message_id:
-        messages = messages.exclude(id=current_message_id)
-
-    previous_text = _normalize_match_text(
-        " ".join(messages.values_list("content", flat=True))
-    )
-
-    if not previous_text:
-        return set()
-
-    dish_ids = set()
-
-    for dish in Dish.objects.filter(
-        restaurant_id=_restaurant_id_for_ai(
-            session=session,
-            ordering_context=ordering_context,
-        ),
-        is_active=True,
-        is_available=True,
-    ):
-        if _normalize_match_text(dish.name) in previous_text:
-            dish_ids.add(dish.id)
-
-    return dish_ids
+    return normalized
 
 
 def _serialize_recommended_dishes(
-    answer,
+    dish_ids,
     request,
-    prompt="",
-    excluded_dish_ids=None,
     language="",
     session=None,
     ordering_context=None,
 ):
+    dish_ids = _normalize_recommended_ids(dish_ids)
+
+    if not dish_ids:
+        return []
+
     language = normalize_language(language) if language else ""
-    answer_index = str(answer or "").casefold()
-    prompt_index = _normalize_match_text(prompt)
-    is_savory_request = _is_savory_alternative_request(prompt_index)
-    excluded_dish_ids = set(excluded_dish_ids or [])
     restaurant_id = _restaurant_id_for_ai(
         session=session,
         ordering_context=ordering_context,
     )
-
-    if not answer_index and not prompt_index:
-        return []
-
-    dishes = (
-        Dish.objects.filter(
+    dishes_by_id = {
+        dish.id: dish
+        for dish in Dish.objects.filter(
             restaurant_id=restaurant_id,
+            id__in=dish_ids,
             is_active=True,
             is_available=True,
         )
         .select_related("category")
-        .prefetch_related("dish_ingredients__ingredient")
-        .order_by("name")
-    )
-
-    matches = []
-
-    for dish in dishes:
-        if dish.id in excluded_dish_ids:
-            continue
-
-        if is_savory_request and _is_poor_savory_match(dish):
-            continue
-
-        name = dish.name.strip()
-        prompt_score = _score_prompt_dish_match(prompt_index, dish)
-
-        if len(name) < 3 and not prompt_score:
-            continue
-
-        position = answer_index.find(name.casefold())
-
-        if position == -1 and not prompt_score:
-            continue
-
-        image_url = ""
-
-        if dish.image:
-            image_url = request.build_absolute_uri(dish.image.url)
-
-        matches.append(
-            {
-                "position": position if position != -1 else 100000,
-                "name_length": len(name),
-                "prompt_score": prompt_score,
-                "dish": dish,
-                "image_url": image_url,
-            }
-        )
-
-    matches.sort(
-        key=lambda item: (
-            -item["prompt_score"],
-            item["position"],
-            -item["name_length"],
-        )
-    )
-
-    recommended = []
-    seen_ids = set()
+        .prefetch_related("translations", "category__translations")
+    }
     menu_url = _menu_url_for_recommendations(
         restaurant_id,
         ordering_context=ordering_context,
     )
+    recommended = []
 
-    for match in matches:
-        dish = match["dish"]
+    for dish_id in dish_ids:
+        dish = dishes_by_id.get(dish_id)
 
-        if dish.id in seen_ids:
+        if dish is None:
             continue
 
-        seen_ids.add(dish.id)
+        image_url = (
+            request.build_absolute_uri(dish.image.url)
+            if dish.image
+            else ""
+        )
         recommended.append(
             {
                 "id": dish.id,
@@ -490,21 +311,17 @@ def _serialize_recommended_dishes(
                     else dish.description
                 ),
                 "price": str(dish.price),
-                "image_url": match["image_url"],
+                "image_url": image_url,
                 "url": f"{menu_url}#dish-{dish.id}",
                 "category": (
-                    localized_category_values(dish.category.name)[language]
-                    if dish.category
-                    and language
+                    localized_category_values(dish.category)[language]
+                    if dish.category and language
                     else dish.category.name
                     if dish.category
                     else ""
                 ),
             }
         )
-
-        if len(recommended) >= MAX_RECOMMENDED_DISHES:
-            break
 
     return recommended
 
@@ -535,65 +352,18 @@ def _is_quota_error(exc):
     )
 
 
-def _get_excluded_dish_ids_for_prompt(
-    session,
-    prompt,
-    current_message_id=None,
-    ordering_context=None,
-):
-    if not _is_other_options_request(_normalize_match_text(prompt)):
-        return None
-
-    return _get_previous_mentioned_dish_ids(
-        session,
-        current_message_id=current_message_id,
-        ordering_context=ordering_context,
-    )
-
-
 def _build_quota_fallback_answer(
-    prompt,
     request,
     session,
     language="ru",
     ordering_context=None,
 ):
-    prompt_index = _normalize_match_text(prompt)
-    answer = (
-        "Сейчас лимит ИИ временно исчерпан, поэтому отвечу по опубликованному меню без Gemini. "
-        "Попробуйте отправить сообщение еще раз чуть позже."
-    )
-
-    if _request_matches_any(prompt_index, ("пицц", "pizza", "pide")):
-        answer = (
-            "Сейчас лимит ИИ временно исчерпан, но по меню могу подсказать: пиццы нет, "
-            "самые близкие варианты - Focaccia, Pompei Magnus и Octavian."
-        )
-    elif _request_matches_any(
-        prompt_index,
-        ("шаур", "шаверм", "doner", "döner", "донер", "кебаб", "kebab", "wrap"),
-    ):
-        answer = (
-            "Сейчас лимит ИИ временно исчерпан, но по меню могу подсказать: вместо шаурмы "
-            "лучше посмотреть сэндвичи Crassus, Pompei Magnus или Octavian."
-        )
-    elif _request_matches_any(prompt_index, ("пив", "beer", "bira")):
-        answer = (
-            "Сейчас лимит ИИ временно исчерпан. Пива в опубликованном меню не вижу; "
-            "из напитков можно посмотреть Limonata, Coca-Cola (33 cl.) или Schweppes (25 cl.)."
-        )
-
+    result = build_local_fallback_result(session)
     return (
-        answer,
+        result,
         _serialize_recommended_dishes(
-            answer,
+            result.recommended_dish_ids,
             request,
-            prompt=prompt,
-            excluded_dish_ids=_get_excluded_dish_ids_for_prompt(
-                session,
-                prompt,
-                ordering_context=ordering_context,
-            ),
             language=language,
             session=session,
             ordering_context=ordering_context,
@@ -601,21 +371,18 @@ def _build_quota_fallback_answer(
     )
 
 
-def _get_latest_session(request, ordering_context=None):
-    restaurant_id = (
-        ordering_context.restaurant_id
-        if ordering_context is not None
-        else None
-    )
+def _get_latest_session(request, ordering_context):
+    if ordering_context is None:
+        return None
+
+    restaurant_id = ordering_context.restaurant_id
 
     if request.user.is_authenticated:
-        sessions = ChatSession.objects.filter(user=request.user)
-
-        if restaurant_id:
-            sessions = sessions.filter(restaurant_id=restaurant_id)
-
         return (
-            sessions
+            ChatSession.objects.filter(
+                user=request.user,
+                restaurant_id=restaurant_id,
+            )
             .order_by("-updated_at", "-created_at", "-id")
             .first()
         )
@@ -625,16 +392,12 @@ def _get_latest_session(request, ordering_context=None):
     if not session_key:
         return None
 
-    sessions = ChatSession.objects.filter(
-        user__isnull=True,
-        session_key=session_key,
-    )
-
-    if restaurant_id:
-        sessions = sessions.filter(restaurant_id=restaurant_id)
-
     return (
-        sessions
+        ChatSession.objects.filter(
+            user__isnull=True,
+            session_key=session_key,
+            restaurant_id=restaurant_id,
+        )
         .order_by("-updated_at", "-created_at", "-id")
         .first()
     )
@@ -646,18 +409,14 @@ def _serialize_timestamp(value):
 
 def _serialize_chat_messages(session, request, language="", ordering_context=None):
     serialized = []
-    last_user_prompt = ""
 
     for message in session.messages.order_by("created_at", "id"):
         dishes = []
 
-        if message.role == ChatMessage.Role.USER:
-            last_user_prompt = message.content
-        elif message.role == ChatMessage.Role.ASSISTANT:
+        if message.role == ChatMessage.Role.ASSISTANT:
             dishes = _serialize_recommended_dishes(
-                message.content,
+                message.recommended_dish_ids,
                 request,
-                prompt=last_user_prompt,
                 language=language,
                 session=session,
                 ordering_context=ordering_context,
@@ -683,6 +442,7 @@ def _serialize_chat_messages_for_export(session):
             "role": message.role,
             "text": message.content,
             "model": message.model_name,
+            "recommended_dish_ids": message.recommended_dish_ids,
             "created_at": _serialize_timestamp(message.created_at),
         }
         for message in session.messages.order_by("created_at", "id")
@@ -703,6 +463,12 @@ def _serialize_usage_events_for_export(session):
             "estimated_response_tokens": event.estimated_response_tokens,
             "estimated_total_tokens": event.estimated_total_tokens,
             "estimated_cost_micros": event.estimated_cost_micros,
+            "actual_prompt_tokens": event.actual_prompt_tokens,
+            "actual_response_tokens": event.actual_response_tokens,
+            "actual_total_tokens": event.actual_total_tokens,
+            "actual_cost_micros": event.actual_cost_micros,
+            "provider_response_id": event.provider_response_id,
+            "request_id": str(event.request_record_id) if event.request_record_id else None,
             "created_at": _serialize_timestamp(event.created_at),
         }
         for event in session.usage_events.order_by("created_at", "id")
@@ -727,7 +493,7 @@ def history(request):
         ordering_context = resolve_ordering_context(
             request.GET,
             allow_menu_context=True,
-            allow_missing=True,
+            allow_missing=False,
         )
     except CartValidationError as error:
         return _ordering_error_response(error)
@@ -784,6 +550,7 @@ def export_history(request):
     prune_expired_ai_history(user=request.user)
     sessions = (
         ChatSession.objects.filter(user=request.user)
+        .select_related("restaurant")
         .prefetch_related("messages", "usage_events")
         .order_by("created_at", "id")
     )
@@ -795,6 +562,11 @@ def export_history(request):
             {
                 "id": str(session.id),
                 "title": session.title,
+                "restaurant": {
+                    "id": session.restaurant_id,
+                    "name": session.restaurant.name,
+                    "slug": session.restaurant.slug,
+                },
                 "created_at": _serialize_timestamp(session.created_at),
                 "updated_at": _serialize_timestamp(session.updated_at),
                 "messages": _serialize_chat_messages_for_export(session),
@@ -859,79 +631,121 @@ def delete_history(request):
     return redirect("accounts:profile")
 
 
+def _request_conflict_response(error, session=None):
+    response = _error_response(
+        error.message,
+        status=error.status,
+        session=session,
+        code=error.code,
+    )
+    if error.retry_after:
+        response["Retry-After"] = str(error.retry_after)
+    return response
+
+
+def _request_result_payload(
+    request_record,
+    request,
+    *,
+    card_language,
+    ordering_context,
+    replayed,
+):
+    session = request_record.chat_session
+    assistant_message = request_record.assistant_message
+    user_message = request_record.user_message
+
+    return {
+        "answer": assistant_message.content,
+        "recommended_dishes": _serialize_recommended_dishes(
+            assistant_message.recommended_dish_ids,
+            request,
+            language=card_language,
+            session=session,
+            ordering_context=ordering_context,
+        ),
+        "session_id": str(session.id),
+        "model": assistant_message.model_name,
+        "message_id": assistant_message.id,
+        "created_at": _serialize_timestamp(assistant_message.created_at),
+        "user_message_id": user_message.id if user_message else None,
+        "user_message_created_at": (
+            _serialize_timestamp(user_message.created_at)
+            if user_message
+            else None
+        ),
+        "request_id": str(request_record.id),
+        "replayed": bool(replayed),
+    }
+
+
+def _close_provider_stream(stream_handle):
+    stream = getattr(stream_handle, "stream", None)
+    close = getattr(stream, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            logger.debug("Could not close Gemini stream cleanly.", exc_info=True)
+
+
 @require_POST
 def ask(request):
     try:
         payload = json.loads(request.body or b"{}")
     except json.JSONDecodeError:
-        return _error_response(
-            "Передан некорректный JSON.",
-            status=400,
-        )
+        return _error_response("Передан некорректный JSON.", status=400)
 
     if not isinstance(payload, dict):
-        return _error_response(
-            "Тело запроса должно быть JSON-объектом.",
-            status=400,
-        )
+        return _error_response("Тело запроса должно быть JSON-объектом.", status=400)
 
     try:
         ordering_context = resolve_ordering_context(
             payload,
             allow_menu_context=True,
-            allow_missing=True,
+            allow_missing=False,
         )
     except CartValidationError as error:
         return _ordering_error_response(error)
 
     prompt_value = payload.get("prompt", "")
-
     if not isinstance(prompt_value, str):
-        return _error_response(
-            "Сообщение должно быть строкой.",
-            status=400,
-        )
+        return _error_response("Сообщение должно быть строкой.", status=400)
 
     prompt = prompt_value.strip()
-    session_id = payload.get("session_id")
-    language_value = payload.get("language")
-    language = normalize_language(language_value) if language_value else ""
-    response_language = detect_response_language(prompt, fallback=language or "ru")
-    card_language = response_language if language_value else ""
-    wants_stream = _wants_stream(request)
-
     if not prompt:
-        return _error_response(
-            "Сообщение не может быть пустым.",
-            status=400,
-        )
-
+        return _error_response("Сообщение не может быть пустым.", status=400)
     if len(prompt) > MAX_PROMPT_LENGTH:
         return _error_response(
             f"Сообщение слишком длинное. Максимум - {MAX_PROMPT_LENGTH} символов.",
             status=400,
         )
 
-    throttle_decision = check_ai_request_allowed(request, prompt)
-
-    if not throttle_decision.allowed:
-        record_throttled_ai_request(
-            request,
-            prompt,
-            throttle_decision,
-            is_stream=wants_stream,
+    try:
+        request_id = normalize_request_id(
+            payload.get("request_id"),
+            generate_if_missing=True,
         )
-        return _rate_limited_response(throttle_decision)
+    except AIRequestIdError as error:
+        return _error_response(str(error), status=400, code="invalid_ai_request_id")
 
+    session_id = payload.get("session_id")
+    language_value = payload.get("language")
+    language = normalize_language(language_value) if language_value else ""
+    response_language = detect_response_language(prompt, fallback=language or "ru")
+    card_language = response_language if language_value else ""
+    wants_stream = _wants_stream(request)
+    session = None
+    created_session = False
+
+    # Ownership and tenant validation happen before any quota is reserved.
     if session_id:
         session = _get_existing_session(request, session_id)
-
         if session is None:
             return _error_response(
                 "Диалог не найден. Начните новый чат.",
                 status=404,
             )
-
         if not _apply_ordering_context(session, ordering_context):
             return _error_response(
                 "Диалог относится к другому ресторану. Начните новый чат.",
@@ -939,107 +753,317 @@ def ask(request):
                 session=session,
                 code="ai_restaurant_context_conflict",
             )
-    else:
-        session = _create_session(
-            request,
-            prompt,
-            ordering_context=ordering_context,
+
+    fingerprint = build_request_fingerprint(
+        prompt=prompt,
+        language=language,
+        session_id=session_id,
+        ordering_context=ordering_context,
+    )
+
+    try:
+        existing_request = get_existing_request_record(request, request_id)
+        if existing_request is not None:
+            outcome = validate_existing_request_record(
+                existing_request,
+                fingerprint=fingerprint,
+                restaurant_id=ordering_context.restaurant_id,
+            )
+            if outcome == "replay":
+                existing_request.chat_session.ordering_context = ordering_context
+                return JsonResponse(
+                    _request_result_payload(
+                        existing_request,
+                        request,
+                        card_language=card_language,
+                        ordering_context=ordering_context,
+                        replayed=True,
+                    )
+                )
+    except AIRequestConflict as error:
+        return _request_conflict_response(error, session=session)
+
+    request_slot = acquire_ai_request_slot(request_id)
+    if not request_slot.allowed:
+        if request_slot.reason == "guard_store_unavailable":
+            return _rate_limited_response(request_slot, session=session)
+        error = AIRequestConflict(
+            request_slot.message,
+            code="ai_request_in_progress",
+            retry_after=request_slot.retry_after,
         )
+        return _request_conflict_response(error, session=session)
 
     stream_slot = None
+    session_slot = None
+    quota_reservation = None
+    request_record = None
+    user_message = None
+    usage_event = None
+    request_lifecycle_started = False
 
-    if wants_stream:
-        stream_slot = acquire_ai_stream_slot(request)
+    try:
+        # Re-check after acquiring the unique request lease to close the race.
+        existing_request = get_existing_request_record(request, request_id)
+        if existing_request is not None:
+            try:
+                outcome = validate_existing_request_record(
+                    existing_request,
+                    fingerprint=fingerprint,
+                    restaurant_id=ordering_context.restaurant_id,
+                )
+            except AIRequestConflict as error:
+                return _request_conflict_response(error, session=session)
+            if outcome == "replay":
+                existing_request.chat_session.ordering_context = ordering_context
+                return JsonResponse(
+                    _request_result_payload(
+                        existing_request,
+                        request,
+                        card_language=card_language,
+                        ordering_context=ordering_context,
+                        replayed=True,
+                    )
+                )
 
-        if not stream_slot.allowed:
+        if wants_stream:
+            stream_slot = acquire_ai_stream_slot(request)
+            if not stream_slot.allowed:
+                record_throttled_ai_request(
+                    request,
+                    prompt,
+                    stream_slot,
+                    chat_session=session,
+                    is_stream=True,
+                )
+                return _rate_limited_response(stream_slot, session=session)
+
+        if session is not None:
+            session_slot = acquire_ai_session_slot(session)
+            if not session_slot.allowed:
+                release_ai_stream_slot(stream_slot)
+                record_throttled_ai_request(
+                    request,
+                    prompt,
+                    session_slot,
+                    chat_session=session,
+                    is_stream=wants_stream,
+                )
+                if session_slot.reason == "guard_store_unavailable":
+                    return _rate_limited_response(session_slot, session=session)
+                return _session_busy_response(session_slot, session=session)
+
+        quota_reservation = reserve_ai_request_quota(request, prompt)
+        if not quota_reservation.allowed:
+            release_ai_stream_slot(stream_slot)
+            release_ai_session_slot(session_slot)
             record_throttled_ai_request(
                 request,
                 prompt,
-                stream_slot,
+                quota_reservation,
                 chat_session=session,
-                is_stream=True,
+                is_stream=wants_stream,
             )
-            return _rate_limited_response(stream_slot, session=session)
+            return _rate_limited_response(quota_reservation, session=session)
 
-    session_slot = acquire_ai_session_slot(session)
+        if session is None:
+            session = _create_session(
+                request,
+                prompt,
+                ordering_context=ordering_context,
+            )
+            created_session = True
+            session_slot = acquire_ai_session_slot(session)
+            if not session_slot.allowed:
+                release_ai_quota_reservation(quota_reservation)
+                release_ai_stream_slot(stream_slot)
+                session.delete()
+                created_session = False
+                record_throttled_ai_request(
+                    request,
+                    prompt,
+                    session_slot,
+                    is_stream=wants_stream,
+                )
+                if session_slot.reason == "guard_store_unavailable":
+                    return _rate_limited_response(session_slot, session=session)
+                return _session_busy_response(session_slot, session=session)
 
-    if not session_slot.allowed:
-        if stream_slot:
-            release_ai_stream_slot(stream_slot)
+        session.interface_language = language or "ru"
+        session.response_language = response_language
 
-        record_throttled_ai_request(
-            request,
-            prompt,
-            session_slot,
-            chat_session=session,
-            is_stream=wants_stream,
+        with transaction.atomic():
+            user_message = ChatMessage.objects.create(
+                session=session,
+                role=ChatMessage.Role.USER,
+                content=prompt,
+            )
+            request_record = AIRequestRecord.objects.create(
+                id=request_id,
+                **request_owner_values(request),
+                restaurant_id=ordering_context.restaurant_id,
+                chat_session=session,
+                user_message=user_message,
+                request_fingerprint=fingerprint,
+                is_stream=wants_stream,
+            )
+            session.updated_at = timezone.now()
+            session.save(update_fields=["updated_at"])
+            usage_event = create_ai_usage_event(
+                request,
+                session,
+                prompt,
+                is_stream=wants_stream,
+                request_record=request_record,
+                quota_reservation=quota_reservation,
+            )
+        request_lifecycle_started = True
+    except IntegrityError:
+        release_ai_quota_reservation(quota_reservation)
+        release_ai_stream_slot(stream_slot)
+        release_ai_session_slot(session_slot)
+        if created_session and session and not session.messages.exists():
+            session.delete()
+        try:
+            existing_request = get_existing_request_record(request, request_id)
+            if existing_request is not None:
+                outcome = validate_existing_request_record(
+                    existing_request,
+                    fingerprint=fingerprint,
+                    restaurant_id=ordering_context.restaurant_id,
+                )
+                if outcome == "replay":
+                    existing_request.chat_session.ordering_context = ordering_context
+                    return JsonResponse(
+                        _request_result_payload(
+                            existing_request,
+                            request,
+                            card_language=card_language,
+                            ordering_context=ordering_context,
+                            replayed=True,
+                        )
+                    )
+        except AIRequestConflict as error:
+            return _request_conflict_response(error, session=session)
+        raise
+    except Exception:
+        release_ai_quota_reservation(quota_reservation)
+        release_ai_stream_slot(stream_slot)
+        release_ai_session_slot(session_slot)
+        if created_session and session and not session.messages.exists():
+            session.delete()
+        logger.exception("AI request preflight failed.")
+        return _error_response(
+            "Не удалось подготовить запрос к ассистенту.",
+            status=503,
+            session=session,
+            code="ai_request_preflight_failed",
         )
-        return _session_busy_response(session_slot, session=session)
-
-    session.interface_language = language or "ru"
-    session.response_language = response_language
-
-    user_message = ChatMessage.objects.create(
-        session=session,
-        role=ChatMessage.Role.USER,
-        content=prompt,
-    )
-
-    session.updated_at = timezone.now()
-    session.save(update_fields=["updated_at"])
-    usage_event = create_ai_usage_event(
-        request,
-        session,
-        prompt,
-        is_stream=wants_stream,
-    )
+    finally:
+        if not request_lifecycle_started:
+            release_ai_request_slot(request_slot)
 
     if wants_stream:
         try:
-            model_name, stream = generate_ai_answer_stream(session)
-        except AIServiceError:
+            stream_handle = generate_ai_answer_stream(session)
+        except AIServiceError as error:
             logger.exception("AI assistant streaming request failed.")
             release_ai_stream_slot(stream_slot)
             release_ai_session_slot(session_slot)
+            release_ai_request_slot(request_slot)
+            mark_request_record(
+                request_record,
+                status=AIRequestRecord.Status.FAILED,
+                error_code=error.code,
+            )
             finish_ai_usage_event(
                 usage_event,
                 AIUsageEvent.Status.FAILED,
-                limit_reason="ai_service_error",
+                limit_reason=error.code,
             )
+            if error.code == "ai_not_configured":
+                release_ai_quota_reservation(quota_reservation)
             return _error_response(
-                (
-                    "ИИ-ассистент временно недоступен. "
-                    "Попробуйте отправить сообщение еще раз."
-                ),
+                "ИИ-ассистент временно недоступен. Попробуйте отправить сообщение еще раз.",
                 status=503,
                 session=session,
+                code=error.code,
+            )
+        except Exception:
+            logger.exception("Unexpected AI stream initialization failure.")
+            release_ai_stream_slot(stream_slot)
+            release_ai_session_slot(session_slot)
+            release_ai_request_slot(request_slot)
+            mark_request_record(
+                request_record,
+                status=AIRequestRecord.Status.FAILED,
+                error_code="stream_initialization_failed",
+            )
+            finish_ai_usage_event(
+                usage_event,
+                AIUsageEvent.Status.FAILED,
+                limit_reason="stream_initialization_failed",
+            )
+            return _error_response(
+                "ИИ-ассистент временно недоступен. Попробуйте отправить сообщение еще раз.",
+                status=503,
+                session=session,
+                code="stream_initialization_failed",
             )
 
         def event_stream():
-            answer_parts = []
+            raw_parts = []
+            last_response = None
+            finalized = False
+            last_heartbeat = timezone.now()
+            heartbeat_seconds = max(
+                1,
+                int(getattr(settings, "AI_STREAM_HEARTBEAT_SECONDS", 5)),
+            )
 
             try:
                 yield _stream_event(
                     "session",
                     session_id=str(session.id),
+                    request_id=str(request_record.id),
                     user_message_id=user_message.id,
-                    user_message_created_at=_serialize_timestamp(user_message.created_at),
+                    user_message_created_at=_serialize_timestamp(
+                        user_message.created_at
+                    ),
                 )
 
                 try:
-                    for chunk in stream:
-                        text = (getattr(chunk, "text", None) or "")
+                    for chunk in stream_handle.stream:
+                        last_response = chunk
+                        text = getattr(chunk, "text", None) or ""
+                        if text:
+                            raw_parts.append(text)
 
-                        if not text:
-                            continue
-
-                        answer_parts.append(text)
-                        yield _stream_event("delta", text=text)
+                        now = timezone.now()
+                        if (now - last_heartbeat).total_seconds() >= heartbeat_seconds:
+                            refresh_ai_slot(stream_slot)
+                            refresh_ai_slot(session_slot)
+                            refresh_ai_slot(request_slot)
+                            AIRequestRecord.objects.filter(
+                                pk=request_record.pk,
+                                status=AIRequestRecord.Status.PROCESSING,
+                            ).update(updated_at=now)
+                            yield _stream_event(
+                                "heartbeat",
+                                request_id=str(request_record.id),
+                            )
+                            last_heartbeat = now
+                except GeneratorExit:
+                    raise
                 except Exception as exc:
-                    if _is_quota_error(exc) and not answer_parts:
+                    provider_usage = (
+                        provider_usage_from_response(last_response)
+                        if last_response is not None
+                        else None
+                    )
+                    if _is_quota_error(exc) and not raw_parts:
                         logger.warning("Gemini quota exhausted during streaming response.")
-                        fallback_answer, fallback_dishes = _build_quota_fallback_answer(
-                            prompt,
+                        fallback_result, fallback_dishes = _build_quota_fallback_answer(
                             request,
                             session,
                             language=card_language,
@@ -1048,169 +1072,330 @@ def ask(request):
                         assistant_message = ChatMessage.objects.create(
                             session=session,
                             role=ChatMessage.Role.ASSISTANT,
-                            content=fallback_answer,
-                            model_name="local-quota-fallback",
+                            content=fallback_result.text,
+                            model_name=fallback_result.model_name,
+                            recommended_dish_ids=list(
+                                fallback_result.recommended_dish_ids
+                            ),
                         )
-
                         session.updated_at = timezone.now()
                         session.save(update_fields=["updated_at"])
+                        mark_request_record(
+                            request_record,
+                            status=AIRequestRecord.Status.FALLBACK,
+                            assistant_message=assistant_message,
+                            error_code="provider_quota",
+                        )
+                        zero_usage = AIProviderUsage()
                         finish_ai_usage_event(
                             usage_event,
                             AIUsageEvent.Status.FALLBACK,
-                            response_text=fallback_answer,
-                            model_name=assistant_message.model_name,
+                            response_text=fallback_result.text,
+                            model_name=fallback_result.model_name,
                             limit_reason="provider_quota",
+                            provider_usage=zero_usage,
                         )
-
-                        yield _stream_event("delta", text=fallback_answer)
+                        reconcile_ai_quota_reservation(
+                            quota_reservation,
+                            zero_usage,
+                        )
+                        finalized = True
+                        yield _stream_event("delta", text=fallback_result.text)
                         yield _stream_event(
                             "done",
                             recommended_dishes=fallback_dishes,
                             session_id=str(session.id),
-                            model=assistant_message.model_name,
+                            request_id=str(request_record.id),
+                            model=fallback_result.model_name,
                             message_id=assistant_message.id,
-                            created_at=_serialize_timestamp(assistant_message.created_at),
+                            created_at=_serialize_timestamp(
+                                assistant_message.created_at
+                            ),
                         )
                         return
 
-                    logger.exception("AI assistant stream interrupted.")
+                    reason = (
+                        "provider_timeout"
+                        if is_provider_timeout_error(exc)
+                        else "stream_interrupted"
+                    )
+                    logger.warning(
+                        "AI assistant stream interrupted: %s",
+                        reason,
+                        exc_info=True,
+                    )
+                    mark_request_record(
+                        request_record,
+                        status=AIRequestRecord.Status.FAILED,
+                        error_code=reason,
+                    )
                     finish_ai_usage_event(
                         usage_event,
                         AIUsageEvent.Status.FAILED,
-                        response_text="".join(answer_parts),
-                        model_name=model_name,
-                        limit_reason="stream_interrupted",
+                        model_name=stream_handle.model_name,
+                        limit_reason=reason,
+                        provider_usage=provider_usage,
                     )
+                    if provider_usage is not None:
+                        reconcile_ai_quota_reservation(
+                            quota_reservation,
+                            provider_usage,
+                        )
+                    finalized = True
                     yield _stream_event(
                         "error",
-                        error=(
-                            "Ответ прервался. Попробуйте отправить сообщение еще раз."
-                        ),
+                        error="Ответ прервался. Попробуйте отправить сообщение еще раз.",
                         session_id=str(session.id),
+                        request_id=str(request_record.id),
                     )
                     return
 
-                answer = "".join(answer_parts).strip()
-
-                if not answer:
+                try:
+                    result = parse_streamed_ai_response(
+                        stream_handle,
+                        "".join(raw_parts),
+                        response=last_response,
+                    )
+                except Exception:
+                    logger.exception(
+                        "AI assistant returned invalid structured stream data."
+                    )
+                    provider_usage = (
+                        provider_usage_from_response(last_response)
+                        if last_response is not None
+                        else None
+                    )
+                    mark_request_record(
+                        request_record,
+                        status=AIRequestRecord.Status.FAILED,
+                        error_code="invalid_structured_response",
+                    )
                     finish_ai_usage_event(
                         usage_event,
                         AIUsageEvent.Status.FAILED,
-                        model_name=model_name,
-                        limit_reason="empty_response",
+                        model_name=stream_handle.model_name,
+                        limit_reason="invalid_structured_response",
+                        provider_usage=provider_usage,
                     )
+                    if provider_usage is not None:
+                        reconcile_ai_quota_reservation(
+                            quota_reservation,
+                            provider_usage,
+                        )
+                    finalized = True
                     yield _stream_event(
                         "error",
-                        error="Я не получил текст ответа. Попробуйте еще раз.",
+                        error="Не удалось проверить ответ ассистента. Попробуйте ещё раз.",
                         session_id=str(session.id),
+                        request_id=str(request_record.id),
                     )
                     return
 
-                assistant_message = ChatMessage.objects.create(
-                    session=session,
-                    role=ChatMessage.Role.ASSISTANT,
-                    content=answer,
-                    model_name=model_name,
-                )
+                with transaction.atomic():
+                    assistant_message = ChatMessage.objects.create(
+                        session=session,
+                        role=ChatMessage.Role.ASSISTANT,
+                        content=result.text,
+                        model_name=result.model_name,
+                        recommended_dish_ids=list(result.recommended_dish_ids),
+                    )
+                    session.updated_at = timezone.now()
+                    session.save(update_fields=["updated_at"])
+                    mark_request_record(
+                        request_record,
+                        status=AIRequestRecord.Status.COMPLETED,
+                        assistant_message=assistant_message,
+                    )
 
-                session.updated_at = timezone.now()
-                session.save(update_fields=["updated_at"])
                 finish_ai_usage_event(
                     usage_event,
                     AIUsageEvent.Status.COMPLETED,
-                    response_text=answer,
-                    model_name=model_name,
+                    response_text=result.text,
+                    model_name=result.model_name,
+                    provider_usage=result.provider_usage,
                 )
-
+                reconcile_ai_quota_reservation(
+                    quota_reservation,
+                    result.provider_usage,
+                )
+                finalized = True
+                yield _stream_event("delta", text=result.text)
                 yield _stream_event(
                     "done",
                     recommended_dishes=_serialize_recommended_dishes(
-                        assistant_message.content,
+                        result.recommended_dish_ids,
                         request,
-                        prompt,
-                        excluded_dish_ids=_get_excluded_dish_ids_for_prompt(
-                            session,
-                            prompt,
-                            current_message_id=assistant_message.id,
-                            ordering_context=ordering_context,
-                        ),
                         language=card_language,
                         session=session,
                         ordering_context=ordering_context,
                     ),
                     session_id=str(session.id),
-                    model=model_name,
+                    request_id=str(request_record.id),
+                    model=result.model_name,
                     message_id=assistant_message.id,
                     created_at=_serialize_timestamp(assistant_message.created_at),
                 )
+            except GeneratorExit:
+                if not finalized:
+                    mark_request_record(
+                        request_record,
+                        status=AIRequestRecord.Status.CANCELED,
+                        error_code="client_disconnected",
+                    )
+                    provider_usage = (
+                        provider_usage_from_response(last_response)
+                        if last_response is not None
+                        else None
+                    )
+                    finish_ai_usage_event(
+                        usage_event,
+                        AIUsageEvent.Status.CANCELED,
+                        model_name=stream_handle.model_name,
+                        limit_reason="client_disconnected",
+                        provider_usage=provider_usage,
+                    )
+                    if provider_usage is not None:
+                        reconcile_ai_quota_reservation(
+                            quota_reservation,
+                            provider_usage,
+                        )
+                raise
+            except Exception:
+                logger.exception("Unexpected AI streaming lifecycle failure.")
+                if not finalized:
+                    mark_request_record(
+                        request_record,
+                        status=AIRequestRecord.Status.FAILED,
+                        error_code="stream_lifecycle_error",
+                    )
+                    finish_ai_usage_event(
+                        usage_event,
+                        AIUsageEvent.Status.FAILED,
+                        model_name=stream_handle.model_name,
+                        limit_reason="stream_lifecycle_error",
+                    )
+                raise
             finally:
+                _close_provider_stream(stream_handle)
                 release_ai_stream_slot(stream_slot)
                 release_ai_session_slot(session_slot)
+                release_ai_request_slot(request_slot)
 
-        return StreamingHttpResponse(
+        response = StreamingHttpResponse(
             event_stream(),
             content_type="application/x-ndjson; charset=utf-8",
         )
+        response["X-AI-Request-ID"] = str(request_record.id)
+        response["Cache-Control"] = "no-store, private"
+        return response
 
     try:
         result = generate_ai_answer(session)
-    except AIServiceError:
+    except AIServiceError as error:
         logger.exception("AI assistant request failed.")
         release_ai_session_slot(session_slot)
+        release_ai_request_slot(request_slot)
+        mark_request_record(
+            request_record,
+            status=AIRequestRecord.Status.FAILED,
+            error_code=error.code,
+        )
         finish_ai_usage_event(
             usage_event,
             AIUsageEvent.Status.FAILED,
-            limit_reason="ai_service_error",
+            limit_reason=error.code,
         )
+        if error.code == "ai_not_configured":
+            release_ai_quota_reservation(quota_reservation)
         return _error_response(
-            (
-                "ИИ-ассистент временно недоступен. "
-                "Попробуйте отправить сообщение еще раз."
-            ),
+            "ИИ-ассистент временно недоступен. Попробуйте отправить сообщение еще раз.",
             status=503,
             session=session,
+            code=error.code,
+        )
+    except Exception:
+        logger.exception("Unexpected AI request failure.")
+        release_ai_session_slot(session_slot)
+        release_ai_request_slot(request_slot)
+        mark_request_record(
+            request_record,
+            status=AIRequestRecord.Status.FAILED,
+            error_code="ai_request_failed",
+        )
+        finish_ai_usage_event(
+            usage_event,
+            AIUsageEvent.Status.FAILED,
+            limit_reason="ai_request_failed",
+        )
+        return _error_response(
+            "ИИ-ассистент временно недоступен. Попробуйте отправить сообщение еще раз.",
+            status=503,
+            session=session,
+            code="ai_request_failed",
         )
 
-    assistant_message = ChatMessage.objects.create(
-        session=session,
-        role=ChatMessage.Role.ASSISTANT,
-        content=result.text,
-        model_name=result.model_name,
-    )
-
-    session.updated_at = timezone.now()
-    session.save(update_fields=["updated_at"])
-    finish_ai_usage_event(
-        usage_event,
-        AIUsageEvent.Status.COMPLETED,
-        response_text=assistant_message.content,
-        model_name=result.model_name,
-    )
-    release_ai_session_slot(session_slot)
+    try:
+        with transaction.atomic():
+            assistant_message = ChatMessage.objects.create(
+                session=session,
+                role=ChatMessage.Role.ASSISTANT,
+                content=result.text,
+                model_name=result.model_name,
+                recommended_dish_ids=list(result.recommended_dish_ids),
+            )
+            session.updated_at = timezone.now()
+            session.save(update_fields=["updated_at"])
+            mark_request_record(
+                request_record,
+                status=AIRequestRecord.Status.COMPLETED,
+                assistant_message=assistant_message,
+            )
+        finish_ai_usage_event(
+            usage_event,
+            AIUsageEvent.Status.COMPLETED,
+            response_text=assistant_message.content,
+            model_name=result.model_name,
+            provider_usage=result.provider_usage,
+        )
+        reconcile_ai_quota_reservation(
+            quota_reservation,
+            result.provider_usage,
+        )
+    except Exception:
+        logger.exception("Could not persist AI assistant response.")
+        mark_request_record(
+            request_record,
+            status=AIRequestRecord.Status.FAILED,
+            error_code="response_persistence_failed",
+        )
+        finish_ai_usage_event(
+            usage_event,
+            AIUsageEvent.Status.FAILED,
+            model_name=result.model_name,
+            limit_reason="response_persistence_failed",
+            provider_usage=result.provider_usage,
+        )
+        reconcile_ai_quota_reservation(
+            quota_reservation,
+            result.provider_usage,
+        )
+        return _error_response(
+            "Ответ получен, но не удалось безопасно сохранить диалог.",
+            status=503,
+            session=session,
+            code="response_persistence_failed",
+        )
+    finally:
+        release_ai_session_slot(session_slot)
+        release_ai_request_slot(request_slot)
 
     return JsonResponse(
-        {
-            "answer": assistant_message.content,
-            "recommended_dishes": _serialize_recommended_dishes(
-                assistant_message.content,
-                request,
-                prompt=prompt,
-                excluded_dish_ids=_get_excluded_dish_ids_for_prompt(
-                    session,
-                    prompt,
-                    current_message_id=assistant_message.id,
-                    ordering_context=ordering_context,
-                ),
-                language=card_language,
-                session=session,
-                ordering_context=ordering_context,
-            ),
-            "session_id": str(session.id),
-            "model": result.model_name,
-            "message_id": assistant_message.id,
-            "created_at": _serialize_timestamp(assistant_message.created_at),
-            "user_message_id": user_message.id,
-            "user_message_created_at": _serialize_timestamp(user_message.created_at),
-        },
+        _request_result_payload(
+            request_record,
+            request,
+            card_language=card_language,
+            ordering_context=ordering_context,
+            replayed=False,
+        ),
         status=200,
     )

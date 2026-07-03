@@ -283,7 +283,16 @@ class OrderItemModifierInline(admin.TabularInline):
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
-    readonly_fields = ("dish", "dish_name", "quantity", "unit_price", "line_total")
+    readonly_fields = (
+        "dish",
+        "dish_name",
+        "dish_code_snapshot",
+        "category_name_snapshot",
+        "category_code_snapshot",
+        "quantity",
+        "unit_price",
+        "line_total",
+    )
     can_delete = False
     show_change_link = True
 
@@ -314,14 +323,28 @@ class OrderStatusHistoryInline(admin.TabularInline):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ("id", "restaurant", "table", "status", "version", "total_amount", "created_at")
-    list_filter = ("status", "restaurant", "created_at")
+    list_display = (
+        "id",
+        "restaurant",
+        "order_mode",
+        "table",
+        "status",
+        "version",
+        "total_amount",
+        "created_at",
+    )
+    list_filter = ("order_mode", "status", "restaurant", "created_at")
     search_fields = ("id", "comment", "user__email", "session_key")
     readonly_fields = (
         "status",
         "version",
         "restaurant",
         "table",
+        "order_mode",
+        "restaurant_name_snapshot",
+        "restaurant_slug_snapshot",
+        "table_number_snapshot",
+        "table_title_snapshot",
         "user",
         "session_key",
         "guests_count",
@@ -394,7 +417,14 @@ class OrderAdmin(admin.ModelAdmin):
 
 @admin.register(OrderItem)
 class OrderItemAdmin(admin.ModelAdmin):
-    list_display = ("order", "dish_name", "quantity", "unit_price", "line_total")
+    list_display = (
+        "order",
+        "dish_name",
+        "category_name_snapshot",
+        "quantity",
+        "unit_price",
+        "line_total",
+    )
     search_fields = ("dish_name", "order__id")
     inlines = (OrderItemModifierInline,)
 

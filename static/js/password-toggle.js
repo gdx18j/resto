@@ -1,4 +1,6 @@
 (function () {
+  "use strict";
+
   function getPasswordInput(button) {
     var control = button.closest(".auth-password-control");
 
@@ -22,27 +24,49 @@
     return button.dataset[key] || button.dataset[name] || "";
   }
 
-  document.addEventListener("click", function (event) {
-    var button = event.target.closest("[data-password-toggle]");
-
-    if (!button) {
-      return;
-    }
-
+  function syncButtonLabel(button) {
     var input = getPasswordInput(button);
+    var isVisible;
 
     if (!input) {
       return;
     }
 
-    var shouldShow = input.type === "password";
-    input.type = shouldShow ? "text" : "password";
-    button.classList.toggle("is-visible", shouldShow);
+    isVisible = input.type !== "password";
+    button.classList.toggle("is-visible", isVisible);
     button.setAttribute(
       "aria-label",
-      shouldShow
+      isVisible
         ? localizedDatasetValue(button, "hideLabel") || "Hide password"
         : localizedDatasetValue(button, "showLabel") || "Show password"
     );
+  }
+
+  function syncAllButtons() {
+    Array.prototype.forEach.call(
+      document.querySelectorAll("[data-password-toggle]"),
+      syncButtonLabel
+    );
+  }
+
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest("[data-password-toggle]");
+    var input;
+
+    if (!button) {
+      return;
+    }
+
+    input = getPasswordInput(button);
+
+    if (!input) {
+      return;
+    }
+
+    input.type = input.type === "password" ? "text" : "password";
+    syncButtonLabel(button);
   });
+
+  window.addEventListener("cc:languagechange", syncAllButtons);
+  syncAllButtons();
 })();

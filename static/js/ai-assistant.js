@@ -2,6 +2,7 @@
   var REQUEST_TIMEOUT_MS = 120000;
   var LOCK_CLASS = "ai-assistant-lock";
   var TYPEWRITER_STEP_MS = 14;
+  var reduceMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   var modalManager = window.CaesarModal || null;
 
   var roots = document.querySelectorAll("[data-ai-assistant]");
@@ -13,12 +14,14 @@
     var historyEndpoint = root.dataset.historyEndpoint || "";
     var isAccountBound = root.dataset.accountBound === "1";
     var shell = document.querySelector(".app-shell");
+    var orderingEnabled = shell ? shell.dataset.orderingEnabled === "1" : false;
     var restaurantSlug = shell ? shell.dataset.cartRestaurantSlug || "" : "";
-    var tableToken = shell ? shell.dataset.cartTableToken || "" : "";
+    var tableContext = shell ? shell.dataset.cartTableContext || "" : "";
+    var cartStorageScope = shell ? shell.dataset.cartStorageScope || "" : "";
     var contextStorageKey = "global";
 
-    if (tableToken) {
-      contextStorageKey = "table:" + tableToken;
+    if (cartStorageScope) {
+      contextStorageKey = "table:" + cartStorageScope;
     } else if (restaurantSlug) {
       contextStorageKey = "restaurant:" + restaurantSlug;
     }
@@ -59,7 +62,9 @@
         timeout: "Ответ занимает слишком много времени. Попробуйте еще раз.",
         connection: "Не удалось связаться с ассистентом. Проверьте соединение.",
         today: "Сегодня",
-        yesterday: "Вчера"
+        yesterday: "Вчера",
+        decreaseItem: "Убрать одно",
+        increaseItem: "Добавить ещё"
       },
       en: {
         greeting: "Hi! I can help you explore the menu, choose a dish, and check ingredients or allergens.",
@@ -72,7 +77,9 @@
         timeout: "The response is taking too long. Please try again.",
         connection: "Could not reach the assistant. Check your connection.",
         today: "Today",
-        yesterday: "Yesterday"
+        yesterday: "Yesterday",
+        decreaseItem: "Remove one",
+        increaseItem: "Add one more"
       },
       tr: {
         greeting: "Merhaba! Menüyü keşfetmenize, yemek seçmenize, içerikleri ve alerjenleri kontrol etmenize yardımcı olurum.",
@@ -85,7 +92,9 @@
         timeout: "Yanıt çok uzun sürüyor. Lütfen tekrar deneyin.",
         connection: "Asistana ulaşılamadı. Bağlantınızı kontrol edin.",
         today: "Bugün",
-        yesterday: "Dün"
+        yesterday: "Dün",
+        decreaseItem: "Bir tane çıkar",
+        increaseItem: "Bir tane daha ekle"
       }
     };
 
@@ -540,8 +549,8 @@
         url.searchParams.set("restaurant_slug", restaurantSlug);
       }
 
-      if (tableToken) {
-        url.searchParams.set("table_token", tableToken);
+      if (tableContext) {
+        url.searchParams.set("table_context", tableContext);
       }
 
       if (state.sessionId) {
@@ -674,6 +683,13 @@
       }
 
       root.classList.remove("is-open");
+
+      if (reduceMotionQuery.matches) {
+        panel.hidden = true;
+        root.classList.remove("is-mounted");
+        return;
+      }
+
       closeTimer = window.setTimeout(function () {
         panel.hidden = true;
         root.classList.remove("is-mounted");
@@ -822,6 +838,18 @@
 
       messagesNode.appendChild(article);
 
+      if (reduceMotionQuery.matches) {
+        textNode.textContent = cleanText;
+
+        if (dishes && dishes.length) {
+          article.appendChild(createDishCardsNode(dishes));
+        }
+
+        preservePausedScrollPosition();
+        scrollMessagesToBottom();
+        return;
+      }
+
       function tick() {
         index = Math.min(index + 2, cleanText.length);
         textNode.textContent = cleanText.slice(0, index);
@@ -904,7 +932,7 @@
         link.appendChild(body);
         card.appendChild(link);
 
-        if (dish.price) {
+        if (orderingEnabled && dish.price) {
           cartControl.className = "dish-cart-control ai-assistant__dish-cart-control";
           cartControl.dataset.id = cartId;
           cartControl.dataset.name = dish.name;
@@ -937,7 +965,7 @@
           decreaseButton.textContent = "−";
           decreaseButton.dataset.dishQtyAction = "dec";
           decreaseButton.dataset.id = cartId;
-          decreaseButton.setAttribute("aria-label", "Уменьшить количество");
+          decreaseButton.setAttribute("aria-label", t("decreaseItem") + ": " + dish.name);
 
           count.className = "dish-qty-stepper__count";
           count.setAttribute("data-dish-qty-count", "");
@@ -949,7 +977,7 @@
           increaseButton.textContent = "+";
           increaseButton.dataset.dishQtyAction = "inc";
           increaseButton.dataset.id = cartId;
-          increaseButton.setAttribute("aria-label", "Увеличить количество");
+          increaseButton.setAttribute("aria-label", t("increaseItem") + ": " + dish.name);
 
           stepper.appendChild(decreaseButton);
           stepper.appendChild(count);
@@ -1152,7 +1180,7 @@
       });
       resizeInput();
       addMessage("user", prompt, []);
-      sendPrompt(prompt, true);
+      sendPrompt(prompt, true, createRequestId());
     }
 
     function updateLatestUserMessageTimestamp(createdAt) {
@@ -1251,6 +1279,15 @@
         createdAt: messageCreatedAt,
         append: function (delta) {
           text += delta;
+
+          if (reduceMotionQuery.matches) {
+            displayedText += delta;
+            textNode.textContent = stripSimpleMarkdown(displayedText);
+            preservePausedScrollPosition();
+            scrollMessagesToBottom();
+            return;
+          }
+
           queuedText += delta;
 
           if (!isTyping) {
@@ -1365,11 +1402,39 @@
       return pump();
     }
 
-    function sendPrompt(prompt, canRetryWithoutSession) {
+    function createRequestId() {
+      var bytes;
+
+      if (window.crypto && typeof window.crypto.randomUUID === "function") {
+        return window.crypto.randomUUID();
+      }
+
+      if (window.crypto && typeof window.crypto.getRandomValues === "function") {
+        bytes = new Uint8Array(16);
+        window.crypto.getRandomValues(bytes);
+        bytes[6] = (bytes[6] & 15) | 64;
+        bytes[8] = (bytes[8] & 63) | 128;
+
+        return Array.prototype.map.call(bytes, function (value, index) {
+          var hex = value.toString(16).padStart(2, "0");
+          return [4, 6, 8, 10].indexOf(index) !== -1 ? "-" + hex : hex;
+        }).join("");
+      }
+
+      return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (char) {
+        var random = Math.floor(Math.random() * 16);
+        var value = char === "x" ? random : (random & 3) | 8;
+        return value.toString(16);
+      });
+    }
+
+
+    function sendPrompt(prompt, canRetryWithoutSession, requestId) {
       var typingNode = createTypingNode();
       var payload = {
         prompt: prompt,
         language: getCurrentLanguage(),
+        request_id: requestId || createRequestId(),
       };
       var controller = window.AbortController ? new AbortController() : null;
       var timeout = window.setTimeout(function () {
@@ -1382,8 +1447,8 @@
         payload.restaurant_slug = restaurantSlug;
       }
 
-      if (tableToken) {
-        payload.table_token = tableToken;
+      if (tableContext) {
+        payload.table_context = tableContext;
       }
 
       if (state.sessionId) {
@@ -1446,7 +1511,7 @@
           ) {
             state.sessionId = null;
             writeState();
-            return sendPrompt(prompt, false);
+            return sendPrompt(prompt, false, payload.request_id);
           }
 
           state.sessionId = result.data.session_id || state.sessionId;

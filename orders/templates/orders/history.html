@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}История заказов | Caesar &amp; Company{% endblock %}
+{% block title %}{% if ui_language == "en" %}Order history{% elif ui_language == "tr" %}Sipariş geçmişi{% else %}История заказов{% endif %} | Caesar &amp; Company{% endblock %}
 
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'css/accounts.css' %}">
@@ -47,18 +47,41 @@
     </header>
 
     {% if orders %}
-      <div class="order-history-tools" aria-label="Фильтры истории заказов">
+      <div
+        class="order-history-tools"
+        aria-label="{% if ui_language == 'en' %}Order history filters{% elif ui_language == 'tr' %}Sipariş geçmişi filtreleri{% else %}Фильтры истории заказов{% endif %}"
+        data-i18n-aria-label
+        data-aria-label-ru="Фильтры истории заказов"
+        data-aria-label-en="Order history filters"
+        data-aria-label-tr="Sipariş geçmişi filtreleri"
+      >
         <label class="order-history-search">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
           <input
             type="search"
             data-order-history-search
-            placeholder="Найти заказ или блюдо"
-            aria-label="Поиск по истории заказов"
+            placeholder="{% if ui_language == 'en' %}Find an order or dish{% elif ui_language == 'tr' %}Sipariş veya yemek ara{% else %}Найти заказ или блюдо{% endif %}"
+            aria-label="{% if ui_language == 'en' %}Search order history{% elif ui_language == 'tr' %}Sipariş geçmişinde ara{% else %}Поиск по истории заказов{% endif %}"
+            data-i18n-placeholder
+            data-i18n-aria-label
+            data-placeholder-ru="Найти заказ или блюдо"
+            data-placeholder-en="Find an order or dish"
+            data-placeholder-tr="Sipariş veya yemek ara"
+            data-aria-label-ru="Поиск по истории заказов"
+            data-aria-label-en="Search order history"
+            data-aria-label-tr="Sipariş geçmişinde ara"
           >
         </label>
 
-        <div class="order-history-filters" role="group" aria-label="Статус заказа">
+        <div
+          class="order-history-filters"
+          role="group"
+          aria-label="{% if ui_language == 'en' %}Order status{% elif ui_language == 'tr' %}Sipariş durumu{% else %}Статус заказа{% endif %}"
+          data-i18n-aria-label
+          data-aria-label-ru="Статус заказа"
+          data-aria-label-en="Order status"
+          data-aria-label-tr="Sipariş durumu"
+        >
           <button type="button" class="order-history-filter is-active" data-order-filter="all">
             <span class="lang lang--ru">Все</span>
             <span class="lang lang--en">All</span>
@@ -92,15 +115,21 @@
               <article
                 class="order-history-card"
                 data-order-card
-                data-order-trigger
-                data-order-id="{{ order.id }}"
                 data-order-state="{{ order.history_state }}"
-                data-order-search="заказ {{ order.id }} order {{ order.id }} {{ order.status_label }} {{ order.created_at|date:'d.m.Y H:i' }} {% if order.table %}стол {{ order.table.number }}{% endif %} {% if order.primary_payment %}{{ order.primary_payment.get_method_display }}{% endif %} {% for item in order.items.all %} {{ item.dish_name }}{% endfor %}"
-                tabindex="0"
-                role="button"
-                aria-haspopup="dialog"
-                aria-label="Подробности заказа №{{ order.id }}"
+                data-order-search="заказ {{ order.id }} order {{ order.id }} {{ order.status_label }} {{ order.created_at|date:'d.m.Y H:i' }} {{ order.display_restaurant_name }} {% if order.display_table_number %}стол {{ order.display_table_number }}{% endif %} {% if order.primary_payment %}{{ order.primary_payment.get_method_display }}{% endif %} {% for item in order.items.all %} {{ item.dish_name }}{% endfor %}"
               >
+                <button
+                  class="order-history-card__open"
+                  type="button"
+                  data-order-trigger
+                  data-order-id="{{ order.id }}"
+                  aria-haspopup="dialog"
+                  aria-label="{% if ui_language == 'en' %}Order #{{ order.id }} details{% elif ui_language == 'tr' %}Sipariş #{{ order.id }} detayları{% else %}Подробности заказа №{{ order.id }}{% endif %}"
+                  data-i18n-aria-label
+                  data-aria-label-ru="Подробности заказа №{{ order.id }}"
+                  data-aria-label-en="Order #{{ order.id }} details"
+                  data-aria-label-tr="Sipariş #{{ order.id }} detayları"
+                ></button>
                 <div class="order-history-card__media" aria-hidden="true">
                   {% for item in order.preview_items %}
                     <span class="order-history-thumb">
@@ -135,7 +164,15 @@
 
                   <div class="order-history-card__meta">
                     <span>{{ order.created_at|date:"H:i" }}</span>
-                    {% if order.table %}<span>Стол {{ order.table.number }}</span>{% endif %}
+                    <span>{{ order.display_restaurant_name }}</span>
+                    <span>{% include "orders/_order_mode_label.html" with order=order %}</span>
+                    {% if order.display_table_number %}
+                      <span>
+                        <span class="lang lang--ru">Стол {{ order.display_table_number }}</span>
+                        <span class="lang lang--en">Table {{ order.display_table_number }}</span>
+                        <span class="lang lang--tr">Masa {{ order.display_table_number }}</span>
+                      </span>
+                    {% endif %}
                     <span>{{ order.items_count }} поз.</span>
                     {% if order.primary_payment %}<span>{{ order.primary_payment.get_method_display }}</span>{% endif %}
                   </div>
@@ -149,17 +186,23 @@
 
                 <div class="order-history-card__side">
                   <strong class="order-history-card__total">{{ order.total_amount }} ₽</strong>
-                  <button
-                    type="button"
-                    class="order-history-repeat"
-                    data-repeat-order
-                    data-items="{{ order.repeat_available_items_json }}"
-                    data-repeat-result="{{ order.repeat_result_json }}"
-                  >
-                    <span class="lang lang--ru">Повторить</span>
-                    <span class="lang lang--en">Repeat</span>
-                    <span class="lang lang--tr">Tekrarla</span>
-                  </button>
+                  {% if order.can_repeat_in_table_context %}
+                    <button
+                      type="button"
+                      class="order-history-repeat"
+                      data-repeat-order
+                      data-repeat-restaurant-slug="{{ order.restaurant_slug_snapshot }}"
+                      data-repeat-order-mode="{{ order.order_mode }}"
+                      data-repeat-table-number="{{ order.table_number_snapshot }}"
+                      data-repeat-guests-count="{{ order.guests_count }}"
+                      data-items="{{ order.repeat_available_items_json }}"
+                      data-repeat-result="{{ order.repeat_result_json }}"
+                    >
+                      <span class="lang lang--ru">Повторить</span>
+                      <span class="lang lang--en">Repeat</span>
+                      <span class="lang lang--tr">Tekrarla</span>
+                    </button>
+                  {% endif %}
                 </div>
               </article>
 
@@ -168,6 +211,7 @@
           </section>
         {% endfor %}
       </div>
+      <p class="order-repeat-status" data-repeat-order-status role="status" aria-live="polite" hidden></p>
 
       <div class="order-empty order-empty--filtered" data-order-history-empty hidden>
         <h2>
@@ -182,7 +226,14 @@
         </p>
       </div>
       {% if page_obj.has_other_pages %}
-        <nav class="order-history-pagination" aria-label="Order history pages">
+        <nav
+          class="order-history-pagination"
+          aria-label="{% if ui_language == 'en' %}Order history pages{% elif ui_language == 'tr' %}Sipariş geçmişi sayfaları{% else %}Страницы истории заказов{% endif %}"
+          data-i18n-aria-label
+          data-aria-label-ru="Страницы истории заказов"
+          data-aria-label-en="Order history pages"
+          data-aria-label-tr="Sipariş geçmişi sayfaları"
+        >
           {% if page_obj.has_previous %}
             <a class="order-history-page-link" href="?page={{ page_obj.previous_page_number }}">
               <span class="lang lang--ru">Назад</span>
@@ -233,4 +284,5 @@
 
 {% block extra_scripts %}
   <script src="{% static 'js/order-history.js' %}" defer></script>
+  <script src="{% static 'js/order-repeat.js' %}" defer></script>
 {% endblock %}

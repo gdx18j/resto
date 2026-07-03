@@ -1,0 +1,21 @@
+{% if order.order_mode == "table" %}
+  <span class="lang lang--ru">За столом</span>
+  <span class="lang lang--en">At the table</span>
+  <span class="lang lang--tr">Masada</span>
+{% elif order.order_mode == "pickup" %}
+  <span class="lang lang--ru">Самовывоз</span>
+  <span class="lang lang--en">Pickup</span>
+  <span class="lang lang--tr">Gel-al</span>
+{% elif order.order_mode == "counter" %}
+  <span class="lang lang--ru">У стойки</span>
+  <span class="lang lang--en">At the counter</span>
+  <span class="lang lang--tr">Kasada</span>
+{% elif order.order_mode == "delivery" %}
+  <span class="lang lang--ru">Доставка</span>
+  <span class="lang lang--en">Delivery</span>
+  <span class="lang lang--tr">Teslimat</span>
+{% else %}
+  <span class="lang lang--ru">Старый формат</span>
+  <span class="lang lang--en">Legacy order</span>
+  <span class="lang lang--tr">Eski sipariş</span>
+{% endif %}

@@ -137,41 +137,50 @@ Dish → DishIngredient → Ingredient → Allergen
 
 ## Работа через Docker
 
-Проект запускается с помощью Docker Compose.
+Контейнер `web` больше не выполняет миграции и `collectstatic` при каждом
+старте. Обновление выполняется как контролируемый release-процесс.
 
-Запуск контейнеров:
-
-```bash
-docker compose up --build
-```
-
-Запуск в фоновом режиме:
+Первичная сборка:
 
 ```bash
-docker compose up -d
+docker compose build web
+docker compose up -d db redis
+docker compose --profile release run --rm release
+docker compose run --rm web python manage.py seed_project_data
+docker compose up -d web
 ```
 
-Остановка контейнеров без удаления базы:
+Обычное обновление после изменения кода:
+
+```bash
+docker compose build web
+docker compose --profile release run --rm release
+docker compose up -d web
+```
+
+Остановка без удаления данных:
 
 ```bash
 docker compose down
 ```
 
-Остановка с полным удалением тома PostgreSQL:
+Полное удаление всех named volumes:
 
 ```bash
 docker compose down -v
 ```
 
-Команда с `-v` удаляет все данные базы, поэтому используется только при необходимости полного пересоздания PostgreSQL.
+Команда с `-v` удаляет PostgreSQL, Redis, media и собранную статику.
 
-Команды Django выполняются внутри контейнера `web`:
+Команды Django выполняются явно:
 
 ```bash
-docker compose exec web python manage.py makemigrations
-docker compose exec web python manage.py migrate
 docker compose exec web python manage.py createsuperuser
+docker compose exec web python manage.py check
 ```
+
+Подробный production-порядок описан в `DEPLOYMENT.md`, локальный — в
+`RUN_LOCAL.md`.
 
 ## Текущее состояние
 

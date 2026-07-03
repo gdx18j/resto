@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+from ipaddress import ip_network
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
@@ -107,21 +108,84 @@ if IS_PRODUCTION and "*" in ALLOWED_HOSTS:
 
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS", "")
 
+TRUST_PROXY_HEADERS = env_bool(
+    "DJANGO_TRUST_PROXY_HEADERS",
+    env_bool("RATE_LIMIT_TRUST_PROXY_HEADERS", False),
+)
+TRUSTED_PROXY_CIDRS = env_list("DJANGO_TRUSTED_PROXY_CIDRS", "")
+
+for trusted_proxy_cidr in TRUSTED_PROXY_CIDRS:
+    try:
+        ip_network(trusted_proxy_cidr, strict=False)
+    except ValueError as exc:
+        raise ImproperlyConfigured(
+            f"Invalid network in DJANGO_TRUSTED_PROXY_CIDRS: {trusted_proxy_cidr}"
+        ) from exc
+
+if IS_PRODUCTION and TRUST_PROXY_HEADERS and not TRUSTED_PROXY_CIDRS:
+    raise ImproperlyConfigured(
+        "DJANGO_TRUSTED_PROXY_CIDRS is required when proxy headers are trusted."
+    )
+
 SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", IS_PRODUCTION)
 SESSION_COOKIE_SECURE = env_bool("DJANGO_SESSION_COOKIE_SECURE", IS_PRODUCTION)
 CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", IS_PRODUCTION)
 SECURE_HSTS_SECONDS = env_int(
     "DJANGO_SECURE_HSTS_SECONDS",
-    31536000 if IS_PRODUCTION else 0,
+    3600 if IS_PRODUCTION else 0,
 )
 SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool(
     "DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS",
+    False,
+)
+SECURE_HSTS_PRELOAD = env_bool("DJANGO_SECURE_HSTS_PRELOAD", False)
+
+USE_SECURE_PROXY_SSL_HEADER = env_bool(
+    "DJANGO_SECURE_PROXY_SSL_HEADER",
     IS_PRODUCTION,
 )
-SECURE_HSTS_PRELOAD = env_bool("DJANGO_SECURE_HSTS_PRELOAD", IS_PRODUCTION)
-
-if env_bool("DJANGO_SECURE_PROXY_SSL_HEADER", IS_PRODUCTION):
+if IS_PRODUCTION and USE_SECURE_PROXY_SSL_HEADER and not TRUST_PROXY_HEADERS:
+    raise ImproperlyConfigured(
+        "DJANGO_TRUST_PROXY_HEADERS must be enabled when "
+        "DJANGO_SECURE_PROXY_SSL_HEADER is enabled in production."
+    )
+if USE_SECURE_PROXY_SSL_HEADER:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = env_value("DJANGO_REFERRER_POLICY", "same-origin")
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+X_FRAME_OPTIONS = "DENY"
+SECURE_REDIRECT_EXEMPT = [r"^health/(live|ready)/$", r"^healthz/$"]
+
+SECURITY_POLICY_HEADERS_ENABLED = env_bool(
+    "DJANGO_SECURITY_POLICY_HEADERS_ENABLED",
+    True,
+)
+_content_security_policy_parts = [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    "img-src 'self' data: blob:",
+    "connect-src 'self'",
+    "media-src 'self'",
+    "manifest-src 'self'",
+    "worker-src 'self' blob:",
+    "form-action 'self' https://accounts.google.com",
+]
+if IS_PRODUCTION:
+    _content_security_policy_parts.append("upgrade-insecure-requests")
+CONTENT_SECURITY_POLICY = "; ".join(_content_security_policy_parts)
+PERMISSIONS_POLICY = env_value(
+    "DJANGO_PERMISSIONS_POLICY",
+    "camera=(), microphone=(), geolocation=(), usb=(), browsing-topics=()",
+)
 
 
 # Application definition
@@ -153,7 +217,9 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 MIDDLEWARE = [
+    "config.proxy.TrustedProxyHeadersMiddleware",
     'django.middleware.security.SecurityMiddleware',
+    "config.security.SecurityPolicyMiddleware",
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -182,6 +248,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 "accounts.context_processors.account_identity",
+                "config.context_processors.ui_preferences",
             ],
         },
     },
@@ -364,9 +431,12 @@ else:
 
 
 RATE_LIMIT_ENABLED = env_bool("RATE_LIMIT_ENABLED", True)
-RATE_LIMIT_TRUST_PROXY_HEADERS = env_bool(
-    "RATE_LIMIT_TRUST_PROXY_HEADERS",
-    IS_PRODUCTION,
+# Backward-compatible aliases. Request identity now uses one validated proxy policy.
+RATE_LIMIT_TRUST_PROXY_HEADERS = TRUST_PROXY_HEADERS
+AI_TRUST_X_FORWARDED_FOR = TRUST_PROXY_HEADERS
+RATE_LIMIT_CACHE_FAILURE_RETRY_AFTER = env_int(
+    "RATE_LIMIT_CACHE_FAILURE_RETRY_AFTER",
+    5,
 )
 RATE_LIMIT_MESSAGE = env_value(
     "RATE_LIMIT_MESSAGE",
@@ -384,6 +454,7 @@ def rate_limit(name, default, window):
 
 RATE_LIMIT_RULES = {
     "account_login": {
+        "cache_failure": "closed",
         "methods": ["POST"],
         "identity": "ip+field",
         "field": "login",
@@ -393,6 +464,7 @@ RATE_LIMIT_RULES = {
         ],
     },
     "account_signup": {
+        "cache_failure": "closed",
         "methods": ["POST"],
         "identity": "ip+field",
         "field": "email",
@@ -402,6 +474,7 @@ RATE_LIMIT_RULES = {
         ],
     },
     "account_reset_password": {
+        "cache_failure": "closed",
         "methods": ["POST"],
         "identity": "ip+field",
         "field": "email",
@@ -411,6 +484,7 @@ RATE_LIMIT_RULES = {
         ],
     },
     "account_reset_password_from_key": {
+        "cache_failure": "closed",
         "methods": ["POST"],
         "identity": "ip",
         "limits": [
@@ -419,6 +493,7 @@ RATE_LIMIT_RULES = {
         ],
     },
     "google_login": {
+        "cache_failure": "closed",
         "methods": ["POST"],
         "identity": "ip",
         "limits": [
@@ -427,6 +502,7 @@ RATE_LIMIT_RULES = {
         ],
     },
     "ai_assistant:ask": {
+        "cache_failure": "closed",
         "methods": ["POST"],
         "identity": "ip+actor",
         "limits": [
@@ -435,6 +511,7 @@ RATE_LIMIT_RULES = {
         ],
     },
     "menu:table_menu": {
+        "cache_failure": "open",
         "methods": ["GET"],
         "identity": "ip",
         "limits": [
@@ -443,6 +520,7 @@ RATE_LIMIT_RULES = {
         ],
     },
     "orders:quote": {
+        "cache_failure": "open",
         "methods": ["POST"],
         "identity": "ip+actor",
         "limits": [
@@ -451,6 +529,7 @@ RATE_LIMIT_RULES = {
         ],
     },
     "orders:create": {
+        "cache_failure": "open",
         "methods": ["POST"],
         "identity": "ip+actor",
         "limits": [
@@ -499,15 +578,26 @@ STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 
-if USE_WHITENOISE:
-    STORAGES = {
-        "default": {
-            "BACKEND": "django.core.files.storage.FileSystemStorage",
-        },
-        "staticfiles": {
-            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
-        },
-    }
+DEFAULT_STATICFILES_BACKEND = (
+    "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    if IS_PRODUCTION
+    else "django.contrib.staticfiles.storage.StaticFilesStorage"
+)
+STATICFILES_BACKEND = env_value(
+    "DJANGO_STATICFILES_BACKEND",
+    DEFAULT_STATICFILES_BACKEND,
+)
+
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": STATICFILES_BACKEND,
+    },
+}
+
+WHITENOISE_MAX_AGE = 31536000 if IS_PRODUCTION else 0
 
 # Media files (User uploads)
 MEDIA_URL = "/media/"
@@ -629,6 +719,27 @@ AI_SESSION_LOCK_TIMEOUT_SECONDS = int(
     os.getenv("AI_SESSION_LOCK_TIMEOUT_SECONDS", str(AI_STREAM_LOCK_TIMEOUT_SECONDS))
 )
 
+AI_PROVIDER_TIMEOUT_SECONDS = env_int("AI_PROVIDER_TIMEOUT_SECONDS", 45)
+AI_REQUEST_LOCK_TIMEOUT_SECONDS = env_int("AI_REQUEST_LOCK_TIMEOUT_SECONDS", 30)
+AI_REQUEST_STALE_SECONDS = env_int("AI_REQUEST_STALE_SECONDS", 180)
+AI_QUOTA_LOCK_TIMEOUT_SECONDS = env_int("AI_QUOTA_LOCK_TIMEOUT_SECONDS", 5)
+AI_QUOTA_LOCK_RETRY_AFTER_SECONDS = env_int(
+    "AI_QUOTA_LOCK_RETRY_AFTER_SECONDS",
+    1,
+)
+AI_STREAM_HEARTBEAT_SECONDS = env_int("AI_STREAM_HEARTBEAT_SECONDS", 5)
+
+for setting_name, setting_value in {
+    "AI_PROVIDER_TIMEOUT_SECONDS": AI_PROVIDER_TIMEOUT_SECONDS,
+    "AI_REQUEST_LOCK_TIMEOUT_SECONDS": AI_REQUEST_LOCK_TIMEOUT_SECONDS,
+    "AI_REQUEST_STALE_SECONDS": AI_REQUEST_STALE_SECONDS,
+    "AI_QUOTA_LOCK_TIMEOUT_SECONDS": AI_QUOTA_LOCK_TIMEOUT_SECONDS,
+    "AI_QUOTA_LOCK_RETRY_AFTER_SECONDS": AI_QUOTA_LOCK_RETRY_AFTER_SECONDS,
+    "AI_STREAM_HEARTBEAT_SECONDS": AI_STREAM_HEARTBEAT_SECONDS,
+}.items():
+    if setting_value <= 0:
+        raise ImproperlyConfigured(f"{setting_name} must be greater than zero.")
+
 AI_ABUSE_BLOCK_THRESHOLD = int(
     os.getenv("AI_ABUSE_BLOCK_THRESHOLD", "8")
 )
@@ -636,11 +747,6 @@ AI_ABUSE_BLOCK_THRESHOLD = int(
 AI_ABUSE_BLOCK_SECONDS = int(
     os.getenv("AI_ABUSE_BLOCK_SECONDS", "600")
 )
-
-AI_TRUST_X_FORWARDED_FOR = os.getenv(
-    "AI_TRUST_X_FORWARDED_FOR",
-    "False",
-).lower() in {"1", "true", "yes", "on"}
 
 
 # Site URL is used to build printable table QR links.

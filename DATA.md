@@ -1,21 +1,18 @@
 # Data, Schema, and Local Databases
 
-The project schema is versioned by Django migrations in each app's
-`migrations/` directory. Runtime database files are not source data.
+The project schema is versioned by committed Django migrations. Runtime database
+files are not source data.
 
-## Source of Truth
+## Source of truth
 
-- Schema: committed Django migrations.
-- Menu seed data: `data/caesar_and_company_menu_seed.json`.
+- Schema: committed migrations in each app.
+- Menu seed: `data/caesar_and_company_menu_seed.json`.
 - Base fixture: `data/fixtures/base_restaurant.json`.
-- Runtime data: PostgreSQL volumes, local `db.sqlite3`, and backup dumps.
+- Runtime data: PostgreSQL volumes, local SQLite files, media volumes, backups.
 
-Do not treat `db.sqlite3` as part of the project state. It is ignored by Git and
-Docker packaging because it can easily lag behind the current migrations.
+Never package `db.sqlite3` as project state.
 
-## Clean Local Bootstrap
-
-For a clean SQLite development database:
+## Clean local SQLite bootstrap
 
 ```bash
 python manage.py migrate
@@ -34,18 +31,30 @@ To import only the base fixture:
 python manage.py loaddata data/fixtures/base_restaurant.json
 ```
 
-The seed command refuses to run when migrations are unapplied. Run
-`python manage.py migrate --check` in CI or before packaging to detect a stale
-database state.
+The seed command refuses to run when migrations are unapplied.
+
+## Docker release and import
+
+The web entrypoint does not migrate or seed data. Apply schema and collect
+versioned static files with the one-shot release service:
+
+```bash
+docker compose --profile release run --rm release
+```
+
+Seed data is always an explicit operator action:
+
+```bash
+docker compose exec web python manage.py seed_project_data
+docker compose exec web python manage.py import_caesar_images
+```
+
+A restart of `web` therefore cannot unexpectedly alter restaurant data.
 
 ## Translations
 
-Menu translations are stored in database tables, not in runtime Python
-dictionaries. Categories and dishes have stable `code` values; renaming `name`
-in the admin does not change the code or detach translations.
-
-Edit translations from the Django admin in the category, dish, or allergen
-inline forms. Each object can have only one translation per language.
+Translations live in database tables. Categories and dishes use stable `code`
+values, so renaming a display name does not detach translations.
 
 CI should run:
 
@@ -54,31 +63,13 @@ python manage.py check_menu_translations --restaurant-slug caesar-company
 python manage.py validate_translation_sources
 ```
 
-`check_menu_translations` fails when an active category, active dish, or allergen
-is missing a required translation. `validate_translation_sources` parses Python
-and JSON seed files in a duplicate-aware mode, so repeated literal keys cannot be
-silently overwritten.
-
-## Production Import
-
-The Docker entrypoint always runs migrations. To import menu seed data during a
-controlled deployment, set:
-
-```env
-IMPORT_SEED_DATA_ON_STARTUP=True
-```
-
-This imports `data/caesar_and_company_menu_seed.json` with allergen suggestions.
-Keep this disabled unless you intentionally want startup to upsert seed data.
-
 ## Backups
 
-Backups belong outside Git and release ZIPs. Use the PostgreSQL scripts:
+Backups belong outside Git and release ZIP files:
 
 ```bash
 sh ops/backup_postgres.sh
 sh ops/restore_postgres.sh backups/pre-release.dump
 ```
 
-The `backups/` directory ignores dump files by default. If you need to share a
-backup, move it through a secure storage channel, not through the source tree.
+Move dumps only through an encrypted, access-controlled storage channel.

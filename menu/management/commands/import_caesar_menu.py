@@ -5,6 +5,14 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from menu.allergen_review import (
+    initialize_dish_allergen_review,
+    invalidate_dish_allergen_review,
+    recipe_signature_for_dish,
+    reopen_dish_allergen_review,
+    suppress_recipe_review_signals,
+    sync_recipe_allergen_suggestions,
+)
 from menu.codes import build_stable_code
 from menu.allergen_rules import (
     ALLERGEN_NAME_TO_CODE,
@@ -101,8 +109,8 @@ class Command(BaseCommand):
             "--with-allergens",
             action="store_true",
             help=(
-                "Импортировать предварительные аллергены "
-                "в may_contain_allergens"
+                "Создать предварительные связи DishAllergen "
+                "из suggested_allergens"
             ),
         )
         parser.add_argument(
@@ -235,100 +243,144 @@ class Command(BaseCommand):
             else:
                 updated_dishes += 1
 
-            dish.dish_ingredients.all().delete()
-            dish.allergen_links.filter(
-                source__in=[
-                    DishAllergen.Source.IMPORT,
-                    DishAllergen.Source.HEURISTIC,
-                ],
-                verification_status=DishAllergen.VerificationStatus.SUGGESTED,
-            ).delete()
+            previous_recipe_signature = recipe_signature_for_dish(dish)
 
-            ingredients_text = str(
-                item.get("ingredients_text_ru", "")
-            )
-            ingredient_names = []
+            with suppress_recipe_review_signals():
+                dish.dish_ingredients.all().delete()
+                dish.allergen_links.filter(
+                    source__in=[
+                        DishAllergen.Source.IMPORT,
+                        DishAllergen.Source.HEURISTIC,
+                    ],
+                    verification_status=(
+                        DishAllergen.VerificationStatus.SUGGESTED
+                    ),
+                ).delete()
 
-            for raw_name in ingredients_text.split(";"):
-                ingredient_name = raw_name.strip()
-
-                if (
-                    ingredient_name
-                    and ingredient_name not in ingredient_names
-                ):
-                    ingredient_names.append(ingredient_name)
-
-            for ingredient_name in ingredient_names:
-                ingredient, _ = Ingredient.objects.get_or_create(
-                    name=ingredient_name,
-                    defaults={
-                        "is_active": True,
-                    },
+                ingredients_text = str(
+                    item.get("ingredients_text_ru", "")
                 )
-                detected_allergens = detect_allergens_for_ingredient(ingredient)
+                ingredient_names = []
 
-                DishIngredient.objects.create(
-                    dish=dish,
-                    ingredient=ingredient,
-                    amount=None,
-                    unit="",
-                    can_be_removed=False,
-                    notes="Количество не указано в источнике",
-                )
+                for raw_name in ingredients_text.split(";"):
+                    ingredient_name = raw_name.strip()
 
-                for allergen in detected_allergens:
-                    DishAllergen.objects.update_or_create(
-                        dish=dish,
-                        allergen=allergen,
-                        relation_type=DishAllergen.RelationType.CONTAINS,
+                    if (
+                        ingredient_name
+                        and ingredient_name not in ingredient_names
+                    ):
+                        ingredient_names.append(ingredient_name)
+
+                for ingredient_name in ingredient_names:
+                    ingredient, _ = Ingredient.objects.get_or_create(
+                        name=ingredient_name,
                         defaults={
-                            "source": DishAllergen.Source.HEURISTIC,
-                            "verification_status": (
-                                DishAllergen.VerificationStatus.SUGGESTED
-                            ),
-                            "notes": (
-                                "Предложено эвристикой по названию ингредиента: "
-                                f"{ingredient.name}"
-                            ),
+                            "is_active": True,
                         },
                     )
-
-            dish.may_contain_allergens.clear()
-
-            if options["with_allergens"]:
-                suggested_allergens = item.get(
-                    "suggested_allergens",
-                    [],
-                )
-
-                for allergen_name in suggested_allergens:
-                    allergen = get_or_create_allergen(
-                        allergen_name
+                    detected_allergens = detect_allergens_for_ingredient(
+                        ingredient
                     )
 
-                    if allergen is None:
-                        self.stdout.write(
-                            self.style.WARNING(
-                                "Неизвестный аллерген пропущен: "
-                                f"{allergen_name}"
-                            )
+                    DishIngredient.objects.create(
+                        dish=dish,
+                        ingredient=ingredient,
+                        amount=None,
+                        unit="",
+                        can_be_removed=False,
+                        notes="Количество не указано в источнике",
+                    )
+
+                    for allergen in detected_allergens:
+                        DishAllergen.objects.get_or_create(
+                            dish=dish,
+                            allergen=allergen,
+                            defaults={
+                                "relation_type": (
+                                    DishAllergen.RelationType.CONTAINS
+                                ),
+                                "source": DishAllergen.Source.HEURISTIC,
+                                "verification_status": (
+                                    DishAllergen.VerificationStatus.SUGGESTED
+                                ),
+                                "notes": (
+                                    "Предложено эвристикой по названию "
+                                    f"ингредиента: {ingredient.name}"
+                                ),
+                            },
                         )
-                        continue
 
-                    DishAllergen.objects.update_or_create(
-                        dish=dish,
-                        allergen=allergen,
-                        relation_type=(
-                            DishAllergen.RelationType.CROSS_CONTAMINATION
-                        ),
-                        defaults={
-                            "source": DishAllergen.Source.IMPORT,
-                            "verification_status": (
-                                DishAllergen.VerificationStatus.SUGGESTED
-                            ),
-                            "notes": "Предложено импортом из suggested_allergens.",
-                        },
+                if options["with_allergens"]:
+                    suggested_allergens = item.get(
+                        "suggested_allergens",
+                        [],
                     )
+
+                    for allergen_name in suggested_allergens:
+                        allergen = get_or_create_allergen(
+                            allergen_name
+                        )
+
+                        if allergen is None:
+                            self.stdout.write(
+                                self.style.WARNING(
+                                    "Неизвестный аллерген пропущен: "
+                                    f"{allergen_name}"
+                                )
+                            )
+                            continue
+
+                        DishAllergen.objects.get_or_create(
+                            dish=dish,
+                            allergen=allergen,
+                            defaults={
+                                "relation_type": (
+                                    DishAllergen.RelationType.CROSS_CONTAMINATION
+                                ),
+                                "source": DishAllergen.Source.IMPORT,
+                                "verification_status": (
+                                    DishAllergen.VerificationStatus.SUGGESTED
+                                ),
+                                "notes": (
+                                    "Предложено импортом из "
+                                    "suggested_allergens."
+                                ),
+                            },
+                        )
+
+            current_recipe_signature = recipe_signature_for_dish(dish)
+            if created:
+                initialize_dish_allergen_review(
+                    dish.pk,
+                    reason="Блюдо создано импортом и ожидает проверки аллергенов.",
+                )
+            elif current_recipe_signature != previous_recipe_signature:
+                invalidate_dish_allergen_review(
+                    dish.pk,
+                    reason="Рецепт блюда изменён повторным импортом меню.",
+                )
+            else:
+                sync_recipe_allergen_suggestions(dish.pk)
+                if dish.allergen_links.filter(
+                    verification_status=(
+                        DishAllergen.VerificationStatus.SUGGESTED
+                    )
+                ).exists():
+                    dish.refresh_from_db(
+                        fields=["allergen_review_status"]
+                    )
+                    if (
+                        dish.allergen_review_status
+                        != Dish.AllergenReviewStatus.NEEDS_REVIEW
+                    ):
+                        reopen_dish_allergen_review(
+                            dish.pk,
+                            actor=None,
+                            reason=(
+                                "После импорта появились предложения, "
+                                "требующие проверки."
+                            ),
+                        )
 
         self.stdout.write(
             self.style.SUCCESS(

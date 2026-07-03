@@ -1,5 +1,6 @@
 (function () {
   var shell = document.querySelector(".app-shell");
+  var orderingEnabled = shell ? shell.dataset.orderingEnabled === "1" : false;
   var search = document.querySelector(".search-section");
   var categoryStrip = document.querySelector(".category-strip");
   var searchInputs = Array.prototype.slice.call(
@@ -25,19 +26,12 @@
     ? dishModal.querySelector(".dish-detail-shell")
     : null;
   var modalManager = window.CaesarModal || null;
-  var dishDetails = readDishDetails();
+  var dishDetails = Object.create(null);
+  var dishDetailRequests = Object.create(null);
+  var activeDetailRequest = 0;
   var lastDishTrigger = null;
-  var menuControls = document.querySelector(".menu-controls");
-  var menuControlsPlaceholder = null;
-  var menuHero = document.querySelector(".menu-hero");
-  var mobileControlsMedia = window.matchMedia
-    ? window.matchMedia("(max-width: 619px)")
-    : null;
-  var controlsFixedStart = null;
-  var scrollIntentDirection = 0;
-  var scrollIntentDistance = 0;
-  var lastSearchToggleAt = 0;
-  var lastViewportWidth = document.documentElement.clientWidth;
+  var lastDishCard = null;
+  var searchDebounceTimer = null;
 
   if (!shell || !search) {
     return;
@@ -47,16 +41,7 @@
     categoryStrip.scrollLeft = 0;
   }
 
-  if (menuControls) {
-    menuControlsPlaceholder = document.createElement("div");
-    menuControlsPlaceholder.className = "menu-controls-placeholder";
-    menuControls.insertAdjacentElement("afterend", menuControlsPlaceholder);
-  }
-
-  var lastScrollY = window.scrollY;
-  var ticking = false;
-  var threshold = 8;
-  var revealThreshold = 8;
+  var searchDebounceDelay = 140;
   var activeQuery = "";
   var totalDishes = dishCards.length;
 
@@ -70,18 +55,27 @@
       dishOne: "блюдо",
       dishFew: "блюда",
       dishMany: "блюд",
+      addToCart: "Добавить в корзину: ",
+      increaseItem: "Добавить ещё: ",
+      decreaseItem: "Убрать одно: ",
     },
     en: {
       found: "Found",
       dishOne: "dish",
       dishFew: "dishes",
       dishMany: "dishes",
+      addToCart: "Add to cart: ",
+      increaseItem: "Add one more: ",
+      decreaseItem: "Remove one: ",
     },
     tr: {
       found: "Bulundu",
       dishOne: "yemek",
       dishFew: "yemek",
       dishMany: "yemek",
+      addToCart: "Sepete ekle: ",
+      increaseItem: "Bir tane daha ekle: ",
+      decreaseItem: "Bir tane çıkar: ",
     },
   };
   var ruLayout = "йцукенгшщзхъфывапролджэячсмитьбю";
@@ -139,6 +133,13 @@
     return translations[language][key] || translations.ru[key] || "";
   }
 
+  function localizedDishName(dish) {
+    var language = currentLanguage();
+    var names = dish && dish.names ? dish.names : {};
+
+    return names[language] || (dish && dish.name) || names.ru || "";
+  }
+
   function getCookie(name) {
     var value = "; " + document.cookie;
     var parts = value.split("; " + name + "=");
@@ -148,28 +149,6 @@
     }
 
     return "";
-  }
-
-  function isInteractiveElement(target) {
-    return Boolean(
-      target.closest(
-        "a, button, input, select, textarea, label, summary, details, [data-add-btn]"
-      )
-    );
-  }
-
-  function readDishDetails() {
-    var dataNode = document.getElementById("dish-detail-data");
-
-    if (!dataNode) {
-      return {};
-    }
-
-    try {
-      return JSON.parse(dataNode.textContent) || {};
-    } catch (error) {
-      return {};
-    }
   }
 
   function escapeHtml(value) {
@@ -281,6 +260,41 @@
         en: "Information is being verified",
         tr: "Bilgi doğrulanıyor",
       },
+      allergenStatusComplete: {
+        ru: "Информация проверена для текущего рецепта.",
+        en: "The information is verified for the current recipe.",
+        tr: "Bilgiler mevcut tarif için doğrulanmıştır.",
+      },
+      allergenStatusNeedsReview: {
+        ru: "Рецепт изменён или есть сведения, ожидающие проверки. При сильной аллергии уточните состав у персонала.",
+        en: "The recipe changed or some information is awaiting review. For severe allergies, confirm the ingredients with staff.",
+        tr: "Tarif değişti veya bazı bilgiler inceleme bekliyor. Şiddetli alerjilerde içeriği personelle doğrulayın.",
+      },
+      allergenStatusPartial: {
+        ru: "Подтверждена только часть аллергенной информации. При сильной аллергии уточните состав у персонала.",
+        en: "Only part of the allergen information is verified. For severe allergies, confirm the ingredients with staff.",
+        tr: "Alerjen bilgilerinin yalnızca bir kısmı doğrulanmıştır. Şiddetli alerjilerde içeriği personelle doğrulayın.",
+      },
+      allergenStatusUnknown: {
+        ru: "Аллергенная информация ещё не проверена полностью. Уточните состав у персонала.",
+        en: "The allergen information has not been fully verified yet. Confirm the ingredients with staff.",
+        tr: "Alerjen bilgileri henüz tamamen doğrulanmamıştır. İçeriği personelle doğrulayın.",
+      },
+      loading: {
+        ru: "Загружаем описание блюда…",
+        en: "Loading dish details…",
+        tr: "Yemek detayları yükleniyor…",
+      },
+      loadError: {
+        ru: "Не удалось загрузить описание. Проверьте соединение и попробуйте снова.",
+        en: "The details could not be loaded. Check your connection and try again.",
+        tr: "Detaylar yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
+      },
+      retry: {
+        ru: "Повторить",
+        en: "Try again",
+        tr: "Tekrar dene",
+      },
       add: {
         ru: "Добавить",
         en: "Add",
@@ -301,6 +315,49 @@
       "<small>", detailLabel(labelKey), "</small>",
       "<strong>", escapeHtml(value), unitHtml || "", "</strong>",
       "</span>",
+    ].join("");
+  }
+
+  function buildDishPurchaseHtml(dish) {
+    if (!orderingEnabled) {
+      return [
+        '<div class="dish-cart-control dish-cart-control--detail">',
+        '<span class="dish-price-label dish-price-label--detail">',
+        '<strong>', escapeHtml(dish.price), ' ₽</strong>',
+        '</span>',
+        '</div>',
+      ].join("");
+    }
+
+    return [
+      '<div class="dish-cart-control dish-cart-control--detail"',
+      ' data-id="', escapeAttr(dish.cart_id), '"',
+      ' data-name="', escapeAttr(dish.name), '"',
+      ' data-name-ru="', escapeAttr(dish.names && dish.names.ru), '"',
+      ' data-name-en="', escapeAttr(dish.names && dish.names.en), '"',
+      ' data-name-tr="', escapeAttr(dish.names && dish.names.tr), '"',
+      ' data-price="', escapeAttr(dish.price), '"',
+      ' data-dish-cart-control>',
+      '<button class="dish-detail__add" type="button" data-add-btn',
+      ' data-id="', escapeAttr(dish.cart_id), '"',
+      ' data-name="', escapeAttr(dish.name), '"',
+      ' data-name-ru="', escapeAttr(dish.names && dish.names.ru), '"',
+      ' data-name-en="', escapeAttr(dish.names && dish.names.en), '"',
+      ' data-name-tr="', escapeAttr(dish.names && dish.names.tr), '"',
+      ' data-price="', escapeAttr(dish.price), '"',
+      ' aria-label="', escapeAttr(t("addToCart") + localizedDishName(dish)), '">',
+      detailLabel("add"),
+      '<svg class="dish-price-button__icon" aria-hidden="true"><use href="#i-cart"/></svg>',
+      '<strong>', escapeHtml(dish.price), ' ₽</strong>',
+      '</button>',
+      '<div class="dish-qty-stepper dish-qty-stepper--detail" data-dish-qty-stepper hidden>',
+      '<button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="dec"',
+      ' data-id="', escapeAttr(dish.cart_id), '" aria-label="', escapeAttr(t("decreaseItem") + localizedDishName(dish)), '">−</button>',
+      '<span class="dish-qty-stepper__count" data-dish-qty-count aria-live="polite">0</span>',
+      '<button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="inc"',
+      ' data-id="', escapeAttr(dish.cart_id), '" aria-label="', escapeAttr(t("increaseItem") + localizedDishName(dish)), '">+</button>',
+      '</div>',
+      '</div>',
     ].join("");
   }
 
@@ -353,7 +410,7 @@
     if (dish.image_url) {
       mediaHtml = [
         '<div class="dish-detail__media">',
-        '<img src="', escapeAttr(dish.image_url), '" alt="">',
+        '<img src="', escapeAttr(dish.image_url), '" alt="" width="960" height="720" decoding="async">',
         "</div>",
       ].join("");
     } else {
@@ -421,16 +478,31 @@
         ].join(''));
       }
 
-      if (rows.length) {
-        allergensHtml = [
-          '<section class="dish-detail__section">',
-          "<h3>", detailLabel("allergens"), "</h3>",
-          '<div class="dish-detail__allergens">',
-          rows.join(""),
-          "</div>",
-          "</section>",
-        ].join("");
-      }
+      var statusLabels = {
+        complete: "allergenStatusComplete",
+        needs_review: "allergenStatusNeedsReview",
+        partial: "allergenStatusPartial",
+        unknown: "allergenStatusUnknown",
+      };
+      var status = dish.allergen_data_status || "unknown";
+      var statusLabel = statusLabels[status] || statusLabels.unknown;
+      var statusHtml = [
+        '<p class="dish-detail__allergen-status dish-detail__allergen-status--',
+        escapeAttr(status),
+        '">',
+        detailLabel(statusLabel),
+        "</p>",
+      ].join("");
+
+      allergensHtml = [
+        '<section class="dish-detail__section">',
+        "<h3>", detailLabel("allergens"), "</h3>",
+        statusHtml,
+        rows.length
+          ? '<div class="dish-detail__allergens">' + rows.join("") + "</div>"
+          : "",
+        "</section>",
+      ].join("");
     })();
 
     return [
@@ -456,53 +528,41 @@
         : "",
       ingredientsHtml,
       allergensHtml,
-      '<div class="dish-cart-control dish-cart-control--detail"',
-      ' data-id="', escapeAttr(dish.cart_id), '"',
-      ' data-name="', escapeAttr(dish.name), '"',
-      ' data-name-ru="', escapeAttr(dish.names && dish.names.ru), '"',
-      ' data-name-en="', escapeAttr(dish.names && dish.names.en), '"',
-      ' data-name-tr="', escapeAttr(dish.names && dish.names.tr), '"',
-      ' data-price="', escapeAttr(dish.price), '"',
-      ' data-dish-cart-control>',
-      '<button class="dish-detail__add" type="button" data-add-btn',
-      ' data-id="', escapeAttr(dish.cart_id), '"',
-      ' data-name="', escapeAttr(dish.name), '"',
-      ' data-name-ru="', escapeAttr(dish.names && dish.names.ru), '"',
-      ' data-name-en="', escapeAttr(dish.names && dish.names.en), '"',
-      ' data-name-tr="', escapeAttr(dish.names && dish.names.tr), '"',
-      ' data-price="', escapeAttr(dish.price), '"',
-      ' aria-label="Add to cart: ', escapeAttr(dish.name), '">',
-      detailLabel("add"),
-      '<svg class="dish-price-button__icon" aria-hidden="true"><use href="#i-cart"/></svg>',
-      "<strong>", escapeHtml(dish.price), " ₽</strong>",
-      "</button>",
-      '<div class="dish-qty-stepper dish-qty-stepper--detail" data-dish-qty-stepper hidden>',
-      '<button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="dec"',
-      ' data-id="', escapeAttr(dish.cart_id), '" aria-label="Уменьшить количество">−</button>',
-      '<span class="dish-qty-stepper__count" data-dish-qty-count aria-live="polite">0</span>',
-      '<button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="inc"',
-      ' data-id="', escapeAttr(dish.cart_id), '" aria-label="Увеличить количество">+</button>',
-      "</div>",
+      buildDishPurchaseHtml(dish),
       "</div>",
       "</div>",
       "</article>",
     ].join("");
   }
 
-  function openDishDetails(card) {
-    if (!dishModal || !dishModalContent || !card) {
+  function detailLoadingHtml() {
+    return [
+      '<section class="dish-detail-state" role="status" aria-live="polite">',
+      '<span class="dish-detail-state__spinner" aria-hidden="true"></span>',
+      '<h2 id="dish-detail-state-title">', detailLabel("loading"), "</h2>",
+      "</section>",
+    ].join("");
+  }
+
+  function detailErrorHtml() {
+    return [
+      '<section class="dish-detail-state dish-detail-state--error" role="alert">',
+      '<h2 id="dish-detail-state-title">', detailLabel("loadError"), "</h2>",
+      '<button class="dish-detail-state__retry" type="button" data-dish-retry>',
+      detailLabel("retry"),
+      "</button>",
+      "</section>",
+    ].join("");
+  }
+
+  function openDishModal(trigger, contentHtml) {
+    if (!dishModal || !dishModalContent) {
       return;
     }
 
-    var dish = dishDetails[card.id];
-
-    if (!dish) {
-      return;
-    }
-
-    lastDishTrigger = card;
-    dishModalContent.innerHTML = buildDishDetailHtml(dish);
-    document.dispatchEvent(new CustomEvent("cc:dishdetailopen"));
+    var wasHidden = dishModal.hidden;
+    lastDishTrigger = trigger || lastDishTrigger;
+    dishModalContent.innerHTML = contentHtml;
     dishModal.hidden = false;
     dishModal.setAttribute("aria-hidden", "false");
     document.body.classList.add("dish-detail-open");
@@ -512,6 +572,10 @@
 
     if (dishModalShell && title) {
       dishModalShell.setAttribute("aria-labelledby", title.id);
+    }
+
+    if (!wasHidden) {
+      return;
     }
 
     window.requestAnimationFrame(function () {
@@ -531,10 +595,79 @@
     });
   }
 
+  function loadDishDetails(card) {
+    if (!card || !card.id || !card.dataset.detailUrl) {
+      return Promise.reject(new Error("Dish detail URL is missing."));
+    }
+
+    if (dishDetails[card.id]) {
+      return Promise.resolve(dishDetails[card.id]);
+    }
+
+    if (dishDetailRequests[card.id]) {
+      return dishDetailRequests[card.id];
+    }
+
+    dishDetailRequests[card.id] = window.fetch(card.dataset.detailUrl, {
+      method: "GET",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+      },
+    }).then(function (response) {
+      if (!response.ok) {
+        throw new Error("Dish detail request failed with status " + response.status + ".");
+      }
+
+      return response.json();
+    }).then(function (dish) {
+      if (!dish || String(dish.cart_id || "") !== card.id) {
+        throw new Error("Dish detail response does not match the requested card.");
+      }
+
+      dishDetails[card.id] = dish;
+      delete dishDetailRequests[card.id];
+      return dish;
+    }).catch(function (error) {
+      delete dishDetailRequests[card.id];
+      throw error;
+    });
+
+    return dishDetailRequests[card.id];
+  }
+
+  function openDishDetails(card, trigger) {
+    if (!dishModal || !dishModalContent || !card) {
+      return;
+    }
+
+    activeDetailRequest += 1;
+    var requestNumber = activeDetailRequest;
+    lastDishCard = card;
+    openDishModal(trigger, detailLoadingHtml());
+
+    loadDishDetails(card).then(function (dish) {
+      if (requestNumber !== activeDetailRequest || dishModal.hidden) {
+        return;
+      }
+
+      openDishModal(trigger, buildDishDetailHtml(dish));
+      document.dispatchEvent(new CustomEvent("cc:dishdetailopen"));
+    }).catch(function () {
+      if (requestNumber !== activeDetailRequest || dishModal.hidden) {
+        return;
+      }
+
+      openDishModal(trigger, detailErrorHtml());
+    });
+  }
+
   function closeDishDetails() {
     if (!dishModal || dishModal.hidden) {
       return;
     }
+
+    activeDetailRequest += 1;
 
     if (modalManager) {
       modalManager.close(dishModal);
@@ -551,6 +684,7 @@
     }
 
     lastDishTrigger = null;
+    lastDishCard = null;
   }
 
   function handleDishClick(event) {
@@ -561,320 +695,34 @@
       return;
     }
 
-    var card = event.target.closest("[data-dish-card]");
+    var retryButton = event.target.closest("[data-dish-retry]");
 
-    if (
-      !card
-      || isInteractiveElement(event.target)
-      || !event.target.closest(".dish-image-button, .dish-copy")
-    ) {
+    if (retryButton && lastDishCard) {
+      openDishDetails(lastDishCard, lastDishTrigger || retryButton);
       return;
     }
 
-    openDishDetails(card);
+    var openButton = event.target.closest("[data-dish-open]");
+
+    if (!openButton) {
+      return;
+    }
+
+    var card = openButton.closest("[data-dish-card]");
+
+    if (!card) {
+      return;
+    }
+
+    event.preventDefault();
+    openDishDetails(card, openButton);
   }
 
   function handleDishKeydown(event) {
     if (event.key === "Escape") {
       closeDishDetails();
-      return;
-    }
-
-    if (
-      (event.key === "Enter" || event.key === " ")
-      && event.target.matches("[data-dish-card]")
-    ) {
-      event.preventDefault();
-      openDishDetails(event.target);
     }
   }
-
-  function isMobileMenuViewport() {
-    return mobileControlsMedia
-      ? mobileControlsMedia.matches
-      : document.documentElement.clientWidth < 620;
-  }
-
-  function isHeroMenuControls() {
-    return Boolean(menuControls && menuHero);
-  }
-
-  function getHeaderHeight() {
-    var rawHeight = window
-      .getComputedStyle(shell)
-      .getPropertyValue("--header-height");
-    var parsedHeight = parseFloat(rawHeight);
-
-    return Number.isFinite(parsedHeight) ? parsedHeight : 68;
-  }
-
-  function controlsStickyTop() {
-    return Math.max(0, getHeaderHeight() - 1);
-  }
-
-  function resetScrollIntent() {
-    scrollIntentDirection = 0;
-    scrollIntentDistance = 0;
-  }
-
-  function controlsOuterHeight() {
-    var styles;
-    var marginTop;
-    var marginBottom;
-
-    if (!menuControls) {
-      return 0;
-    }
-
-    styles = window.getComputedStyle(menuControls);
-    marginTop = parseFloat(styles.marginTop) || 0;
-    marginBottom = parseFloat(styles.marginBottom) || 0;
-
-    return menuControls.offsetHeight + marginTop + marginBottom;
-  }
-
-  function setMobileControlsFixed(isFixed) {
-    if (!menuControls || !menuControlsPlaceholder) {
-      return;
-    }
-
-    if (!isMobileMenuViewport() || !isHeroMenuControls()) {
-      menuControls.classList.remove("menu-controls--mobile-fixed");
-      menuControlsPlaceholder.classList.remove("is-active");
-      menuControlsPlaceholder.style.height = "";
-      return;
-    }
-
-    if (menuControls.classList.contains("menu-controls--mobile-fixed") === isFixed) {
-      return;
-    }
-
-    if (isFixed) {
-      menuControlsPlaceholder.style.height = controlsOuterHeight() + "px";
-      menuControlsPlaceholder.classList.add("is-active");
-      menuControls.classList.add("menu-controls--mobile-fixed");
-    } else {
-      menuControls.classList.remove("menu-controls--mobile-fixed");
-      menuControlsPlaceholder.classList.remove("is-active");
-      menuControlsPlaceholder.style.height = "";
-    }
-  }
-
-  function refreshControlsFixedStart() {
-    var shouldRestoreFixed = false;
-
-    if (menuControls && menuControls.classList.contains("menu-controls--mobile-fixed")) {
-      shouldRestoreFixed = true;
-      setMobileControlsFixed(false);
-    }
-
-    controlsFixedStart = null;
-
-    if (isHeroMenuControls()) {
-      getControlsFixedStart();
-    }
-
-    if (
-      shouldRestoreFixed
-      && isMobileMenuViewport()
-      && window.scrollY >= getControlsFixedStart() + 4
-    ) {
-      setMobileControlsFixed(true);
-    }
-  }
-
-  function documentOffsetTop(element) {
-    var top = 0;
-
-    while (element) {
-      top += element.offsetTop || 0;
-      element = element.offsetParent;
-    }
-
-    return top;
-  }
-
-  function getControlsFixedStart() {
-    if (!isHeroMenuControls()) {
-      return 0;
-    }
-
-    if (controlsFixedStart === null) {
-      controlsFixedStart = Math.max(
-        0,
-        documentOffsetTop(menuControls) - controlsStickyTop()
-      );
-    }
-
-    return controlsFixedStart;
-  }
-
-  function hasControlsReachedStickyPoint(currentScrollY) {
-    var fixedStart;
-    var isMobileFixed;
-
-    if (!isHeroMenuControls()) {
-      return true;
-    }
-
-    if (isMobileMenuViewport()) {
-      fixedStart = getControlsFixedStart();
-      isMobileFixed = menuControls.classList.contains("menu-controls--mobile-fixed");
-
-      return isMobileFixed
-        ? currentScrollY >= fixedStart - 18
-        : currentScrollY >= fixedStart + 8;
-    }
-
-    return currentScrollY >= getControlsFixedStart() + 2
-      || menuControls.getBoundingClientRect().top <= controlsStickyTop() + 1;
-  }
-
-  function syncMenuControlsPin(currentScrollY) {
-    if (!isHeroMenuControls()) {
-      return true;
-    }
-
-    var hasReachedStickyPoint = hasControlsReachedStickyPoint(currentScrollY);
-
-    if (isMobileMenuViewport()) {
-      setMobileControlsFixed(hasReachedStickyPoint);
-    } else {
-      setMobileControlsFixed(false);
-    }
-
-    if (!hasReachedStickyPoint) {
-      shell.classList.remove("search-hidden");
-    }
-
-    return hasReachedStickyPoint;
-  }
-
-  function shouldKeepSearchVisibleBeforeSticky(hasReachedStickyPoint) {
-    return isHeroMenuControls() && !hasReachedStickyPoint;
-  }
-
-  function canToggleSearchVisibility() {
-    var cooldown = isMobileMenuViewport() ? 220 : 260;
-
-    return window.performance.now() - lastSearchToggleAt > cooldown;
-  }
-
-  function setSearchHidden(isHidden) {
-    if (shell.classList.contains("search-hidden") === isHidden) {
-      return;
-    }
-
-    shell.classList.toggle("search-hidden", isHidden);
-    lastSearchToggleAt = window.performance.now();
-    resetScrollIntent();
-  }
-
-  function forceSearchVisible() {
-    setSearchHidden(false);
-    resetScrollIntent();
-  }
-
-  function updateSearchVisibility() {
-    var currentScrollY = window.scrollY;
-    var isPinnedHeroControls = syncMenuControlsPin(currentScrollY);
-    var keepVisibleBeforeSticky = shouldKeepSearchVisibleBeforeSticky(isPinnedHeroControls);
-    var delta = currentScrollY - lastScrollY;
-    var direction = delta > 0 ? 1 : -1;
-    var mobileViewport = isMobileMenuViewport();
-    var hideDistance = mobileViewport ? 38 : 108;
-    var showDistance = mobileViewport ? 58 : 72;
-    var minPinnedDistance = mobileViewport ? 72 : 64;
-    var stickyStart = isHeroMenuControls() ? getControlsFixedStart() : 0;
-    var activeElement = document.activeElement;
-    var isSearchActive =
-      activeElement && activeElement.classList.contains("menu-search-input");
-    var readyToHideAfterPin = !isHeroMenuControls()
-      || (
-        isPinnedHeroControls
-        && currentScrollY >= stickyStart + minPinnedDistance
-      );
-
-    if (
-      keepVisibleBeforeSticky
-      || (isHeroMenuControls() && currentScrollY < stickyStart + minPinnedDistance)
-      || activeQuery
-      || isSearchActive
-      || currentScrollY < 80
-    ) {
-      forceSearchVisible();
-    } else if (Math.abs(delta) >= 0.5) {
-      if (direction !== scrollIntentDirection) {
-        scrollIntentDirection = direction;
-        scrollIntentDistance = 0;
-      }
-
-      scrollIntentDistance += Math.abs(delta);
-
-      if (
-        direction > 0
-        && readyToHideAfterPin
-        && scrollIntentDistance >= hideDistance
-        && canToggleSearchVisibility()
-      ) {
-        setSearchHidden(true);
-      } else if (
-        direction < 0
-        && scrollIntentDistance >= showDistance
-        && canToggleSearchVisibility()
-      ) {
-        setSearchHidden(false);
-      }
-    }
-
-    lastScrollY = currentScrollY;
-    ticking = false;
-  }
-
-  window.addEventListener(
-    "scroll",
-    function () {
-      if (!ticking) {
-        window.requestAnimationFrame(updateSearchVisibility);
-        ticking = true;
-      }
-    },
-    { passive: true }
-  );
-
-  window.addEventListener(
-    "resize",
-    function () {
-      var currentViewportWidth = document.documentElement.clientWidth;
-      var widthChanged = Math.abs(currentViewportWidth - lastViewportWidth) > 2;
-
-      lastViewportWidth = currentViewportWidth;
-
-      if (!widthChanged) {
-        resetScrollIntent();
-        lastScrollY = window.scrollY;
-        return;
-      }
-
-      refreshControlsFixedStart();
-      shell.classList.remove("search-hidden");
-
-      resetScrollIntent();
-      lastScrollY = window.scrollY;
-
-      if (!ticking) {
-        window.requestAnimationFrame(updateSearchVisibility);
-        ticking = true;
-      }
-    },
-    { passive: true }
-  );
-
-  window.requestAnimationFrame(function () {
-    refreshControlsFixedStart();
-    lastScrollY = window.scrollY;
-    updateSearchVisibility();
-  });
 
   function normalize(value) {
     return (value || "")
@@ -1309,23 +1157,42 @@
     updateSearchStatus(normalizedQuery, visibleTotal);
   }
 
+  function scheduleFilterMenu(value) {
+    activeQuery = value;
+
+    if (searchDebounceTimer) {
+      window.clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = null;
+    }
+
+    if (!normalize(value)) {
+      filterMenu(value);
+      return;
+    }
+
+    searchDebounceTimer = window.setTimeout(function () {
+      searchDebounceTimer = null;
+      filterMenu(value);
+    }, searchDebounceDelay);
+  }
+
   function setSearchQuery(value) {
     searchInputs.forEach(function (input) {
       input.value = value;
     });
 
+    if (searchDebounceTimer) {
+      window.clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = null;
+    }
+
     filterMenu(value);
-    shell.classList.remove("search-hidden");
   }
 
   searchInputs.forEach(function (input) {
     input.addEventListener("input", function () {
       syncInputs(input.value, input);
-      filterMenu(input.value);
-    });
-
-    input.addEventListener("focus", function () {
-      shell.classList.remove("search-hidden");
+      scheduleFilterMenu(input.value);
     });
   });
 
@@ -1344,6 +1211,11 @@
   }
 
   window.addEventListener("cc:languagechange", function () {
+    if (searchDebounceTimer) {
+      window.clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = null;
+    }
+
     filterMenu(activeQuery);
   });
 

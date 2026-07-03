@@ -7,6 +7,10 @@
   'use strict';
 
   var ORDER_COMMENT_MAX_LENGTH = 2000;
+  var CART_STORAGE_SCHEMA_VERSION = 2;
+  var RECENT_ORDER_STORAGE_KEY = 'cc_recent_order:v2';
+  var PENDING_REPEAT_SCHEMA_VERSION = 1;
+  var PENDING_REPEAT_MAX_AGE_MS = 5 * 60 * 1000;
 
   /* ─── State ─────────────────────────────────────────────────── */
   var cart = {
@@ -26,8 +30,15 @@
     submitting: false,
     noteTimer: null,
     restaurantSlug: '',
-    tableToken: '',
+    tableContext: '',
     orderSource: '',
+    storageScope: '',
+    storageReady: false,
+    storageKeys: {
+      cart: '',
+      idempotency: '',
+      recovery: '',
+    },
     lastQuote: null,
     lastSuccessfulQuoteFingerprint: '',
     quoteAbortController: null,
@@ -56,6 +67,18 @@
       orderCreated: 'Заказ создан',
       orderFailed: 'Не удалось оформить заказ. Попробуйте еще раз.',
       cartSyncFailed: 'Не удалось обновить корзину. Проверьте позиции.',
+      replaceCartForRepeat: 'В корзине уже есть блюда. Заменить её повторяемым заказом?',
+      repeatLoaded: 'Заказ добавлен в корзину для текущего стола.',
+      repeatChanged: 'Часть позиций загружена с актуальными названиями или ценами.',
+      repeatUnavailable: 'Некоторые позиции больше недоступны и не были добавлены.',
+      close: 'Закрыть',
+      openCart: 'Открыть корзину',
+      cart: 'Корзина',
+      closeCart: 'Закрыть корзину',
+      fewerGuests: 'Уменьшить количество гостей',
+      moreGuests: 'Увеличить количество гостей',
+      orderDetails: 'Подробности заказа',
+      closeOrderDetails: 'Закрыть подробности заказа',
     },
     en: {
       itemOne: 'item',
@@ -73,6 +96,18 @@
       orderCreated: 'Order created',
       orderFailed: 'Could not place the order. Please try again.',
       cartSyncFailed: 'Could not update the cart. Check the items.',
+      replaceCartForRepeat: 'Your cart already contains items. Replace it with the repeated order?',
+      repeatLoaded: 'The order was added to the cart for the current table.',
+      repeatChanged: 'Some items were loaded with current names or prices.',
+      repeatUnavailable: 'Some items are no longer available and were not added.',
+      close: 'Close',
+      openCart: 'Open cart',
+      cart: 'Cart',
+      closeCart: 'Close cart',
+      fewerGuests: 'Decrease number of guests',
+      moreGuests: 'Increase number of guests',
+      orderDetails: 'Order details',
+      closeOrderDetails: 'Close order details',
     },
     tr: {
       itemOne: 'ürün',
@@ -90,6 +125,18 @@
       orderCreated: 'Sipariş oluşturuldu',
       orderFailed: 'Sipariş verilemedi. Lütfen tekrar deneyin.',
       cartSyncFailed: 'Sepet güncellenemedi. Ürünleri kontrol edin.',
+      replaceCartForRepeat: 'Sepette ürünler var. Tekrarlanan siparişle değiştirilsin mi?',
+      repeatLoaded: 'Sipariş mevcut masa için sepete eklendi.',
+      repeatChanged: 'Bazı ürünler güncel ad veya fiyatlarla yüklendi.',
+      repeatUnavailable: 'Bazı ürünler artık mevcut değil ve eklenmedi.',
+      close: 'Kapat',
+      openCart: 'Sepeti aç',
+      cart: 'Sepet',
+      closeCart: 'Sepeti kapat',
+      fewerGuests: 'Kişi sayısını azalt',
+      moreGuests: 'Kişi sayısını artır',
+      orderDetails: 'Sipariş detayları',
+      closeOrderDetails: 'Sipariş detaylarını kapat',
     },
   };
 
@@ -128,7 +175,13 @@
 
   function normalizeDishId(id, item) {
     var raw = item && item.dishId ? item.dishId : id;
-    var match = String(raw || '').match(/(\d+)$/);
+    var value = String(raw || '').trim();
+
+    if (/^\d+$/.test(value)) {
+      return value;
+    }
+
+    var match = value.match(/^dish-(\d+)(?:-[0-9a-f]{12})?$/);
     return match ? match[1] : '';
   }
 
@@ -151,32 +204,131 @@
   }
 
   /* ─── Persist to sessionStorage ──────────────────────────────── */
-  function save() {
-    try { sessionStorage.setItem('cc_cart', JSON.stringify(cart)); } catch (_) {}
-  }
-
-  function clearCartState() {
+  function resetCartValues() {
     cart.items = {};
     cart.persons = 1;
     cart.payment = null;
     cart.comment = '';
+  }
+
+  function currentStorageContext() {
+    return {
+      restaurantSlug: cartApi.restaurantSlug,
+      orderSource: cartApi.orderSource,
+      storageScope: cartApi.storageScope,
+    };
+  }
+
+  function storageContextMatches(context) {
+    var current = currentStorageContext();
+
+    return !!context
+      && context.restaurantSlug === current.restaurantSlug
+      && context.orderSource === current.orderSource
+      && context.storageScope === current.storageScope;
+  }
+
+  function storageSegment(value) {
+    return String(value || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  }
+
+  function configureCartStorage() {
+    var restaurantSlug = storageSegment(cartApi.restaurantSlug);
+    var orderSource = storageSegment(cartApi.orderSource);
+    var storageScope = storageSegment(cartApi.storageScope);
+
+    cartApi.storageReady = Boolean(restaurantSlug && orderSource && storageScope);
+    cartApi.storageKeys = { cart: '', idempotency: '', recovery: '' };
+
+    if (!cartApi.storageReady) {
+      return;
+    }
+
+    var prefix = [
+      'cc',
+      'cart',
+      'v' + CART_STORAGE_SCHEMA_VERSION,
+      restaurantSlug,
+      orderSource,
+      storageScope,
+    ].join(':');
+
+    cartApi.storageKeys.cart = prefix + ':state';
+    cartApi.storageKeys.idempotency = prefix + ':idempotency';
+    cartApi.storageKeys.recovery = prefix + ':recovery';
+
+    // Старые глобальные ключи нельзя безопасно привязать к конкретному столу.
+    // Удаляем их вместо рискованной автоматической миграции.
+    try {
+      sessionStorage.removeItem('cc_cart');
+      sessionStorage.removeItem('cc_order_idempotency');
+      sessionStorage.removeItem('cc_cart_recovery_snapshot');
+    } catch (_) {}
+  }
+
+  function cartStorageEnvelope() {
+    return {
+      schemaVersion: CART_STORAGE_SCHEMA_VERSION,
+      context: currentStorageContext(),
+      cart: {
+        items: cart.items,
+        persons: cart.persons,
+        payment: cart.payment,
+        comment: cart.comment,
+      },
+    };
+  }
+
+  function save() {
+    if (!cartApi.storageReady || !cartApi.storageKeys.cart) return;
+
+    try {
+      sessionStorage.setItem(
+        cartApi.storageKeys.cart,
+        JSON.stringify(cartStorageEnvelope())
+      );
+    } catch (_) {}
+  }
+
+  function removeScopedStorage() {
+    if (!cartApi.storageReady) return;
+
+    try {
+      sessionStorage.removeItem(cartApi.storageKeys.cart);
+      sessionStorage.removeItem(cartApi.storageKeys.idempotency);
+      sessionStorage.removeItem(cartApi.storageKeys.recovery);
+    } catch (_) {}
+  }
+
+  function clearCartState() {
+    resetCartValues();
     cartApi.lastQuote = null;
     cartApi.lastSuccessfulQuoteFingerprint = '';
-    save();
+    removeScopedStorage();
   }
 
   function saveOrderRecoverySnapshot(order, confirmationUrl) {
+    if (!cartApi.storageReady) return;
+
+    var recentOrder = {
+      id: order && order.id ? String(order.id) : '',
+      confirmationUrl: confirmationUrl || '',
+      createdAt: Date.now(),
+      cartStorageKey: cartApi.storageKeys.cart,
+      idempotencyStorageKey: cartApi.storageKeys.idempotency,
+      recoveryStorageKey: cartApi.storageKeys.recovery,
+      context: currentStorageContext(),
+    };
+
     try {
-      sessionStorage.setItem('cc_recent_order', JSON.stringify({
-        id: order && order.id ? String(order.id) : '',
+      sessionStorage.setItem(RECENT_ORDER_STORAGE_KEY, JSON.stringify(recentOrder));
+      sessionStorage.setItem(cartApi.storageKeys.recovery, JSON.stringify({
+        schemaVersion: CART_STORAGE_SCHEMA_VERSION,
+        context: currentStorageContext(),
+        cart: cartStorageEnvelope(),
         confirmationUrl: confirmationUrl || '',
-        createdAt: Date.now(),
-      }));
-      sessionStorage.setItem('cc_cart_recovery_snapshot', JSON.stringify({
-        cart: cart,
-        confirmationUrl: confirmationUrl || '',
-        orderId: order && order.id ? String(order.id) : '',
-        createdAt: Date.now(),
+        orderId: recentOrder.id,
+        createdAt: recentOrder.createdAt,
       }));
     } catch (_) {}
   }
@@ -187,35 +339,79 @@
 
     var confirmedOrderId = String(receipt.getAttribute('data-confirmed-order-id') || '');
     var recentOrder = null;
+    var legacyRecentOrder = false;
 
     try {
-      recentOrder = JSON.parse(sessionStorage.getItem('cc_recent_order') || 'null');
+      recentOrder = JSON.parse(sessionStorage.getItem(RECENT_ORDER_STORAGE_KEY) || 'null');
+
+      if (!recentOrder) {
+        recentOrder = JSON.parse(sessionStorage.getItem('cc_recent_order') || 'null');
+        legacyRecentOrder = Boolean(recentOrder);
+      }
     } catch (_) {
       recentOrder = null;
     }
 
-    if (recentOrder && String(recentOrder.id || '') === confirmedOrderId) {
-      clearCartState();
-      try {
-        sessionStorage.removeItem('cc_cart_recovery_snapshot');
-        sessionStorage.removeItem('cc_recent_order');
-        sessionStorage.removeItem('cc_order_idempotency');
-      } catch (_) {}
+    if (!recentOrder || String(recentOrder.id || '') !== confirmedOrderId) {
+      return;
     }
+
+    resetCartValues();
+    cartApi.lastQuote = null;
+    cartApi.lastSuccessfulQuoteFingerprint = '';
+
+    try {
+      if (legacyRecentOrder) {
+        sessionStorage.removeItem('cc_cart');
+        sessionStorage.removeItem('cc_cart_recovery_snapshot');
+        sessionStorage.removeItem('cc_order_idempotency');
+        sessionStorage.removeItem('cc_recent_order');
+      } else {
+        [
+          recentOrder.cartStorageKey,
+          recentOrder.idempotencyStorageKey,
+          recentOrder.recoveryStorageKey,
+        ].forEach(function (storageKey) {
+          if (storageKey) sessionStorage.removeItem(storageKey);
+        });
+        sessionStorage.removeItem(RECENT_ORDER_STORAGE_KEY);
+      }
+    } catch (_) {}
   }
 
   function load() {
+    resetCartValues();
+
+    if (!cartApi.storageReady || !cartApi.storageKeys.cart) {
+      return;
+    }
+
     try {
-      var raw = sessionStorage.getItem('cc_cart');
-      if (raw) {
-        var stored = JSON.parse(raw);
-        if (stored && stored.items) Object.assign(cart, stored);
+      var raw = sessionStorage.getItem(cartApi.storageKeys.cart);
+      var stored = raw ? JSON.parse(raw) : null;
+
+      if (
+        stored
+        && stored.schemaVersion === CART_STORAGE_SCHEMA_VERSION
+        && storageContextMatches(stored.context)
+        && stored.cart
+        && stored.cart.items
+      ) {
+        Object.assign(cart, stored.cart);
+      } else if (raw) {
+        sessionStorage.removeItem(cartApi.storageKeys.cart);
       }
-    } catch (_) {}
+    } catch (_) {
+      try { sessionStorage.removeItem(cartApi.storageKeys.cart); } catch (_) {}
+    }
 
     if (cart.payment !== 'card' && cart.payment !== 'cash') {
       cart.payment = null;
     }
+
+    cart.persons = Math.max(1, Math.min(20, parseInt(cart.persons, 10) || 1));
+    cart.comment = String(cart.comment || '').slice(0, ORDER_COMMENT_MAX_LENGTH);
+    cart.items = cart.items && typeof cart.items === 'object' ? cart.items : {};
 
     Object.keys(cart.items).forEach(function (id) {
       var item = cart.items[id];
@@ -342,9 +538,9 @@
           '  <span class="cart-line__name">' + escHtml(item.name) + '</span>',
           '  <span class="cart-line__price">' + fmt(item.price * item.qty) + '</span>',
           '  <div class="cart-qty">',
-          '    <button class="cart-qty__btn" data-action="dec" data-id="' + id + '" aria-label="Remove one portion">−</button>',
+          '    <button class="cart-qty__btn" data-action="dec" data-id="' + id + '" aria-label="' + escHtml(t('decreaseItem') + item.name) + '">−</button>',
           '    <span class="cart-qty__num">' + item.qty + '</span>',
-          '    <button class="cart-qty__btn" data-action="inc" data-id="' + id + '" aria-label="Add one more portion">+</button>',
+          '    <button class="cart-qty__btn" data-action="inc" data-id="' + id + '" aria-label="' + escHtml(t('increaseItem') + item.name) + '">+</button>',
           '  </div>',
         ].join('\n');
         container.appendChild(div);
@@ -431,8 +627,10 @@
     cartApi.quoteUrl = shell ? shell.dataset.cartQuoteUrl || '' : '';
     cartApi.createUrl = shell ? shell.dataset.cartCreateUrl || '' : '';
     cartApi.restaurantSlug = shell ? shell.dataset.cartRestaurantSlug || '' : '';
-    cartApi.tableToken = shell ? shell.dataset.cartTableToken || '' : '';
+    cartApi.tableContext = shell ? shell.dataset.cartTableContext || '' : '';
     cartApi.orderSource = shell ? shell.dataset.cartOrderSource || '' : '';
+    cartApi.storageScope = shell ? shell.dataset.cartStorageScope || '' : '';
+    configureCartStorage();
   }
 
   function cartPayload() {
@@ -458,8 +656,8 @@
       payload.restaurant_slug = cartApi.restaurantSlug;
     }
 
-    if (cartApi.tableToken) {
-      payload.table_token = cartApi.tableToken;
+    if (cartApi.tableContext) {
+      payload.table_context = cartApi.tableContext;
     }
 
     if (cartApi.orderSource) {
@@ -483,13 +681,17 @@
   }
 
   function idempotencyFingerprint(payload) {
-    return JSON.stringify(payload);
+    return stableStringify(payload);
   }
 
   function idempotencyKeyForPayload(payload) {
     var fingerprint = idempotencyFingerprint(payload);
-    var storageKey = 'cc_order_idempotency';
+    var storageKey = cartApi.storageKeys.idempotency;
     var stored = null;
+
+    if (!cartApi.storageReady || !storageKey) {
+      return createIdempotencyKey();
+    }
 
     try {
       stored = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
@@ -497,57 +699,20 @@
       stored = null;
     }
 
-    if (stored && stored.fingerprint === fingerprint && stored.key) {
+    if (
+      stored
+      && storageContextMatches(stored.context)
+      && stored.fingerprint === fingerprint
+      && stored.key
+    ) {
       return stored.key;
     }
 
     stored = {
       key: createIdempotencyKey(),
       fingerprint: fingerprint,
-    };
-
-    try {
-      sessionStorage.setItem(storageKey, JSON.stringify(stored));
-    } catch (_) {}
-
-    return stored.key;
-  }
-
-  function createIdempotencyKey() {
-    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-      return window.crypto.randomUUID();
-    }
-
-    return [
-      'cc',
-      Date.now().toString(36),
-      Math.random().toString(36).slice(2),
-      Math.random().toString(36).slice(2),
-    ].join(':');
-  }
-
-  function idempotencyFingerprint(payload) {
-    return JSON.stringify(payload);
-  }
-
-  function idempotencyKeyForPayload(payload) {
-    var fingerprint = idempotencyFingerprint(payload);
-    var storageKey = 'cc_order_idempotency';
-    var stored = null;
-
-    try {
-      stored = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
-    } catch (_) {
-      stored = null;
-    }
-
-    if (stored && stored.fingerprint === fingerprint && stored.key) {
-      return stored.key;
-    }
-
-    stored = {
-      key: createIdempotencyKey(),
-      fingerprint: fingerprint,
+      context: currentStorageContext(),
+      createdAt: Date.now(),
     };
 
     try {
@@ -791,6 +956,32 @@
       var key = btn.dataset.dishQtyAction === 'inc' ? 'increaseItem' : 'decreaseItem';
       btn.setAttribute('aria-label', t(key) + name);
     });
+    qsa('[data-cart-open]').forEach(function (btn) {
+      btn.setAttribute('aria-label', t('openCart'));
+    });
+    qsa('[data-cart-close]').forEach(function (btn) {
+      if (btn.tagName === 'BUTTON') {
+        btn.setAttribute('aria-label', t('closeCart'));
+      }
+    });
+    qsa('[data-persons-dec]').forEach(function (btn) {
+      btn.setAttribute('aria-label', t('fewerGuests'));
+    });
+    qsa('[data-persons-inc]').forEach(function (btn) {
+      btn.setAttribute('aria-label', t('moreGuests'));
+    });
+    qsa('[data-toast-close]').forEach(function (btn) {
+      btn.setAttribute('aria-label', t('close'));
+    });
+    if (els.panel) {
+      els.panel.setAttribute('aria-label', t('cart'));
+    }
+    if (els.orderModal) {
+      els.orderModal.setAttribute('aria-label', t('orderDetails'));
+      qsa('[data-order-modal-close]', els.orderModal).forEach(function (btn) {
+        btn.setAttribute('aria-label', t('closeOrderDetails'));
+      });
+    }
   }
 
   /* ─── Public API (used by dish cards) ────────────────────────── */
@@ -860,18 +1051,31 @@
     return Boolean(els.panel && els.panel.classList.contains('cart-panel--open'));
   };
 
-  window.CaesarCart.repeatOrder = function (items, opener, repeatResult) {
+  function applyRepeatedItems(items, options) {
+    options = options || {};
+
     if (!Array.isArray(items) || items.length === 0) {
       return false;
     }
 
+    if (options.replace) {
+      cart.items = {};
+      cart.persons = Math.max(1, Math.min(20, parseInt(options.guestsCount, 10) || 1));
+      cart.payment = null;
+      cart.comment = '';
+    }
+
     items.forEach(function (item, index) {
-      var dishId = item.dish_id || item.dishId || '';
-      var id = item.id || (dishId ? 'dish-' + dishId : 'repeat-' + index);
+      var dishId = normalizeDishId(item.dish_id || item.dishId || '', item);
+      var id = String(item.id || (dishId ? 'dish-' + dishId : 'repeat-' + index));
       var qty = Math.max(1, Math.min(99, parseInt(item.qty || item.quantity || 1, 10) || 1));
       var existing = cart.items[id];
 
-      if (existing) {
+      if (!dishId) {
+        return;
+      }
+
+      if (existing && !options.replace) {
         existing.qty = Math.min(99, existing.qty + qty);
       } else {
         cart.items[id] = {
@@ -885,17 +1089,85 @@
       }
     });
 
+    if (Object.keys(cart.items).length === 0) {
+      return false;
+    }
+
     clearCartNote();
     save();
     renderAll();
     scheduleQuote();
-    openPanel(opener || getCartFallbackOpener());
-    if (repeatResult && Array.isArray(repeatResult.unavailable) && repeatResult.unavailable.length) {
-      showCartNote('\u041d\u0435\u043a\u043e\u0442\u043e\u0440\u044b\u0435 \u043f\u043e\u0437\u0438\u0446\u0438\u0438 \u0443\u0436\u0435 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b.', 'error');
-    } else if (repeatResult && Array.isArray(repeatResult.changed) && repeatResult.changed.length) {
-      showCartNote('\u0427\u0430\u0441\u0442\u044c \u043f\u043e\u0437\u0438\u0446\u0438\u0439 \u043f\u043e\u0432\u0442\u043e\u0440\u0435\u043d\u0430 \u0441 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u043c\u0438 \u0434\u0430\u043d\u043d\u044b\u043c\u0438.', 'info');
+
+    if (options.open !== false) {
+      openPanel(options.opener || getCartFallbackOpener());
     }
+
+    if (options.repeatResult && Array.isArray(options.repeatResult.unavailable) && options.repeatResult.unavailable.length) {
+      showCartNote(t('repeatUnavailable'), 'error');
+    } else if (options.repeatResult && Array.isArray(options.repeatResult.changed) && options.repeatResult.changed.length) {
+      showCartNote(t('repeatChanged'), 'info');
+    } else if (options.replace) {
+      showCartNote(t('repeatLoaded'), 'info');
+    }
+
     return true;
+  }
+
+  function pendingRepeatStorageKey() {
+    var restaurantSlug = storageSegment(cartApi.restaurantSlug);
+    return restaurantSlug
+      ? 'cc:pending-repeat:v' + PENDING_REPEAT_SCHEMA_VERSION + ':' + restaurantSlug
+      : '';
+  }
+
+  function consumePendingRepeat() {
+    var storageKey = pendingRepeatStorageKey();
+    var pending = null;
+
+    if (!storageKey || !cartApi.tableContext || !cartApi.storageReady) {
+      return false;
+    }
+
+    try {
+      pending = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
+    } catch (_) {
+      pending = null;
+    }
+
+    if (!pending) {
+      return false;
+    }
+
+    try { sessionStorage.removeItem(storageKey); } catch (_) {}
+
+    if (
+      pending.version !== PENDING_REPEAT_SCHEMA_VERSION
+      || pending.restaurantSlug !== cartApi.restaurantSlug
+      || pending.expectedContext !== cartApi.tableContext
+      || !Number.isFinite(pending.savedAt)
+      || Date.now() - pending.savedAt > PENDING_REPEAT_MAX_AGE_MS
+      || !Array.isArray(pending.items)
+      || pending.items.length === 0
+    ) {
+      return false;
+    }
+
+    if (totalItems() > 0 && !window.confirm(t('replaceCartForRepeat'))) {
+      return false;
+    }
+
+    return applyRepeatedItems(pending.items, {
+      replace: true,
+      guestsCount: pending.guestsCount,
+      repeatResult: pending.repeatResult,
+    });
+  }
+
+  window.CaesarCart.repeatOrder = function (items, opener, repeatResult) {
+    return applyRepeatedItems(items, {
+      opener: opener,
+      repeatResult: repeatResult,
+    });
   };
 
   function changeQty(id, delta, sourceControl) {
@@ -1060,7 +1332,7 @@
       '  <span class="cart-toast__hint" data-cart-toast-hint>' + escHtml(t('added')) + '</span>',
       '</div>',
       '<button class="cart-toast__open" data-cart-open data-cart-toast-open>' + escHtml(t('open')) + '</button>',
-      '<button class="cart-toast__close" data-toast-close aria-label="Закрыть">✕</button>',
+      '<button class="cart-toast__close" data-toast-close aria-label="' + escHtml(t('close')) + '">✕</button>',
     ].join('\n');
     shell.appendChild(toast);
     els.toast = toast;
@@ -1476,7 +1748,7 @@
       return;
     }
 
-    if (orderTrigger && (e.key === 'Enter' || e.key === ' ')) {
+    if (orderTrigger && orderTrigger.tagName !== 'BUTTON' && (e.key === 'Enter' || e.key === ' ')) {
       e.preventDefault();
       openOrderModal(orderTrigger.getAttribute('data-order-id'), orderTrigger);
     }
@@ -1528,7 +1800,7 @@
       var deskWrap = document.createElement('div');
       deskWrap.className = 'cart-desktop-wrap';
       deskWrap.innerHTML = [
-        '<button class="icon-button cart-btn" data-cart-open aria-label="Корзина">',
+        '<button class="icon-button cart-btn" data-cart-open aria-label="' + escHtml(t('openCart')) + '">',
         '  <svg><use href="#i-cart"/></svg>',
         '  <span class="cart-btn__badge" data-cart-count hidden>0</span>',
         '</button>',
@@ -1541,7 +1813,7 @@
     var bar = document.createElement('div');
     bar.className = 'cart-bar';
     bar.innerHTML = [
-      '<button class="cart-bar__inner" data-cart-open aria-label="Открыть корзину">',
+      '<button class="cart-bar__inner" data-cart-open aria-label="' + escHtml(t('openCart')) + '">',
       '  <span class="cart-bar__icon">',
       '    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4ZM3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>',
       '    <span class="cart-bar__count" data-cart-count hidden>0</span>',
@@ -1573,7 +1845,7 @@
     panel.className = 'cart-panel';
     panel.setAttribute('role', 'dialog');
     panel.setAttribute('aria-modal', 'true');
-    panel.setAttribute('aria-label', 'Корзина');
+    panel.setAttribute('aria-label', t('cart'));
     panel.setAttribute('aria-hidden', 'true');
     panel.innerHTML = [
       // ── Шапка в стиле Lovin: счётчик + итог + кнопка закрытия
@@ -1588,7 +1860,7 @@
       '  </div>',
       '  <div class="cart-panel__header-right">',
       '    <span class="cart-panel__header-total" data-cart-header-total></span>',
-      '    <button class="close-button" data-cart-close aria-label="Закрыть корзину">',
+      '    <button class="close-button" data-cart-close aria-label="' + escHtml(t('closeCart')) + '">',
       '      <svg viewBox="0 0 24 24"><path d="m5 5 14 14M19 5 5 19"/></svg>',
       '    </button>',
       '  </div>',
@@ -1607,9 +1879,9 @@
       '      <span class="lang lang--tr">Kişi sayısı</span>',
       '    </p>',
       '    <div class="cart-stepper">',
-      '      <button class="cart-stepper__btn" data-persons-dec aria-label="Меньше гостей">−</button>',
+      '      <button class="cart-stepper__btn" data-persons-dec aria-label="' + escHtml(t('fewerGuests')) + '">−</button>',
       '      <span class="cart-stepper__val" data-persons-count>1</span>',
-      '      <button class="cart-stepper__btn" data-persons-inc aria-label="Больше гостей">+</button>',
+      '      <button class="cart-stepper__btn" data-persons-inc aria-label="' + escHtml(t('moreGuests')) + '">+</button>',
       '    </div>',
       '  </div>',
 
@@ -1699,10 +1971,10 @@
       orderModal.className = 'order-modal';
       orderModal.setAttribute('role', 'dialog');
       orderModal.setAttribute('aria-modal', 'true');
-      orderModal.setAttribute('aria-label', 'Order details');
+      orderModal.setAttribute('aria-label', t('orderDetails'));
       orderModal.setAttribute('aria-hidden', 'true');
       orderModal.innerHTML = [
-        '<button class="close-button order-modal__close" data-order-modal-close aria-label="Close order details">',
+        '<button class="close-button order-modal__close" data-order-modal-close aria-label="' + escHtml(t('closeOrderDetails')) + '">',
         '  <svg viewBox="0 0 24 24"><path d="m5 5 14 14M19 5 5 19"/></svg>',
         '</button>',
         '<div class="order-modal__body" data-order-modal-body></div>',
@@ -1720,7 +1992,7 @@
     var quoteInvalid = !cartEmpty
       && currentFingerprint !== cartApi.lastSuccessfulQuoteFingerprint;
     var missingPayment = !cartEmpty && !cart.payment;
-    var missingContext = !cartApi.createUrl;
+    var missingContext = !cartApi.createUrl || !cartApi.storageReady;
     var disabled = cartEmpty
       || cartApi.quotePending
       || quoteInvalid
@@ -1755,14 +2027,16 @@
 
   /* ─── Init ────────────────────────────────────────────────────── */
   function init() {
-    load();
     readCartApi();
+    load();
     clearRecoveredCartIfReceiptLoaded();
     buildHTML();
     buildToast();
     attachDishButtons();
     renderAll();
-    scheduleQuote();
+    if (!consumePendingRepeat()) {
+      scheduleQuote();
+    }
 
     // Обычная делегация на document — работает везде включая iOS
     // (iOS требует cursor:pointer или onclick на промежуточных div-ах,

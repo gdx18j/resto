@@ -1,26 +1,21 @@
 import hashlib
+import logging
 
 from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
 
+from .client_ip import get_client_ip
+
 
 DEFAULT_MESSAGE = "Too many requests. Please try again later."
+CACHE_UNAVAILABLE_MESSAGE = "Request protection is temporarily unavailable."
+logger = logging.getLogger(__name__)
 
 
 def _client_ip(request):
-    if getattr(settings, "RATE_LIMIT_TRUST_PROXY_HEADERS", False):
-        real_ip = request.META.get("HTTP_X_REAL_IP", "").strip()
-
-        if real_ip:
-            return real_ip
-
-        forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
-
-        if forwarded_for:
-            return forwarded_for.split(",")[0].strip() or "unknown"
-
-    return request.META.get("REMOTE_ADDR") or "unknown"
+    """Backward-compatible wrapper around the shared client IP resolver."""
+    return get_client_ip(request)
 
 
 def _hash(value):
@@ -33,7 +28,6 @@ def _field_value(request, field_name):
         return ""
 
     value = request.POST.get(field_name, "")
-
     return str(value).strip().casefold()
 
 
@@ -42,7 +36,6 @@ def _actor_value(request):
         return f"user:{request.user.pk}"
 
     session_key = getattr(request.session, "session_key", "") or ""
-
     if session_key:
         return f"session:{session_key}"
 
@@ -78,8 +71,9 @@ def _increment(key, timeout):
     try:
         return cache.incr(key)
     except ValueError:
-        cache.add(key, 1, timeout=timeout)
-        return 1
+        if cache.add(key, 1, timeout=timeout):
+            return 1
+        return cache.incr(key)
 
 
 def _limits(rule):
@@ -98,7 +92,6 @@ def _wants_json(request, view_name):
 
     accept = request.headers.get("Accept", "")
     content_type = request.headers.get("Content-Type", "")
-
     return "application/json" in accept or "application/json" in content_type
 
 
@@ -118,7 +111,34 @@ def _rate_limited_response(request, view_name, retry_after, message):
 
     response["Retry-After"] = str(retry_after)
     response["Cache-Control"] = "no-store"
+    return response
 
+
+def _cache_unavailable_response(request, view_name):
+    retry_after = max(
+        1,
+        int(getattr(settings, "RATE_LIMIT_CACHE_FAILURE_RETRY_AFTER", 5)),
+    )
+
+    if _wants_json(request, view_name):
+        response = JsonResponse(
+            {
+                "ok": False,
+                "error": CACHE_UNAVAILABLE_MESSAGE,
+                "code": "rate_limit_unavailable",
+                "retry_after": retry_after,
+            },
+            status=503,
+        )
+    else:
+        response = HttpResponse(
+            CACHE_UNAVAILABLE_MESSAGE,
+            status=503,
+            content_type="text/plain",
+        )
+
+    response["Retry-After"] = str(retry_after)
+    response["Cache-Control"] = "no-store"
     return response
 
 
@@ -135,17 +155,14 @@ class RateLimitMiddleware:
 
         resolver_match = getattr(request, "resolver_match", None)
         view_name = getattr(resolver_match, "view_name", "")
-
         if not view_name:
             return None
 
         rule = getattr(settings, "RATE_LIMIT_RULES", {}).get(view_name)
-
         if not rule:
             return None
 
         methods = {method.upper() for method in rule.get("methods", ("POST",))}
-
         if request.method.upper() not in methods:
             return None
 
@@ -155,15 +172,31 @@ class RateLimitMiddleware:
             getattr(settings, "RATE_LIMIT_MESSAGE", DEFAULT_MESSAGE),
         )
 
-        for name, count, window in _limits(rule):
-            current = _increment(_cache_key(view_name, name, identity), window)
-
-            if current > count:
-                return _rate_limited_response(
-                    request,
-                    view_name,
-                    retry_after=window,
-                    message=message,
+        try:
+            for name, count, window in _limits(rule):
+                current = _increment(
+                    _cache_key(view_name, name, identity),
+                    window,
                 )
+
+                if current > count:
+                    return _rate_limited_response(
+                        request,
+                        view_name,
+                        retry_after=window,
+                        message=message,
+                    )
+        except Exception:
+            failure_mode = str(rule.get("cache_failure", "closed")).lower()
+            logger.exception(
+                "Rate-limit cache is unavailable for view %s; mode=%s.",
+                view_name,
+                failure_mode,
+            )
+
+            if failure_mode == "open":
+                return None
+
+            return _cache_unavailable_response(request, view_name)
 
         return None

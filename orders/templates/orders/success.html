@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Заказ №{{ order.id }} | Caesar &amp; Company{% endblock %}
+{% block title %}{% if ui_language == "en" %}Order #{{ order.id }}{% elif ui_language == "tr" %}Sipariş #{{ order.id }}{% else %}Заказ №{{ order.id }}{% endif %} | Caesar &amp; Company{% endblock %}
 
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'css/order_history.css' %}">
@@ -44,7 +44,14 @@
           </p>
         </div>
 
-        <div class="order-progress order-progress--success" aria-label="Статус заказа">
+        <div
+          class="order-progress order-progress--success"
+          aria-label="{% if ui_language == 'en' %}Order status{% elif ui_language == 'tr' %}Sipariş durumu{% else %}Статус заказа{% endif %}"
+          data-i18n-aria-label
+          data-aria-label-ru="Статус заказа"
+          data-aria-label-en="Order status"
+          data-aria-label-tr="Sipariş durumu"
+        >
           {% for step in order.status_steps %}
             <span class="order-progress__step order-progress__step--{{ step.state }}">
               <span class="order-progress__dot"></span>
@@ -54,17 +61,29 @@
         </div>
 
         <div class="order-success__actions">
-          <button
-            type="button"
-            class="primary-button"
-            data-repeat-order
-            data-items="{{ order.repeat_available_items_json }}"
-            data-repeat-result="{{ order.repeat_result_json }}"
-          >
-            <span class="lang lang--ru">Повторить заказ</span>
-            <span class="lang lang--en">Repeat order</span>
-            <span class="lang lang--tr">Siparişi tekrarla</span>
-          </button>
+          {% if order.can_repeat_in_table_context %}
+            <button
+              type="button"
+              class="primary-button"
+              data-repeat-order
+              data-repeat-restaurant-slug="{{ order.restaurant_slug_snapshot }}"
+              data-repeat-order-mode="{{ order.order_mode }}"
+              data-repeat-table-number="{{ order.table_number_snapshot }}"
+              data-repeat-guests-count="{{ order.guests_count }}"
+              data-items="{{ order.repeat_available_items_json }}"
+              data-repeat-result="{{ order.repeat_result_json }}"
+            >
+              <span class="lang lang--ru">Повторить заказ</span>
+              <span class="lang lang--en">Repeat order</span>
+              <span class="lang lang--tr">Siparişi tekrarla</span>
+            </button>
+          {% else %}
+            <a href="{% url 'menu:dish_list' %}" class="primary-button">
+              <span class="lang lang--ru">Открыть меню</span>
+              <span class="lang lang--en">Open menu</span>
+              <span class="lang lang--tr">Menüyü aç</span>
+            </a>
+          {% endif %}
           {% if request.user.is_authenticated %}
             <a href="{% url 'orders:history' %}" class="secondary-button">
               <span class="lang lang--ru">История заказов</span>
@@ -73,9 +92,17 @@
             </a>
           {% endif %}
         </div>
+        <p class="order-repeat-status" data-repeat-order-status role="status" aria-live="polite" hidden></p>
       </section>
 
-      <aside class="order-success__receipt" aria-label="Состав заказа">
+      <aside
+        class="order-success__receipt"
+        aria-label="{% if ui_language == 'en' %}Order items{% elif ui_language == 'tr' %}Sipariş içeriği{% else %}Состав заказа{% endif %}"
+        data-i18n-aria-label
+        data-aria-label-ru="Состав заказа"
+        data-aria-label-en="Order items"
+        data-aria-label-tr="Sipariş içeriği"
+      >
         <div class="order-success__receipt-head">
           <span>
             <span class="lang lang--ru">Состав заказа</span>
@@ -87,8 +114,21 @@
 
         <div class="order-facts">
           <span>{{ order.created_at|date:"d.m.Y" }}</span>
-          {% if order.table %}<span>Стол {{ order.table.number }}</span>{% endif %}
-          <span>{{ order.guests_count }} перс.</span>
+          <span>{{ order.display_restaurant_name }}</span>
+          <span>{% include "orders/_order_mode_label.html" with order=order %}</span>
+          {% if order.display_table_number %}
+            <span>
+              <span class="lang lang--ru">Стол {{ order.display_table_number }}</span>
+              <span class="lang lang--en">Table {{ order.display_table_number }}</span>
+              <span class="lang lang--tr">Masa {{ order.display_table_number }}</span>
+            </span>
+          {% endif %}
+          <span>
+            {{ order.guests_count }}
+            <span class="lang lang--ru">перс.</span>
+            <span class="lang lang--en">guests</span>
+            <span class="lang lang--tr">kişi</span>
+          </span>
           {% if order.primary_payment %}<span>{{ order.primary_payment.get_method_display }}</span>{% endif %}
         </div>
 
@@ -120,4 +160,8 @@
       </aside>
     </div>
   </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'js/order-repeat.js' %}" defer></script>
 {% endblock %}

@@ -6,8 +6,10 @@ from unittest.mock import patch
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.db import IntegrityError
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, connection, transaction
 from django.test import Client, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -24,6 +26,7 @@ from orders.models import (
     TableQrTokenAudit,
     hash_table_qr_token,
 )
+from orders.presentation import repeat_order_result
 from orders.services import ValidatedCartModifier
 from orders.statuses import OrderTransitionError, OrderVersionConflict, transition_order
 
@@ -61,12 +64,13 @@ class OrderApiTests(TestCase):
         if isinstance(payload, dict):
             payload = payload.copy()
 
-            if not payload.get("table_token"):
+            if not payload.get("table_token") and not payload.get("table_context"):
                 payload.setdefault("restaurant_slug", self.dish.restaurant.slug)
 
             if (
                 url == reverse("orders:create")
                 and not payload.get("table_token")
+                and not payload.get("table_context")
                 and not payload.get("order_source")
                 and not payload.get("order_mode")
                 and not payload.get("fulfillment")
@@ -220,6 +224,202 @@ class OrderApiTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "item_note_too_long")
+
+    def test_quote_rejects_more_than_fifty_cart_lines(self):
+        response = self.post_json(
+            reverse("orders:quote"),
+            {
+                "items": [
+                    {
+                        "dish_id": self.dish.id,
+                        "quantity": 1,
+                        "note": f"line-{index}",
+                    }
+                    for index in range(order_services.MAX_CART_LINE_ITEMS + 1)
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "too_many_cart_lines")
+
+    def test_quote_rejects_total_quantity_above_cart_limit(self):
+        response = self.post_json(
+            reverse("orders:quote"),
+            {
+                "items": [
+                    {
+                        "dish_id": self.dish.id,
+                        "quantity": 60,
+                        "note": "first",
+                    },
+                    {
+                        "dish_id": self.dish.id,
+                        "quantity": 41,
+                        "note": "second",
+                    },
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "cart_quantity_limit")
+
+    def test_quote_rejects_more_than_twenty_modifiers_per_line(self):
+        modifiers = [
+            self.create_removable_ingredient(f"Ingredient {index}")
+            for index in range(order_services.MAX_MODIFIERS_PER_ITEM + 1)
+        ]
+        response = self.post_json(
+            reverse("orders:quote"),
+            {
+                "items": [
+                    {
+                        "dish_id": self.dish.id,
+                        "quantity": 1,
+                        "modifiers": [
+                            {
+                                "type": OrderItemModifier.Type.REMOVE,
+                                "dish_ingredient_id": modifier.id,
+                            }
+                            for modifier in modifiers
+                        ],
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "too_many_modifiers")
+
+    def test_quote_rejects_invalid_guest_count_with_separate_error(self):
+        for guests_count in (0, 21, True, "many"):
+            with self.subTest(guests_count=guests_count):
+                response = self.post_json(
+                    reverse("orders:quote"),
+                    {
+                        "guests_count": guests_count,
+                        "items": [
+                            {
+                                "dish_id": self.dish.id,
+                                "quantity": 1,
+                            }
+                        ],
+                    },
+                )
+
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()["code"], "invalid_guests_count")
+
+    def test_quote_accepts_twenty_guests(self):
+        response = self.post_json(
+            reverse("orders:quote"),
+            {
+                "guests_count": 20,
+                "items": [
+                    {
+                        "dish_id": self.dish.id,
+                        "quantity": 1,
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_quote_rejects_request_body_larger_than_application_limit(self):
+        body = json.dumps(
+            {
+                "padding": "x" * order_services.ORDER_REQUEST_MAX_BYTES,
+                "items": [
+                    {
+                        "dish_id": self.dish.id,
+                        "quantity": 1,
+                    }
+                ],
+            }
+        )
+
+        response = self.client.post(
+            reverse("orders:quote"),
+            data=body,
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.json()["code"], "request_too_large")
+
+    def test_modifier_validation_uses_one_batched_dish_ingredient_query(self):
+        second_dish = Dish.objects.create(
+            category=self.dish.category,
+            name="Latte",
+            price=Decimal("200.00"),
+            is_active=True,
+            is_available=True,
+        )
+        first_modifiers = [
+            self.create_removable_ingredient("Onion"),
+            self.create_removable_ingredient("Cheese"),
+        ]
+        second_modifiers = []
+
+        for name in ("Milk", "Sugar"):
+            ingredient = Ingredient.objects.create(name=name)
+            second_modifiers.append(
+                DishIngredient.objects.create(
+                    dish=second_dish,
+                    ingredient=ingredient,
+                    can_be_removed=True,
+                )
+            )
+
+        payload = {
+            "items": [
+                {
+                    "dish_id": self.dish.id,
+                    "quantity": 1,
+                    "modifiers": [
+                        {
+                            "type": OrderItemModifier.Type.REMOVE,
+                            "dish_ingredient_id": modifier.id,
+                        }
+                        for modifier in first_modifiers
+                    ],
+                },
+                {
+                    "dish_id": second_dish.id,
+                    "quantity": 1,
+                    "modifiers": [
+                        {
+                            "type": OrderItemModifier.Type.REMOVE,
+                            "dish_ingredient_id": modifier.id,
+                        }
+                        for modifier in second_modifiers
+                    ],
+                },
+            ]
+        }
+        context = order_services.OrderingContext(
+            restaurant_id=self.dish.restaurant_id,
+            table_id=None,
+            source=Order.Mode.COUNTER,
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            cart = order_services.validate_cart(
+                payload,
+                restaurant=self.dish.restaurant,
+                ordering_context=context,
+            )
+
+        modifier_queries = [
+            query["sql"]
+            for query in queries.captured_queries
+            if "menu_dishingredient" in query["sql"].lower()
+        ]
+
+        self.assertEqual(len(cart.items), 2)
+        self.assertEqual(len(modifier_queries), 1)
 
     def test_create_order_rejects_too_long_comment_without_truncating(self):
         response = self.post_json(
@@ -518,7 +718,46 @@ class OrderApiTests(TestCase):
         success_response = self.client.get(reverse("orders:success", args=[order.id]))
 
         self.assertEqual(success_response.status_code, 200)
-        self.assertContains(success_response, f"data-items=")
+        self.assertTrue(success_response.context["cart_disabled"])
+        self.assertNotContains(success_response, "static/js/cart.js")
+        self.assertContains(success_response, "static/js/order-repeat.js")
+        self.assertNotContains(success_response, "data-repeat-restaurant-slug")
+
+    def test_table_order_success_exposes_safe_repeat_metadata_without_cart_runtime(self):
+        table = Table.objects.create(
+            restaurant=self.dish.restaurant,
+            number="21",
+        )
+        response = self.post_json(
+            reverse("orders:create"),
+            {
+                "table_context": order_services.build_table_context_token(table),
+                "payment_method": Payment.Method.CASH,
+                "guests_count": 3,
+                "items": [
+                    {
+                        "dish_id": self.dish.id,
+                        "quantity": 1,
+                    }
+                ],
+            },
+            idempotency_key=self.next_idempotency_key(),
+        )
+
+        self.assertEqual(response.status_code, 201)
+        order = Order.objects.get()
+        success_response = self.client.get(reverse("orders:success", args=[order.id]))
+
+        self.assertEqual(success_response.status_code, 200)
+        self.assertNotContains(success_response, "static/js/cart.js")
+        self.assertContains(success_response, "static/js/order-repeat.js")
+        self.assertContains(success_response, 'data-repeat-order-mode="table"')
+        self.assertContains(
+            success_response,
+            f'data-repeat-restaurant-slug="{self.dish.restaurant.slug}"',
+        )
+        self.assertContains(success_response, 'data-repeat-table-number="21"')
+        self.assertContains(success_response, 'data-repeat-guests-count="3"')
 
     def test_history_page_lists_authenticated_user_orders(self):
         user = get_user_model().objects.create_user(
@@ -549,6 +788,41 @@ class OrderApiTests(TestCase):
         self.assertContains(history_response, f'data-order-id="{order.id}"')
         self.assertContains(history_response, "data-order-history-search")
         self.assertContains(history_response, 'data-order-filter="active"')
+        self.assertTrue(history_response.context["cart_disabled"])
+        self.assertNotContains(history_response, "static/js/cart.js")
+        self.assertContains(history_response, "static/js/order-repeat.js")
+        html = history_response.content.decode("utf-8")
+        self.assertRegex(
+            html,
+            r'<button[^>]*class="order-history-card__open"[^>]*data-order-trigger',
+        )
+        self.assertNotRegex(
+            html,
+            r'<article[^>]*class="order-history-card"[^>]*(?:role="button"|tabindex="0"|data-order-trigger)',
+        )
+
+    def test_history_page_localizes_accessible_controls_from_cookie(self):
+        user = get_user_model().objects.create_user(
+            email="localized-orders@example.com",
+            password="password-123",
+        )
+        Order.objects.create(
+            restaurant=self.dish.restaurant,
+            order_mode=Order.Mode.COUNTER,
+            user=user,
+            subtotal_amount=Decimal("0.00"),
+            total_amount=Decimal("0.00"),
+        )
+        self.client.force_login(user)
+        self.client.cookies["cc_language"] = "tr"
+
+        response = self.client.get(reverse("orders:history"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '<html lang="tr" data-language="tr">')
+        self.assertContains(response, 'placeholder="Sipariş veya yemek ara"')
+        self.assertContains(response, 'aria-label="Sipariş geçmişinde ara"')
+        self.assertContains(response, 'aria-label="Sipariş #')
 
     def test_history_page_is_paginated(self):
         user = get_user_model().objects.create_user(
@@ -559,6 +833,7 @@ class OrderApiTests(TestCase):
         for index in range(12):
             Order.objects.create(
                 restaurant=self.dish.restaurant,
+                order_mode=Order.Mode.COUNTER,
                 user=user,
                 subtotal_amount=Decimal(index),
                 total_amount=Decimal(index),
@@ -627,6 +902,13 @@ class OrderApiTests(TestCase):
             repeat_result["available"][0]["modifiers"][0]["dish_ingredient_id"],
             onion.id,
         )
+        self.assertTrue(
+            repeat_result["available"][0]["id"].startswith("repeat-order-item-")
+        )
+        self.assertEqual(
+            repeat_result["context"]["restaurant_slug"],
+            self.dish.restaurant.slug,
+        )
 
     def test_history_repeat_result_classifies_changed_and_unavailable_items(self):
         user = get_user_model().objects.create_user(
@@ -670,6 +952,56 @@ class OrderApiTests(TestCase):
         self.assertEqual(repeat_result["changed"], [])
         self.assertEqual(repeat_result["unavailable"][0]["dish_id"], self.dish.id)
         self.assertEqual(repeat_result["unavailable"][0]["reason"], "dish_unavailable")
+
+    def test_repeat_result_batches_current_modifier_lookup_and_keeps_lines_unique(self):
+        onion = self.create_removable_ingredient("Onion")
+        cheese = self.create_removable_ingredient("Cheese")
+        response = self.post_json(
+            reverse("orders:create"),
+            {
+                "payment_method": Payment.Method.CARD,
+                "items": [
+                    {
+                        "dish_id": self.dish.id,
+                        "quantity": 1,
+                        "modifiers": [
+                            {
+                                "type": OrderItemModifier.Type.REMOVE,
+                                "dish_ingredient_id": onion.id,
+                            }
+                        ],
+                    },
+                    {
+                        "dish_id": self.dish.id,
+                        "quantity": 1,
+                        "modifiers": [
+                            {
+                                "type": OrderItemModifier.Type.REMOVE,
+                                "dish_ingredient_id": cheese.id,
+                            }
+                        ],
+                    },
+                ],
+            },
+            idempotency_key=self.next_idempotency_key(),
+        )
+
+        self.assertEqual(response.status_code, 201)
+        order = Order.objects.prefetch_related("items__modifiers").get()
+
+        with CaptureQueriesContext(connection) as queries:
+            result = repeat_order_result(order)
+
+        modifier_queries = [
+            query["sql"]
+            for query in queries.captured_queries
+            if "menu_dishingredient" in query["sql"].lower()
+        ]
+        repeat_ids = [item["id"] for item in result["available"]]
+
+        self.assertEqual(len(modifier_queries), 1)
+        self.assertEqual(len(repeat_ids), 2)
+        self.assertEqual(len(set(repeat_ids)), 2)
 
     def test_create_order_accepts_online_payment_method(self):
         response = self.post_json(
@@ -718,7 +1050,106 @@ class OrderApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 201)
+        order = Order.objects.get()
+        item = order.items.get()
+        self.assertEqual(order.table, table)
+        self.assertEqual(order.order_mode, Order.Mode.TABLE)
+        self.assertEqual(order.restaurant_name_snapshot, self.dish.restaurant.name)
+        self.assertEqual(order.restaurant_slug_snapshot, self.dish.restaurant.slug)
+        self.assertEqual(order.table_number_snapshot, table.number)
+        self.assertEqual(order.table_title_snapshot, table.title)
+        self.assertEqual(item.dish_code_snapshot, self.dish.code)
+        self.assertEqual(item.category_name_snapshot, self.dish.category.name)
+        self.assertEqual(item.category_code_snapshot, self.dish.category.code)
+        self.assertEqual(response.json()["order"]["order_mode"], Order.Mode.TABLE)
+        self.assertEqual(response.json()["order"]["table_number"], table.number)
+
+    def test_create_order_uses_signed_table_context_without_raw_qr_token(self):
+        table = Table.objects.create(
+            restaurant=self.dish.restaurant,
+            number="15",
+        )
+        table_context = order_services.build_table_context_token(table)
+        payload = {
+            "table_context": table_context,
+            "payment_method": Payment.Method.CARD,
+            "items": [
+                {
+                    "dish_id": self.dish.id,
+                    "quantity": 1,
+                }
+            ],
+        }
+
+        quote_response = self.post_json(reverse("orders:quote"), payload)
+        create_response = self.post_json(
+            reverse("orders:create"),
+            payload,
+            idempotency_key=self.next_idempotency_key(),
+        )
+
+        self.assertEqual(quote_response.status_code, 200)
+        self.assertEqual(create_response.status_code, 201)
         self.assertEqual(Order.objects.get().table, table)
+
+    @override_settings(TABLE_CONTEXT_TTL_SECONDS=60)
+    def test_expired_signed_table_context_is_rejected(self):
+        table = Table.objects.create(
+            restaurant=self.dish.restaurant,
+            number="17",
+        )
+
+        with patch("django.core.signing.time.time", return_value=1000):
+            table_context = order_services.build_table_context_token(table)
+
+        with patch("django.core.signing.time.time", return_value=1061):
+            response = self.client.post(
+                reverse("orders:quote"),
+                data=json.dumps(
+                    {
+                        "table_context": table_context,
+                        "payment_method": Payment.Method.CARD,
+                        "items": [
+                            {
+                                "dish_id": self.dish.id,
+                                "quantity": 1,
+                            }
+                        ],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(response.json()["code"], "table_context_expired")
+
+    def test_rotating_qr_revokes_existing_signed_table_context(self):
+        table = Table.objects.create(
+            restaurant=self.dish.restaurant,
+            number="16",
+        )
+        table_context = order_services.build_table_context_token(table)
+        table.rotate_qr_token(reason="Security rotation")
+
+        response = self.client.post(
+            reverse("orders:quote"),
+            data=json.dumps(
+                {
+                    "table_context": table_context,
+                    "payment_method": Payment.Method.CARD,
+                    "items": [
+                        {
+                            "dish_id": self.dish.id,
+                            "quantity": 1,
+                        }
+                    ],
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(response.json()["code"], "table_context_revoked")
 
     def test_qr_token_determines_restaurant_even_with_conflicting_slug(self):
         restaurant_b = Restaurant.objects.create(
@@ -861,6 +1292,10 @@ class OrderApiTests(TestCase):
         self.assertEqual(response.status_code, 201)
         order = Order.objects.get()
         self.assertIsNone(order.table)
+        self.assertEqual(order.order_mode, Order.Mode.DELIVERY)
+        self.assertEqual(order.table_number_snapshot, "")
+        self.assertEqual(order.table_title_snapshot, "")
+        self.assertEqual(order.restaurant_name_snapshot, self.dish.restaurant.name)
 
     def test_create_order_without_table_requires_explicit_counter_or_pickup_mode(self):
         response = self.client.post(
@@ -884,6 +1319,205 @@ class OrderApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "order_mode_required")
         self.assertEqual(Order.objects.count(), 0)
+
+    def test_order_snapshots_survive_renames_and_table_deletion(self):
+        restaurant = self.dish.restaurant
+        category = self.dish.category
+        table = Table.objects.create(
+            restaurant=restaurant,
+            number="21",
+            title="Window table",
+        )
+        original = {
+            "restaurant_name": restaurant.name,
+            "restaurant_slug": restaurant.slug,
+            "table_number": table.number,
+            "table_title": table.title,
+            "dish_name": self.dish.name,
+            "dish_code": self.dish.code,
+            "category_name": category.name,
+            "category_code": category.code,
+        }
+
+        response = self.post_json(
+            reverse("orders:create"),
+            {
+                "table_context": order_services.build_table_context_token(table),
+                "payment_method": Payment.Method.CARD,
+                "items": [
+                    {
+                        "dish_id": self.dish.id,
+                        "quantity": 1,
+                    }
+                ],
+            },
+            idempotency_key=self.next_idempotency_key(),
+        )
+        self.assertEqual(response.status_code, 201)
+        order = Order.objects.get()
+        item = order.items.get()
+
+        restaurant.name = "Renamed restaurant"
+        restaurant.slug = "renamed-restaurant"
+        restaurant.save(update_fields=["name", "slug"])
+        table.number = "99"
+        table.title = "Renamed table"
+        table.save(update_fields=["number", "title"])
+        self.dish.name = "Renamed dish"
+        self.dish.code = "renamed-dish"
+        self.dish.save(update_fields=["name", "code"])
+        category.name = "Renamed category"
+        category.code = "renamed-category"
+        category.save(update_fields=["name", "code"])
+        table.delete()
+
+        order.refresh_from_db()
+        item.refresh_from_db()
+        self.assertIsNone(order.table)
+        self.assertEqual(order.order_mode, Order.Mode.TABLE)
+        self.assertEqual(order.display_restaurant_name, original["restaurant_name"])
+        self.assertEqual(order.restaurant_slug_snapshot, original["restaurant_slug"])
+        self.assertEqual(order.display_table_number, original["table_number"])
+        self.assertEqual(order.display_table_title, original["table_title"])
+        self.assertEqual(item.dish_name, original["dish_name"])
+        self.assertEqual(item.dish_code_snapshot, original["dish_code"])
+        self.assertEqual(item.category_name_snapshot, original["category_name"])
+        self.assertEqual(item.category_code_snapshot, original["category_code"])
+
+        success_response = self.client.get(reverse("orders:success", args=[order.id]))
+        self.assertContains(success_response, original["restaurant_name"])
+        self.assertContains(success_response, f"Стол {original['table_number']}")
+        self.assertNotContains(success_response, "Renamed restaurant")
+        self.assertNotContains(success_response, "Стол 99")
+
+    def test_database_rejects_table_mode_without_table_snapshot(self):
+        invalid_order = Order(
+            restaurant=self.dish.restaurant,
+            order_mode=Order.Mode.TABLE,
+            restaurant_name_snapshot=self.dish.restaurant.name,
+            restaurant_slug_snapshot=self.dish.restaurant.slug,
+            subtotal_amount=Decimal("0.00"),
+            total_amount=Decimal("0.00"),
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Order.objects.bulk_create([invalid_order])
+
+    def test_database_rejects_non_table_mode_with_table(self):
+        table = Table.objects.create(
+            restaurant=self.dish.restaurant,
+            number="22",
+        )
+        invalid_order = Order(
+            restaurant=self.dish.restaurant,
+            table=table,
+            order_mode=Order.Mode.COUNTER,
+            restaurant_name_snapshot=self.dish.restaurant.name,
+            restaurant_slug_snapshot=self.dish.restaurant.slug,
+            table_number_snapshot=table.number,
+            subtotal_amount=Decimal("0.00"),
+            total_amount=Decimal("0.00"),
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Order.objects.bulk_create([invalid_order])
+
+    def test_order_snapshots_are_immutable(self):
+        response = self.post_json(
+            reverse("orders:create"),
+            {
+                "payment_method": Payment.Method.CARD,
+                "items": [
+                    {
+                        "dish_id": self.dish.id,
+                        "quantity": 1,
+                    }
+                ],
+            },
+            idempotency_key=self.next_idempotency_key(),
+        )
+        self.assertEqual(response.status_code, 201)
+        order = Order.objects.get()
+        item = order.items.get()
+
+        order.restaurant_name_snapshot = "Changed snapshot"
+        with self.assertRaisesMessage(ValueError, "Order snapshots are immutable"):
+            order.save(update_fields=["restaurant_name_snapshot"])
+
+        with self.assertRaisesMessage(ValueError, "Order snapshots are immutable"):
+            Order.objects.filter(pk=order.pk).update(
+                restaurant_name_snapshot="Changed snapshot"
+            )
+
+        order.refresh_from_db()
+        order.order_mode = Order.Mode.DELIVERY
+        with self.assertRaisesMessage(ValueError, "Order context is immutable"):
+            order.save(update_fields=["order_mode"])
+
+        item.dish_name = "Changed snapshot"
+        with self.assertRaisesMessage(ValueError, "Order item snapshots are immutable"):
+            item.save(update_fields=["dish_name"])
+
+        item.refresh_from_db()
+        another_dish = Dish.objects.create(
+            restaurant=self.dish.restaurant,
+            category=self.dish.category,
+            name="Another dish",
+            price=Decimal("175.00"),
+        )
+        item.dish = another_dish
+        with self.assertRaisesMessage(ValueError, "Order item snapshots are immutable"):
+            item.save(update_fields=["dish"])
+
+    def test_new_order_requires_explicit_non_legacy_mode(self):
+        with self.assertRaises(ValidationError):
+            Order.objects.create(
+                restaurant=self.dish.restaurant,
+                subtotal_amount=Decimal("0.00"),
+                total_amount=Decimal("0.00"),
+            )
+
+    def test_order_model_rejects_table_from_another_restaurant(self):
+        other_restaurant = Restaurant.objects.create(
+            name="Other restaurant",
+            slug="other-restaurant",
+        )
+        other_table = Table.objects.create(
+            restaurant=other_restaurant,
+            number="1",
+        )
+
+        with self.assertRaises(ValidationError):
+            Order.objects.create(
+                restaurant=self.dish.restaurant,
+                table=other_table,
+                order_mode=Order.Mode.TABLE,
+                subtotal_amount=Decimal("0.00"),
+                total_amount=Decimal("0.00"),
+            )
+
+    def test_order_item_model_rejects_dish_from_another_restaurant(self):
+        other_restaurant = Restaurant.objects.create(
+            name="Other restaurant",
+            slug="other-restaurant-item",
+        )
+        other_order = Order.objects.create(
+            restaurant=other_restaurant,
+            order_mode=Order.Mode.COUNTER,
+            subtotal_amount=Decimal("150.00"),
+            total_amount=Decimal("150.00"),
+        )
+
+        with self.assertRaises(ValidationError):
+            other_order.items.create(
+                dish=self.dish,
+                dish_name=self.dish.name,
+                quantity=1,
+                unit_price=self.dish.price,
+                line_total=self.dish.price,
+            )
 
     def test_qr_order_rejects_invalid_unknown_and_revoked_tokens(self):
         revoked_table = Table.objects.create(
@@ -970,7 +1604,9 @@ class OrderApiTests(TestCase):
         new_response = self.client.get(reverse("menu:table_menu", args=[new_token]))
 
         self.assertEqual(old_response.status_code, 410)
-        self.assertEqual(new_response.status_code, 200)
+        self.assertEqual(new_response.status_code, 302)
+        self.assertNotIn(new_token, new_response.url)
+        self.assertEqual(self.client.get(new_response.url).status_code, 200)
 
     def test_expired_qr_token_is_rejected(self):
         table = Table.objects.create(
@@ -1325,6 +1961,7 @@ class OrderStatusTransitionTests(TestCase):
         )
         self.order = Order.objects.create(
             restaurant=self.restaurant,
+            order_mode=Order.Mode.COUNTER,
             subtotal_amount=Decimal("0.00"),
             total_amount=Decimal("0.00"),
         )

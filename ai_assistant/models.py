@@ -2,6 +2,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 
 class ChatSession(models.Model):
@@ -25,10 +26,8 @@ class ChatSession(models.Model):
 
     restaurant = models.ForeignKey(
         "orders.Restaurant",
-        on_delete=models.SET_NULL,
+        on_delete=models.CASCADE,
         related_name="ai_chat_sessions",
-        null=True,
-        blank=True,
     )
 
     session_key = models.CharField(
@@ -90,6 +89,12 @@ class ChatMessage(models.Model):
         blank=True,
     )
 
+    recommended_dish_ids = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="Структурированные ID рекомендаций",
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True,
     )
@@ -101,6 +106,144 @@ class ChatMessage(models.Model):
         return f"{self.get_role_display()}: {self.content[:50]}"
 
 
+class AIRequestRecord(models.Model):
+    """
+    Идемпотентная запись одного клиентского запроса к ресторанному ассистенту.
+
+    Первичный ключ генерируется браузером. Повтор с тем же UUID никогда не
+    запускает модель второй раз: завершенный ответ воспроизводится из БД, а
+    выполняющийся или завершившийся ошибкой запрос получает явный конфликт.
+    """
+
+    class Status(models.TextChoices):
+        PROCESSING = "processing", "Выполняется"
+        COMPLETED = "completed", "Завершен"
+        FALLBACK = "fallback", "Локальный fallback"
+        FAILED = "failed", "Ошибка"
+        CANCELED = "canceled", "Отменен клиентом"
+
+    id = models.UUIDField(
+        primary_key=True,
+        editable=False,
+        verbose_name="Client request ID",
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="ai_request_records",
+        null=True,
+        blank=True,
+    )
+
+    session_key = models.CharField(
+        max_length=64,
+        blank=True,
+        db_index=True,
+    )
+
+    restaurant = models.ForeignKey(
+        "orders.Restaurant",
+        on_delete=models.CASCADE,
+        related_name="ai_request_records",
+    )
+
+    chat_session = models.ForeignKey(
+        ChatSession,
+        on_delete=models.CASCADE,
+        related_name="request_records",
+    )
+
+    user_message = models.OneToOneField(
+        ChatMessage,
+        on_delete=models.CASCADE,
+        related_name="originating_request",
+    )
+
+    assistant_message = models.OneToOneField(
+        ChatMessage,
+        on_delete=models.SET_NULL,
+        related_name="completed_request",
+        null=True,
+        blank=True,
+    )
+
+    request_fingerprint = models.CharField(
+        max_length=64,
+        db_index=True,
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PROCESSING,
+        db_index=True,
+    )
+
+    error_code = models.CharField(
+        max_length=120,
+        blank=True,
+    )
+
+    is_stream = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(user__isnull=False) | ~Q(session_key=""),
+                name="ai_request_owner_present",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        status__in=[
+                            "completed",
+                            "fallback",
+                        ],
+                        assistant_message__isnull=False,
+                        completed_at__isnull=False,
+                    )
+                    | Q(
+                        status="processing",
+                        assistant_message__isnull=True,
+                        completed_at__isnull=True,
+                    )
+                    | Q(
+                        status__in=[
+                            "failed",
+                            "canceled",
+                        ],
+                        assistant_message__isnull=True,
+                        completed_at__isnull=False,
+                    )
+                ),
+                name="ai_request_completion_consistent",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["status", "updated_at"],
+                name="ai_req_status_updated_idx",
+            ),
+            models.Index(
+                fields=["user", "created_at"],
+                name="ai_req_user_created_idx",
+            ),
+            models.Index(
+                fields=["session_key", "created_at"],
+                name="ai_req_session_created_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.id}: {self.status}"
+
+
 class AIUsageEvent(models.Model):
     """
     Audit trail for AI budget, throttling and abuse analysis.
@@ -110,6 +253,7 @@ class AIUsageEvent(models.Model):
         STARTED = "started", "Начат"
         COMPLETED = "completed", "Завершен"
         FAILED = "failed", "Ошибка"
+        CANCELED = "canceled", "Отменен клиентом"
         THROTTLED = "throttled", "Ограничен"
         FALLBACK = "fallback", "Локальный fallback"
 
@@ -125,6 +269,14 @@ class AIUsageEvent(models.Model):
         ChatSession,
         on_delete=models.SET_NULL,
         related_name="usage_events",
+        null=True,
+        blank=True,
+    )
+
+    request_record = models.OneToOneField(
+        AIRequestRecord,
+        on_delete=models.SET_NULL,
+        related_name="usage_event",
         null=True,
         blank=True,
     )
@@ -152,6 +304,12 @@ class AIUsageEvent(models.Model):
     estimated_response_tokens = models.PositiveIntegerField(default=0)
     estimated_total_tokens = models.PositiveIntegerField(default=0)
     estimated_cost_micros = models.PositiveBigIntegerField(default=0)
+
+    actual_prompt_tokens = models.PositiveIntegerField(default=0)
+    actual_response_tokens = models.PositiveIntegerField(default=0)
+    actual_total_tokens = models.PositiveIntegerField(default=0)
+    actual_cost_micros = models.PositiveBigIntegerField(default=0)
+    provider_response_id = models.CharField(max_length=160, blank=True)
 
     model_name = models.CharField(
         max_length=100,
@@ -193,4 +351,5 @@ class AIUsageEvent(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.status}: {self.estimated_total_tokens} tokens"
+        token_count = self.actual_total_tokens or self.estimated_total_tokens
+        return f"{self.status}: {token_count} tokens"

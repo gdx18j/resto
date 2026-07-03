@@ -1,11 +1,16 @@
 # Production deployment
 
-This Compose setup is intentionally strict: required production secrets have no
-fallback values. If `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS`,
-`DB_NAME`, `DB_USER`, `DB_PASSWORD`, `EMAIL_BACKEND`, or `DEFAULT_FROM_EMAIL`
-are missing or empty, `docker compose` must fail before services start. SMTP
-email also fails at application startup when `EMAIL_HOST`, `EMAIL_PORT`, or
-TLS/SSL are not configured for production.
+The production Compose configuration separates build, release, and runtime
+responsibilities:
+
+- image build installs dependencies and copies immutable application code;
+- the one-shot `release` service applies migrations and collects static files;
+- the long-running `web` service starts Gunicorn only;
+- seed data and seed images are imported only by explicit operator commands.
+
+The application image runs as the unprivileged `resto` user. Its default UID
+and GID are both `10001` and can be changed with `APP_UID` and `APP_GID` at
+build time.
 
 ## Environment
 
@@ -13,36 +18,179 @@ TLS/SSL are not configured for production.
 2. Fill every blank required value.
 3. Generate a unique `DJANGO_SECRET_KEY`.
 4. Set `DJANGO_DEBUG=False`.
-5. Set `DJANGO_ALLOWED_HOSTS` to the real domain names plus the healthcheck host.
-6. Set `DJANGO_CSRF_TRUSTED_ORIGINS` to the HTTPS origins, for example
-   `https://restaurant.example.com`.
-7. Configure a real email delivery backend. Email verification is mandatory,
-   so production must not use console, dummy, locmem, or file-based backends.
+5. Set `DJANGO_ALLOWED_HOSTS` to the real domains plus the healthcheck host.
+6. Set `DJANGO_CSRF_TRUSTED_ORIGINS` to the HTTPS origins.
+7. Configure a real email delivery backend. Production must not use console,
+   dummy, locmem, or file-based email backends.
 
-PostgreSQL and Redis are available only on the internal Docker network. The web
-container binds to `127.0.0.1:8000` by default. Put Nginx, a load balancer, or
-another reverse proxy in front of it for public traffic.
+PostgreSQL and Redis are exposed only on the internal Docker network. The web
+service binds to `127.0.0.1:8000` by default for local administration. Public
+traffic must pass through Nginx or another trusted reverse proxy.
 
-Static files are collected at startup. `DJANGO_USE_WHITENOISE=True` lets the web
-container serve `/static/` directly, which is useful behind an external reverse
-proxy. The bundled Nginx TLS profile still serves `/static/` from the shared
-static volume before proxying dynamic requests to Django.
+When forwarding headers are enabled, configure both:
 
-## Rate Limiting
+```env
+DJANGO_TRUST_PROXY_HEADERS=True
+DJANGO_TRUSTED_PROXY_CIDRS=172.16.0.0/12
+```
 
-Production requires `REDIS_URL`; application rate-limit counters must be shared
-across Gunicorn workers. Django limits POST requests for login, signup,
-password reset, password reset confirmation, Google OAuth initiation, AI ask,
-cart quote, and order creation.
+The CIDR list must contain only the direct proxy network. Never use
+`0.0.0.0/0`.
 
-The bundled Nginx TLS profile also applies per-IP `limit_req` rules to the same
-critical endpoints before the request reaches Django. If another trusted load
-balancer sits in front of Nginx, configure Nginx `real_ip_header` and
-`set_real_ip_from` for that network so proxy limits use the real client IP.
+## Image reproducibility
+
+The image names are configurable:
+
+```env
+APP_IMAGE=registry.example.com/resto/web:2026-07-03
+POSTGRES_IMAGE=postgres:15-alpine
+REDIS_IMAGE=redis:8-alpine
+NGINX_IMAGE=nginx:1.27-alpine
+```
+
+For a real production release, pin third-party images to reviewed digests, for
+example `postgres:15-alpine@sha256:...`, and promote an immutable application
+image instead of rebuilding independently on every host.
+
+## Release workflow
+
+Build the application image once:
+
+```bash
+docker compose build web
+```
+
+Start the stateful dependencies:
+
+```bash
+docker compose up -d db redis
+```
+
+Run the one-shot release tasks:
+
+```bash
+docker compose --profile release run --rm release
+```
+
+The release container performs, in order:
+
+```text
+python manage.py check
+python manage.py migrate --noinput
+python manage.py collectstatic --noinput --clear
+python manage.py migrate --check
+```
+
+Only after the release command succeeds, start or replace the application:
+
+```bash
+docker compose up -d web
+```
+
+With the bundled TLS proxy:
+
+```bash
+docker compose --profile tls up -d nginx
+```
+
+A failed release leaves the old web container untouched. Do not put migrations
+back into the web entrypoint: multiple web replicas must never race to migrate
+or rewrite the shared static volume.
+
+## Updating an existing installation from a root-running image
+
+Fresh named volumes inherit the correct UID/GID from the image. Older
+`static_volume` or `media_volume` volumes may contain root-owned files. After
+building Patch 13, stop web and run this one-time ownership repair before the
+release command:
+
+```bash
+docker compose stop web
+docker run --rm --user 0 --entrypoint sh \
+  -v resto_static_volume:/app/staticfiles \
+  -v resto_media_volume:/app/mediafiles \
+  "${APP_IMAGE:-resto-web:local}" \
+  -c 'chown -R 10001:10001 /app/staticfiles /app/mediafiles'
+```
+
+Use your configured UID/GID instead of `10001:10001` when they differ.
+
+## Static files
+
+Production uses `CompressedManifestStaticFilesStorage`. Template references are
+resolved to content-hashed filenames such as:
+
+```text
+/static/js/menu-ui.4f0f0a3d2c1b.js
+```
+
+Nginx can therefore cache `/static/` for one year with `immutable`. The web
+container mounts the collected static volume read-only; only the release
+service writes it. `DJANGO_USE_WHITENOISE=True` remains a safe fallback when an
+external proxy forwards static requests to Django.
+
+## Seed data
+
+Seed import is never part of container startup. For a new environment, run it
+explicitly after a successful release:
+
+```bash
+docker compose exec web python manage.py seed_project_data
+```
+
+To import images explicitly:
+
+```bash
+docker compose exec web python manage.py import_caesar_images
+```
+
+Before a release, validate translated menu data:
+
+```bash
+docker compose exec web python manage.py check_menu_translations --restaurant-slug caesar-company
+docker compose exec web python manage.py validate_translation_sources
+```
+
+## Runtime hardening
+
+The `web` and `release` services use:
+
+- UID/GID `10001:10001` by default;
+- `no-new-privileges`;
+- all Linux capabilities dropped;
+- a read-only root filesystem;
+- a small writable `/tmp` tmpfs;
+- explicit writable volumes only where required.
+
+The web process no longer writes source code or collected static files during
+startup.
+
+## Redis durability
+
+Redis now uses AOF with `appendfsync everysec` and periodic RDB snapshots in the
+persistent `redis_data` volume. This preserves rate-limit and AI budget state
+across normal container restarts. Redis is still not a substitute for durable
+business records; orders and idempotency remain in PostgreSQL.
+
+## Rate limiting and proxy security
+
+Application rate limits are shared through Redis. Authentication and AI fail
+closed with HTTP 503 when the guard store is unavailable. QR menu and order
+endpoints fail open because Nginx still applies edge limits and PostgreSQL
+continues to enforce order idempotency.
+
+Forwarded headers are accepted only from configured trusted proxy CIDRs.
+
+## Browser security policies
+
+Dynamic responses include CSP, Referrer-Policy, Permissions-Policy,
+`X-Frame-Options: DENY`, and `X-Content-Type-Options: nosniff`. HSTS starts with
+a conservative one-hour lifetime; increase it only after HTTPS has been
+verified for every relevant host.
 
 ## Email
 
-Production requires a delivery-capable email backend. For SMTP:
+For SMTP:
 
 ```env
 EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
@@ -54,72 +202,24 @@ EMAIL_USE_TLS=True
 EMAIL_USE_SSL=False
 DEFAULT_FROM_EMAIL="Caesar & Company <no-reply@example.com>"
 SERVER_EMAIL=ops@example.com
-EMAIL_SUBJECT_PREFIX="[Caesar & Company] "
 ```
 
-Do not use `django.core.mail.backends.console.EmailBackend` in production:
-verification and password-reset links would be written to container output and
-could be collected by centralized logs.
+## TLS profile
 
-## Start without TLS profile
-
-Use this when TLS is terminated by an external load balancer:
-
-```bash
-docker compose up -d --build
-```
-
-## Start with bundled Nginx TLS profile
-
-Place certificate files in `deploy/nginx/certs/`:
+Place these files in `deploy/nginx/certs/`:
 
 - `fullchain.pem`
 - `privkey.pem`
 
-Then run:
+Then start Nginx with the `tls` profile as shown in the release workflow.
 
-```bash
-docker compose --profile tls up -d --build
-```
+## Healthchecks
 
-The Nginx profile redirects HTTP to HTTPS and proxies to the internal `web`
-service. Keep `DJANGO_SECURE_PROXY_SSL_HEADER=True`.
+- `GET /health/live/` checks the Django process;
+- `GET /health/ready/` checks PostgreSQL and Redis;
+- `GET /healthz/` is a backward-compatible liveness alias.
 
-## Centralized logs
-
-The base Compose file rotates local Docker JSON logs. To ship logs to a
-GELF-compatible collector such as Graylog or Logstash, set `GELF_ADDRESS`, for
-example `udp://logs.example.com:12201`, and run with the logging override:
-
-```bash
-docker compose -f docker-compose.yml -f deploy/docker-compose.logging.gelf.yml up -d
-```
-
-## Data Import
-
-The database schema is defined by committed Django migrations, not by a local
-SQLite file. `db.sqlite3` is ignored and must not be included in release
-archives as project data.
-
-For a clean import after migrations:
-
-```bash
-docker compose exec web python manage.py seed_project_data
-```
-
-The seed command creates base restaurant/table rows and imports the versioned
-menu JSON from `data/caesar_and_company_menu_seed.json`. Use
-`IMPORT_SEED_DATA_ON_STARTUP=True` only for deployments where startup should
-intentionally upsert this seed data. More detail is in `DATA.md`.
-
-Before a release, validate translated menu data:
-
-```bash
-docker compose exec web python manage.py check_menu_translations --restaurant-slug caesar-company
-docker compose exec web python manage.py validate_translation_sources
-```
-
-## Backup
+## Backups
 
 Create a PostgreSQL custom-format dump:
 
@@ -127,23 +227,11 @@ Create a PostgreSQL custom-format dump:
 sh ops/backup_postgres.sh
 ```
 
-The default destination is `backups/resto_postgres_<UTC timestamp>.dump`. To
-choose a path:
-
-```bash
-sh ops/backup_postgres.sh backups/pre-release.dump
-```
-
-## Restore
-
-Restore is destructive for objects contained in the dump. Test it on a staging
-database before production use:
+Restore only into a staging or newly created database first:
 
 ```bash
 sh ops/restore_postgres.sh backups/pre-release.dump
 ```
 
-## Healthchecks
-
-The application exposes `GET /healthz/`. Compose checks the web container
-directly and the TLS profile checks Nginx over HTTPS.
+Backup encryption, off-site storage, retention, and restore drills are handled
+in the later storage/operations hardening package.
