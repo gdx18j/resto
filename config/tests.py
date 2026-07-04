@@ -1,3 +1,6 @@
+import contextlib
+import importlib.util
+import io
 import os
 import sqlite3
 import subprocess
@@ -6,8 +9,10 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+import zipfile
 
 from django.contrib.auth.models import AnonymousUser
+from django.core.exceptions import ImproperlyConfigured
 from django.http import HttpResponse, JsonResponse
 from django.middleware.security import SecurityMiddleware
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
@@ -460,6 +465,41 @@ class RuntimeDeploymentConfigurationTests(SimpleTestCase):
         self.assertNotIn("seed_project_data", release_script)
         self.assertNotIn("import_caesar_images", release_script)
 
+    def test_local_start_script_uses_single_django_process_when_debug_is_true(self):
+        start_script = (self.base_dir / "ops" / "start-web.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("DJANGO_DEBUG_NORMALIZED", start_script)
+        self.assertIn('[ "$DJANGO_DEBUG_NORMALIZED" = "true" ]', start_script)
+        self.assertIn("manage.py runserver 0.0.0.0:8000 --noreload", start_script)
+        self.assertIn("gunicorn config.wsgi:application", start_script)
+
+    def test_modal_manager_moves_focus_before_hiding_background(self):
+        modal_manager = (self.base_dir / "static" / "js" / "modal-manager.js").read_text(
+            encoding="utf-8"
+        )
+        open_block = modal_manager[modal_manager.index("function open(dialog, options) {"):]
+        focus_index = open_block.index("focusInitial(instance);")
+        isolate_index = open_block.index("applyBackgroundIsolation(instance);")
+
+        self.assertLess(focus_index, isolate_index)
+
+
+    def test_profile_popover_does_not_lock_document_scroll(self):
+        base_template = (self.base_dir / "templates" / "base.html").read_text(
+            encoding="utf-8"
+        )
+        modal_manager = (self.base_dir / "static" / "js" / "modal-manager.js").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('id="profile-popover"', base_template)
+        self.assertIn('data-modal-lock-scroll="false"', base_template)
+        self.assertIn("parseBooleanOption", modal_manager)
+        self.assertIn('root.getAttribute("data-modal-lock-scroll")', modal_manager)
+        self.assertIn("lockScroll: shouldLockScroll", modal_manager)
+
     def test_docker_image_declares_unprivileged_runtime_user(self):
         dockerfile = (self.base_dir / "Dockerfile").read_text(encoding="utf-8")
 
@@ -534,3 +574,201 @@ class RuntimeDeploymentConfigurationTests(SimpleTestCase):
             result.stdout.strip(),
             "whitenoise.storage.CompressedManifestStaticFilesStorage",
         )
+
+
+class DotenvLoadingPolicyTests(SimpleTestCase):
+    def test_loads_dotenv_by_default_for_local_development(self):
+        from config import settings as settings_module
+
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertTrue(settings_module.should_load_dotenv())
+
+    def test_skips_dotenv_when_process_declares_production(self):
+        from config import settings as settings_module
+
+        with patch.dict(os.environ, {"DJANGO_ENV": "production"}, clear=True):
+            self.assertFalse(settings_module.should_load_dotenv())
+
+    def test_explicit_dotenv_override_is_respected(self):
+        from config import settings as settings_module
+
+        env = {"DJANGO_ENV": "production", "RESTO_LOAD_DOTENV": "true"}
+        with patch.dict(os.environ, env, clear=True):
+            self.assertTrue(settings_module.should_load_dotenv())
+
+        env["RESTO_LOAD_DOTENV"] = "false"
+        with patch.dict(os.environ, env, clear=True):
+            self.assertFalse(settings_module.should_load_dotenv())
+
+    def test_invalid_explicit_dotenv_override_fails_fast(self):
+        from config import settings as settings_module
+
+        with patch.dict(os.environ, {"RESTO_LOAD_DOTENV": "maybe"}, clear=True):
+            with self.assertRaisesMessage(
+                ImproperlyConfigured,
+                "RESTO_LOAD_DOTENV must be a boolean value",
+            ):
+                settings_module.should_load_dotenv()
+
+    def test_production_defaults_safe_service_ports_when_omitted(self):
+        base_dir = Path(__file__).resolve().parent.parent
+        env = os.environ.copy()
+        env.update(
+            {
+                "DJANGO_ENV": "production",
+                "DJANGO_DEBUG": "False",
+                "DJANGO_SECRET_KEY": "production-test-secret-key-not-an-example-value",
+                "DJANGO_ALLOWED_HOSTS": "example.com",
+                "DJANGO_CSRF_TRUSTED_ORIGINS": "https://example.com",
+                "DJANGO_TRUST_PROXY_HEADERS": "False",
+                "DJANGO_SECURE_PROXY_SSL_HEADER": "False",
+                "DJANGO_SECURE_SSL_REDIRECT": "False",
+                "EMAIL_BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+                "EMAIL_HOST": "smtp.example.com",
+                "EMAIL_USE_TLS": "True",
+                "EMAIL_USE_SSL": "False",
+                "DEFAULT_FROM_EMAIL": "no-reply@example.com",
+                "DB_HOST": "db",
+                "DB_NAME": "resto_test",
+                "DB_USER": "resto_test",
+                "DB_PASSWORD": "unique-production-test-password",
+                "REDIS_URL": "redis://redis:6379/1",
+                "SITE_URL": "https://example.com",
+                "YOOKASSA_MOCK": "False",
+                "PYTHONIOENCODING": "utf-8",
+            }
+        )
+        env.pop("DB_PORT", None)
+        env.pop("EMAIL_PORT", None)
+        env.pop("SQLITE_DATABASE_PATH", None)
+        env.pop("RESTO_LOAD_DOTENV", None)
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import django; django.setup(); "
+                    "from django.conf import settings; "
+                    "print(settings.DATABASES['default']['PORT']); "
+                    "print(settings.EMAIL_PORT)"
+                ),
+            ],
+            cwd=base_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ["5432", "587"])
+
+
+class LocalDevelopmentSettingsTests(SimpleTestCase):
+    def test_default_timezone_is_moscow_for_admin_display(self):
+        from django.conf import settings
+
+        self.assertEqual(settings.TIME_ZONE, "Europe/Moscow")
+
+    def test_development_csrf_trusts_common_local_origins(self):
+        from django.conf import settings
+
+        if settings.IS_PRODUCTION:
+            self.skipTest("Local CSRF origin fallback is development-only.")
+
+        self.assertIn("http://localhost:8000", settings.CSRF_TRUSTED_ORIGINS)
+        self.assertIn("http://127.0.0.1:8000", settings.CSRF_TRUSTED_ORIGINS)
+        self.assertIn("http://0.0.0.0:8000", settings.CSRF_TRUSTED_ORIGINS)
+
+
+    def test_debug_mode_uses_http_safe_local_cookies(self):
+        from django.conf import settings
+
+        if not settings.DEBUG:
+            self.skipTest("The active test settings are not in debug mode.")
+
+        self.assertFalse(settings.SECURE_SSL_REDIRECT)
+        self.assertFalse(settings.SESSION_COOKIE_SECURE)
+        self.assertFalse(settings.CSRF_COOKIE_SECURE)
+
+
+class SourceArchiveExportTests(SimpleTestCase):
+    def _load_export_module(self):
+        base_dir = Path(__file__).resolve().parent.parent
+        module_path = base_dir / "ops" / "export_source_archive.py"
+        spec = importlib.util.spec_from_file_location("export_source_archive", module_path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+
+    def test_export_archive_excludes_local_runtime_and_secret_files(self):
+        module = self._load_export_module()
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "accounts").mkdir()
+            (root / "accounts" / "models.py").write_text("class User: pass\n")
+            (root / "data" / "fixtures").mkdir(parents=True)
+            (root / "data" / "fixtures" / "base_restaurant.json").write_text("[]\n")
+            (root / ".env").write_text("SECRET=bad\n")
+            (root / ".env.example").write_text("SECRET=example\n")
+            (root / ".env.local.example").write_text("SECRET=example\n")
+            (root / "db.sqlite3").write_text("local db\n")
+            (root / "PATCH_99_README_RU.md").write_text("patch docs\n")
+            (root / "FILES_TO_REPLACE.txt").write_text("docs\n")
+            (root / "resto.zip").write_text("old archive\n")
+            (root / ".venv" / "Lib").mkdir(parents=True)
+            (root / ".venv" / "Lib" / "secret.py").write_text("bad\n")
+            (root / ".git" / "objects").mkdir(parents=True)
+            (root / ".git" / "config").write_text("bad\n")
+            (root / "staticfiles" / "css").mkdir(parents=True)
+            (root / "staticfiles" / "css" / "app.css").write_text("bad\n")
+            (root / "mediafiles" / "dishes").mkdir(parents=True)
+            (root / "mediafiles" / "dishes" / "dish.jpg").write_text("bad\n")
+
+            output = root / "dist" / "source.zip"
+            plan = module.build_archive_plan(root, output)
+            module.write_source_archive(plan)
+
+            with zipfile.ZipFile(output) as archive:
+                names = set(archive.namelist())
+
+        self.assertIn("accounts/models.py", names)
+        self.assertIn("data/fixtures/base_restaurant.json", names)
+        self.assertIn(".env.example", names)
+        self.assertIn(".env.local.example", names)
+        self.assertNotIn(".env", names)
+        self.assertNotIn("db.sqlite3", names)
+        self.assertNotIn("PATCH_99_README_RU.md", names)
+        self.assertNotIn("FILES_TO_REPLACE.txt", names)
+        self.assertNotIn("resto.zip", names)
+        self.assertFalse(any(name.startswith(".venv/") for name in names))
+        self.assertFalse(any(name.startswith(".git/") for name in names))
+        self.assertFalse(any(name.startswith("staticfiles/") for name in names))
+        self.assertFalse(any(name.startswith("mediafiles/") for name in names))
+
+    def test_dry_run_lists_safe_files_without_creating_archive(self):
+        module = self._load_export_module()
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "manage.py").write_text("print('ok')\n")
+            (root / ".env").write_text("SECRET=bad\n")
+            output = root / "dist" / "source.zip"
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with patch.object(sys, "argv", ["export_source_archive.py", "--root", str(root), "--output", str(output), "--dry-run"]):
+                with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    exit_code = module.main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("manage.py", stdout.getvalue())
+        self.assertIn("1 files would be archived", stderr.getvalue())
+        self.assertFalse(output.exists())

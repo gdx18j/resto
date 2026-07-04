@@ -1,8 +1,11 @@
+import base64
 import hashlib
 import secrets
 from decimal import Decimal
 
 from django.conf import settings
+from cryptography.fernet import Fernet, InvalidToken
+
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxLengthValidator, MinValueValidator
 from django.db import models
@@ -12,6 +15,7 @@ from django.utils import timezone
 
 QR_TOKEN_BYTES = 32
 QR_TOKEN_HASH_LENGTH = 64
+QR_TOKEN_ENCRYPTION_SALT = "resto.table-qr-token.v1"
 ORDER_COMMENT_MAX_LENGTH = 2000
 ORDER_ITEM_NOTE_MAX_LENGTH = 255
 
@@ -23,6 +27,33 @@ def generate_table_qr_token():
 def hash_table_qr_token(token):
     token = str(token or "").strip()
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _table_qr_token_cipher():
+    secret_key = str(settings.SECRET_KEY or "")
+    key_material = hashlib.sha256(
+        f"{QR_TOKEN_ENCRYPTION_SALT}:{secret_key}".encode("utf-8")
+    ).digest()
+    return Fernet(base64.urlsafe_b64encode(key_material))
+
+
+def encrypt_table_qr_token(token):
+    token = str(token or "").strip()
+    if not token:
+        return ""
+
+    return _table_qr_token_cipher().encrypt(token.encode("utf-8")).decode("ascii")
+
+
+def decrypt_table_qr_token(ciphertext):
+    ciphertext = str(ciphertext or "").strip()
+    if not ciphertext:
+        return ""
+
+    try:
+        return _table_qr_token_cipher().decrypt(ciphertext.encode("ascii")).decode("utf-8")
+    except (InvalidToken, ValueError, TypeError, UnicodeDecodeError):
+        return ""
 
 
 ORDER_SNAPSHOT_FIELDS = {
@@ -106,6 +137,11 @@ class Table(models.Model):
         blank=True,
         verbose_name="Hash токена QR",
     )
+    qr_token_ciphertext = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Зашифрованный QR-токен",
+    )
     qr_token_version = models.PositiveIntegerField(default=0, verbose_name="Версия QR")
     qr_token_kind = models.CharField(
         max_length=20,
@@ -157,7 +193,14 @@ class Table(models.Model):
 
     @property
     def plain_qr_token(self):
-        return getattr(self, "_plain_qr_token", "")
+        if self.qr_token_revoked_at or not self.qr_token_ciphertext:
+            return ""
+
+        token = getattr(self, "_plain_qr_token", "")
+        if token:
+            return token
+
+        return decrypt_table_qr_token(self.qr_token_ciphertext)
 
     @property
     def is_qr_token_usable(self):
@@ -179,6 +222,7 @@ class Table(models.Model):
     ):
         now = timezone.now()
         self.qr_token_hash = hash_table_qr_token(token)
+        self.qr_token_ciphertext = encrypt_table_qr_token(token)
         self.qr_token_version = (self.qr_token_version or 0) + 1
         self.qr_token_kind = kind
         self.qr_token_created_at = now
@@ -208,6 +252,7 @@ class Table(models.Model):
             if update_fields is not None:
                 kwargs["update_fields"] = set(update_fields) | {
                     "qr_token_hash",
+                    "qr_token_ciphertext",
                     "qr_token_version",
                     "qr_token_kind",
                     "qr_token_created_at",
@@ -263,6 +308,7 @@ class Table(models.Model):
         self.save(
             update_fields=[
                 "qr_token_hash",
+                "qr_token_ciphertext",
                 "qr_token_version",
                 "qr_token_kind",
                 "qr_token_created_at",
@@ -288,7 +334,8 @@ class Table(models.Model):
             return
 
         self.qr_token_revoked_at = timezone.now()
-        self.save(update_fields=["qr_token_revoked_at"])
+        self.qr_token_ciphertext = ""
+        self.save(update_fields=["qr_token_revoked_at", "qr_token_ciphertext"])
         TableQrTokenAudit.objects.create(
             table=self,
             actor=actor,

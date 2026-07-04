@@ -1,4 +1,5 @@
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 from allauth.account.models import EmailAddress
 from allauth.socialaccount.adapter import get_adapter
@@ -73,6 +74,34 @@ class AccountViewTests(TestCase):
             with self.subTest(url_name=url_name):
                 response = self.client.get(reverse(url_name))
                 self.assertEqual(response.status_code, 200)
+
+    def test_auth_pages_do_not_load_menu_ordering_or_ai_runtime(self):
+        url_names = [
+            "account_login",
+            "account_signup",
+            "account_reset_password",
+        ]
+
+        for url_name in url_names:
+            with self.subTest(url_name=url_name):
+                response = self.client.get(reverse(url_name))
+
+                self.assertContains(response, 'data-ordering-enabled="0"')
+                self.assertContains(response, "static/css/base.css")
+                self.assertNotContains(response, "static/css/menu.css")
+                self.assertNotContains(response, "static/js/cart.js")
+                self.assertNotContains(response, "static/css/cart.css")
+                self.assertNotContains(response, "static/js/menu-ui.js")
+                self.assertNotContains(response, "static/js/menu-ui-loader.js")
+                self.assertNotContains(response, "static/js/table-context.js")
+                self.assertNotContains(response, "static/js/ai-assistant-loader.js")
+                self.assertNotContains(response, "static/js/ai-assistant.js")
+                self.assertNotContains(response, "static/css/ai-assistant.css")
+                self.assertContains(response, "static/js/font-loader.js")
+                self.assertContains(response, "display=optional")
+                self.assertNotContains(response, '<link rel="preconnect" href="https://fonts.googleapis.com">')
+                self.assertNotContains(response, '<link rel="preconnect" href="https://fonts.gstatic.com"')
+                self.assertNotContains(response, '<link href="https://fonts.googleapis.com')
 
     def test_auth_pages_include_client_language_variants(self):
         login_response = self.client.get(reverse("account_login"))
@@ -393,11 +422,37 @@ class GoogleAuthTests(TestCase):
         self.assertContains(response, "Continue with Google")
         self.assertContains(response, reverse("google_login"))
         self.assertContains(response, "csrfmiddlewaretoken")
+        self.assertContains(response, "next=%2Faccount%2F")
+
+    def test_login_page_preserves_explicit_next_for_google(self):
+        response = self.client.get(
+            reverse("account_login"),
+            {"next": reverse("orders:history")},
+        )
+
+        self.assertContains(response, "next=%2Forders%2Fhistory%2F")
+
+    def test_default_login_redirect_opens_profile(self):
+        self.assertEqual(settings.LOGIN_REDIRECT_URL, "/account/")
 
     def test_google_login_get_does_not_start_oauth_redirect(self):
         response = self.client.get(reverse("google_login"))
 
         self.assertEqual(response.status_code, 200)
+
+    @override_settings(
+        ACCOUNT_DEFAULT_HTTP_PROTOCOL="https",
+        ALLOWED_HOSTS=["example.com"],
+    )
+    def test_google_oauth_redirect_uri_uses_configured_public_scheme(self):
+        response = self.client.post(reverse("google_login"), HTTP_HOST="example.com")
+
+        self.assertEqual(response.status_code, 302)
+        query = parse_qs(urlparse(response["Location"]).query)
+        self.assertEqual(
+            query["redirect_uri"][0],
+            "https://example.com/accounts/google/login/callback/",
+        )
 
     def test_verified_google_email_matches_existing_user(self):
         user = User.objects.create_user(

@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from ipaddress import ip_network
 from pathlib import Path
+from urllib.parse import urlparse
 
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
@@ -20,7 +21,37 @@ from dotenv import load_dotenv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-load_dotenv(BASE_DIR / ".env")
+
+def _parse_startup_bool(name, value):
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ImproperlyConfigured(
+        f"{name} must be a boolean value: true/false, yes/no, on/off, or 1/0."
+    )
+
+
+def should_load_dotenv():
+    """Return True when local .env loading is safe for this process.
+
+    Development commands should stay convenient, so .env is loaded by default.
+    A production process that already declares DJANGO_ENV=production must not
+    silently import local development values from a stray project-root .env file.
+    Set RESTO_LOAD_DOTENV=true in the real process environment only when a
+    production deployment intentionally uses a dotenv file as its secret source.
+    """
+
+    explicit = os.getenv("RESTO_LOAD_DOTENV")
+    if explicit is not None and explicit != "":
+        return _parse_startup_bool("RESTO_LOAD_DOTENV", explicit)
+
+    return os.getenv("DJANGO_ENV", "").strip().lower() != "production"
+
+
+if should_load_dotenv():
+    load_dotenv(BASE_DIR / ".env")
 
 
 def env_value(name, default=None, *, required=False):
@@ -97,6 +128,35 @@ DEBUG = env_bool(
 if IS_PRODUCTION and DEBUG:
     raise ImproperlyConfigured("DJANGO_DEBUG must be False in production.")
 
+# Site URL is used to build public absolute URLs, including printable table QR
+# links and OAuth callbacks.
+SITE_URL = env_value("SITE_URL", "http://localhost:8000").rstrip("/")
+_SITE_URL_PARTS = urlparse(SITE_URL)
+
+if (
+    _SITE_URL_PARTS.scheme not in {"http", "https"}
+    or not _SITE_URL_PARTS.netloc
+):
+    raise ImproperlyConfigured("SITE_URL must be an absolute http(s) URL.")
+
+if IS_PRODUCTION and _SITE_URL_PARTS.scheme != "https":
+    raise ImproperlyConfigured("SITE_URL must use https in production.")
+
+ACCOUNT_DEFAULT_HTTP_PROTOCOL = env_value(
+    "DJANGO_ACCOUNT_DEFAULT_HTTP_PROTOCOL",
+    _SITE_URL_PARTS.scheme,
+).lower()
+
+if ACCOUNT_DEFAULT_HTTP_PROTOCOL not in {"http", "https"}:
+    raise ImproperlyConfigured(
+        "DJANGO_ACCOUNT_DEFAULT_HTTP_PROTOCOL must be either http or https."
+    )
+
+if IS_PRODUCTION and ACCOUNT_DEFAULT_HTTP_PROTOCOL != "https":
+    raise ImproperlyConfigured(
+        "DJANGO_ACCOUNT_DEFAULT_HTTP_PROTOCOL must be https in production."
+    )
+
 ALLOWED_HOSTS = env_list(
     "DJANGO_ALLOWED_HOSTS",
     os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1"),
@@ -107,6 +167,15 @@ if IS_PRODUCTION and "*" in ALLOWED_HOSTS:
     raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS must not contain '*' in production.")
 
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS", "")
+if not IS_PRODUCTION:
+    _local_csrf_port = env_value("APP_PORT", "8000")
+    for _local_csrf_origin in (
+        f"http://localhost:{_local_csrf_port}",
+        f"http://127.0.0.1:{_local_csrf_port}",
+        f"http://0.0.0.0:{_local_csrf_port}",
+    ):
+        if _local_csrf_origin not in CSRF_TRUSTED_ORIGINS:
+            CSRF_TRUSTED_ORIGINS.append(_local_csrf_origin)
 
 TRUST_PROXY_HEADERS = env_bool(
     "DJANGO_TRUST_PROXY_HEADERS",
@@ -130,6 +199,15 @@ if IS_PRODUCTION and TRUST_PROXY_HEADERS and not TRUSTED_PROXY_CIDRS:
 SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", IS_PRODUCTION)
 SESSION_COOKIE_SECURE = env_bool("DJANGO_SESSION_COOKIE_SECURE", IS_PRODUCTION)
 CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", IS_PRODUCTION)
+
+if DEBUG:
+    # Local development normally runs over plain HTTP. Secure cookies or forced
+    # SSL redirects make the CSRF/session cookies invisible to localhost forms
+    # and OAuth state checks, which surfaces as Google-login CSRF failures.
+    SECURE_SSL_REDIRECT = False
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+
 SECURE_HSTS_SECONDS = env_int(
     "DJANGO_SECURE_HSTS_SECONDS",
     3600 if IS_PRODUCTION else 0,
@@ -249,6 +327,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 "accounts.context_processors.account_identity",
                 "config.context_processors.ui_preferences",
+                "menu.context_processors.remembered_table_context",
             ],
         },
     },
@@ -276,7 +355,7 @@ ACCOUNT_FORMS = {
 }
 
 LOGIN_URL = "account_login"
-LOGIN_REDIRECT_URL = "/"
+LOGIN_REDIRECT_URL = "/account/"
 LOGOUT_REDIRECT_URL = "/"
 
 EMAIL_BACKEND = env_value(
@@ -304,12 +383,7 @@ EMAIL_HOST = env_value(
     required=IS_PRODUCTION
     and EMAIL_BACKEND == "django.core.mail.backends.smtp.EmailBackend",
 )
-EMAIL_PORT = env_int(
-    "EMAIL_PORT",
-    587,
-    required=IS_PRODUCTION
-    and EMAIL_BACKEND == "django.core.mail.backends.smtp.EmailBackend",
-)
+EMAIL_PORT = env_int("EMAIL_PORT", 587)
 EMAIL_HOST_USER = env_value("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = env_value("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", False)
@@ -393,7 +467,7 @@ elif os.getenv("DB_HOST"):
             "USER": env_value("DB_USER", "resto_user", required=IS_PRODUCTION),
             "PASSWORD": db_password,
             "HOST": env_value("DB_HOST", "db", required=IS_PRODUCTION),
-            "PORT": env_value("DB_PORT", "5432", required=IS_PRODUCTION),
+            "PORT": env_value("DB_PORT", "5432"),
         }
     }
 else:
@@ -564,7 +638,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'ru'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = env_value("DJANGO_TIME_ZONE", "Europe/Moscow")
 
 USE_I18N = True
 
@@ -748,9 +822,6 @@ AI_ABUSE_BLOCK_SECONDS = int(
     os.getenv("AI_ABUSE_BLOCK_SECONDS", "600")
 )
 
-
-# Site URL is used to build printable table QR links.
-SITE_URL = env_value("SITE_URL", "http://localhost:8000")
 
 # Optional payment-provider settings. Real payments are not invoked by the
 # current checkout flow, but these values keep the helper ready for future use.

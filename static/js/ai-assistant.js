@@ -1464,8 +1464,7 @@
         credentials: "same-origin",
         headers: {
           "Content-Type": "application/json",
-          "Accept": "application/x-ndjson",
-          "X-AI-Stream": "1",
+          "Accept": "application/json",
           "X-CSRFToken": csrfInput ? csrfInput.value : "",
           "X-Requested-With": "XMLHttpRequest",
         },

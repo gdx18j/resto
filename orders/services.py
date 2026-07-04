@@ -115,23 +115,43 @@ def normalize_limited_text(value, max_length, error_message, error_code):
     return text
 
 
-def normalize_dish_id(value):
+def normalize_legacy_dish_id(value):
     if isinstance(value, bool):
         raise CartValidationError("Некорректное блюдо.")
 
     if isinstance(value, int):
         return value
 
+    if isinstance(value, str):
+        value = value.strip()
+
+        if value.isdecimal():
+            return int(value)
+
+    raise CartValidationError("Некорректное блюдо.")
+
+
+def normalize_cart_item_dish_id(value):
     if not isinstance(value, str):
         raise CartValidationError("Некорректное блюдо.")
 
-    value = value.strip()
-    match = DISH_CART_ID_PATTERN.fullmatch(value)
+    match = DISH_CART_ID_PATTERN.fullmatch(value.strip())
 
     if not match:
         raise CartValidationError("Некорректное блюдо.")
 
     return int(match.group(1))
+
+
+def normalize_dish_id(raw_item):
+    for key in ("dish_id", "dishId", "dish"):
+        if key in raw_item and raw_item[key] is not None:
+            return normalize_legacy_dish_id(raw_item[key])
+
+    if "id" in raw_item and raw_item["id"] is not None:
+        return normalize_cart_item_dish_id(raw_item["id"])
+
+    raise CartValidationError("Некорректное блюдо.")
 
 
 def normalize_quantity(value):
@@ -314,9 +334,7 @@ def normalize_cart_payload(payload):
         if not isinstance(raw_item, dict):
             raise CartValidationError("Некорректная позиция заказа.")
 
-        dish_id = normalize_dish_id(
-            raw_item.get("dish_id") or raw_item.get("id")
-        )
+        dish_id = normalize_dish_id(raw_item)
         quantity = normalize_quantity(
             raw_item.get("quantity") or raw_item.get("qty")
         )

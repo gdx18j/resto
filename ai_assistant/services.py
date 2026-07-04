@@ -109,6 +109,19 @@ class AssistantResponsePayload(BaseModel):
     )
 
 
+GEMINI_RESPONSE_SCHEMA = types.Schema(
+    type=types.Type.OBJECT,
+    properties={
+        "answer": types.Schema(type=types.Type.STRING),
+        "recommended_dish_ids": types.Schema(
+            type=types.Type.ARRAY,
+            items=types.Schema(type=types.Type.INTEGER),
+        ),
+    },
+    required=["answer", "recommended_dish_ids"],
+)
+
+
 @dataclass(frozen=True)
 class AIProviderUsage:
     prompt_tokens: int = 0
@@ -437,6 +450,40 @@ def build_user_context(session: ChatSession) -> str:
     )
 
 
+def build_conversation_memory(session: ChatSession) -> str:
+    limit = max(4, min(int(getattr(settings, "AI_HISTORY_LIMIT", 12)), 24))
+    messages = list(
+        session.messages.order_by(
+            "-created_at",
+            "-id",
+        )[:limit]
+    )
+    messages.reverse()
+
+    if not messages:
+        return "Conversation memory: this is the first user request."
+
+    lines = [
+        "Conversation memory:",
+        (
+            "Use these recent messages to resolve follow-up requests, pronouns, "
+            "preferences, exclusions, and phrases like 'another one', 'same', "
+            "'without that', or 'what about dessert'. Do not ask the user to repeat "
+            "information that is already present here."
+        ),
+    ]
+
+    for message in messages:
+        text = _trim_text(message.content, max_length=420)
+        if not text:
+            continue
+
+        role = "assistant" if message.role == ChatMessage.Role.ASSISTANT else "user"
+        lines.append(f"- {role}: {text}")
+
+    return "\n".join(lines)
+
+
 def build_request_context(session: ChatSession, retrieval: RetrievalResult) -> str:
     prompt = _latest_user_message_text(session).strip()
     excluded = retrieval.excluded_dish_ids
@@ -446,6 +493,12 @@ def build_request_context(session: ChatSession, retrieval: RetrievalResult) -> s
         (
             "Give a direct answer when the retrieved candidates contain reasonable "
             "options. Do not invent an exact menu match that is absent from the candidates."
+        ),
+        (
+            "Ask a clarifying question only when the current request and conversation "
+            "memory are both insufficient to give a safe, useful answer. If the user "
+            "asks for more options, a variation, or a comparison, infer the target "
+            "from the conversation memory and continue."
         ),
     ]
 
@@ -478,6 +531,7 @@ def build_system_instruction(
             LANGUAGE_INSTRUCTIONS[language],
             _build_menu_context_from_retrieval(retrieval, language=language),
             build_user_context(session),
+            build_conversation_memory(session),
             build_request_context(session, retrieval),
         ]
     )
@@ -528,7 +582,7 @@ def _build_generation_config(
         max_output_tokens=settings.AI_MAX_OUTPUT_TOKENS,
         temperature=0.2,
         response_mime_type="application/json",
-        response_schema=AssistantResponsePayload,
+        response_schema=GEMINI_RESPONSE_SCHEMA,
     )
 
 

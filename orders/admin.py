@@ -51,6 +51,8 @@ class TableAdmin(admin.ModelAdmin):
     search_fields = ("number", "title", "qr_token_hash", "restaurant__name")
     readonly_fields = (
         "qr_token_hash_short",
+        "qr_active_link",
+        "qr_token_storage_status",
         "qr_token_version",
         "qr_token_kind",
         "qr_token_status",
@@ -60,6 +62,7 @@ class TableAdmin(admin.ModelAdmin):
         "qr_token_expires_at",
         "qr_link",
         "qr_preview",
+        "qr_history_note",
         "created_at",
     )
     fields = (
@@ -69,6 +72,8 @@ class TableAdmin(admin.ModelAdmin):
         "seats",
         "is_active",
         "qr_token_hash_short",
+        "qr_active_link",
+        "qr_token_storage_status",
         "qr_token_version",
         "qr_token_kind",
         "qr_token_status",
@@ -78,12 +83,19 @@ class TableAdmin(admin.ModelAdmin):
         "qr_token_expires_at",
         "qr_link",
         "qr_preview",
+        "qr_history_note",
         "created_at",
     )
     actions = ("rotate_qr_tokens", "revoke_qr_tokens")
     inlines = ()
 
     def _full_url(self, obj, token=None):
+        if not obj or not obj.pk:
+            return ""
+
+        if token is None and not obj.is_qr_token_usable:
+            return ""
+
         site_url = getattr(settings, "SITE_URL", "http://localhost:8000")
         token = token or obj.plain_qr_token
 
@@ -99,6 +111,41 @@ class TableAdmin(admin.ModelAdmin):
         return f"{obj.qr_token_hash[:16]}…"
 
     qr_token_hash_short.short_description = "Hash QR"
+
+    def qr_token_storage_status(self, obj):
+        if not obj.pk or not obj.qr_token_hash:
+            return "—"
+        if not obj.qr_token_ciphertext:
+            return "Токен не сохранён в зашифрованном виде. Старый QR может работать, но ссылку восстановить нельзя."
+        if not obj.plain_qr_token:
+            return "Токен зашифрован, но не расшифровался. Проверьте SECRET_KEY."
+
+        return "Активный QR можно повторно открыть и распечатать."
+
+    qr_token_storage_status.short_description = "Хранение QR"
+
+    def qr_active_link(self, obj):
+        if not obj.pk:
+            return "—"
+
+        url = self._full_url(obj)
+        if not url:
+            return "—"
+
+        return format_html('<a href="{}" target="_blank" rel="noopener">Открыть активную QR-ссылку</a>', url)
+
+    qr_active_link.short_description = "Активная ссылка"
+
+    def qr_history_note(self, obj):
+        if not obj.pk:
+            return "—"
+
+        return format_html(
+            "История выпусков, перевыпусков и отзывов находится ниже в блоке «Аудит QR-токенов». "
+            "Для безопасности старые отозванные plaintext-токены не показываются: хранится версия, действие, hash, автор и причина."
+        )
+
+    qr_history_note.short_description = "История QR"
 
     def qr_token_status(self, obj):
         if not obj.qr_token_hash:
@@ -120,7 +167,13 @@ class TableAdmin(admin.ModelAdmin):
 
         url = self._full_url(obj)
         if not url:
-            return "Plaintext QR-токен не хранится. Перевыпустите QR, чтобы получить новую ссылку для печати."
+            if obj.is_qr_token_usable and obj.qr_token_hash:
+                return (
+                    "Этот QR активен, но исходный токен не сохранён в зашифрованном виде. "
+                    "Если наклейка уже распечатана, она продолжит работать. "
+                    "Чтобы увидеть новую ссылку в админке, перевыпустите QR и распечатайте новую наклейку."
+                )
+            return "Нет активной QR-ссылки. Выпустите или перевыпустите QR."
 
         return format_html('<a href="{0}" target="_blank" rel="noopener">{0}</a>', url)
 
@@ -160,7 +213,13 @@ class TableAdmin(admin.ModelAdmin):
 
         b64 = self._qr_base64(obj, box_size=8)
         if not b64:
-            return "Plaintext QR-токен не хранится. Используйте действие «Перевыпустить QR» и распечатайте новую ссылку сразу."
+            if obj.is_qr_token_usable and obj.qr_token_hash:
+                return (
+                    "Этот QR активен, но его plaintext-токен был создан до зашифрованного хранения. "
+                    "Старый распечатанный QR продолжит работать, но админка не может восстановить ссылку из hash. "
+                    "Перевыпустите QR только если готовы заменить наклейку на столе."
+                )
+            return "Нет активного QR-кода для печати."
 
         return format_html(
             '<div style="margin-top:8px">'
@@ -182,7 +241,7 @@ class TableAdmin(admin.ModelAdmin):
         self.message_user(
             request,
             format_html(
-                "{}. Ссылка доступна только сейчас: <a href=\"{}\" target=\"_blank\" rel=\"noopener\">{}</a>",
+                "{}. Ссылка сохранена в зашифрованном виде и доступна в карточке стола: <a href=\"{}\" target=\"_blank\" rel=\"noopener\">{}</a>",
                 verb,
                 url,
                 url,
@@ -192,11 +251,6 @@ class TableAdmin(admin.ModelAdmin):
 
     def response_add(self, request, obj, post_url_continue=None):
         response = super().response_add(request, obj, post_url_continue=post_url_continue)
-        self._show_plain_qr_token_message(request, obj, "QR-токен выпущен")
-        return response
-
-    def response_change(self, request, obj):
-        response = super().response_change(request, obj)
         self._show_plain_qr_token_message(request, obj, "QR-токен выпущен")
         return response
 
@@ -218,7 +272,7 @@ class TableAdmin(admin.ModelAdmin):
         self.message_user(
             request,
             format_html(
-                "QR перевыпущен. Plaintext-ссылки доступны только сейчас:<br>{}",
+                "QR перевыпущен. Активные ссылки сохранены в зашифрованном виде и доступны в карточках столов:<br>{}",
                 format_html_join(
                     "<br>",
                     "{}: <a href=\"{}\" target=\"_blank\" rel=\"noopener\">{}</a>",

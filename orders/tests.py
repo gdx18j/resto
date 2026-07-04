@@ -1,10 +1,12 @@
 import json
+from pathlib import Path
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
+from django.contrib.staticfiles import finders
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
@@ -15,7 +17,7 @@ from django.utils import timezone
 
 from menu.models import Category, Dish, DishIngredient, Ingredient
 from orders import services as order_services
-from orders.admin import OrderAdmin
+from orders.admin import OrderAdmin, TableAdmin
 from orders.models import (
     Order,
     OrderItemModifier,
@@ -24,6 +26,7 @@ from orders.models import (
     Restaurant,
     Table,
     TableQrTokenAudit,
+    decrypt_table_qr_token,
     hash_table_qr_token,
 )
 from orders.presentation import repeat_order_result
@@ -131,6 +134,40 @@ class OrderApiTests(TestCase):
                 "items": [
                     {
                         "id": f"dish-{self.dish.id}",
+                        "quantity": 1,
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["items"][0]["dish_id"], self.dish.id)
+
+
+    def test_quote_accepts_numeric_string_dish_id_from_legacy_frontend(self):
+        response = self.post_json(
+            reverse("orders:quote"),
+            {
+                "items": [
+                    {
+                        "dish_id": str(self.dish.id),
+                        "quantity": 1,
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["items"][0]["dish_id"], self.dish.id)
+
+    def test_quote_accepts_legacy_camel_case_dish_id(self):
+        response = self.post_json(
+            reverse("orders:quote"),
+            {
+                "items": [
+                    {
+                        "dishId": str(self.dish.id),
+                        "id": "stale-client-line-id",
                         "quantity": 1,
                     }
                 ]
@@ -759,6 +796,41 @@ class OrderApiTests(TestCase):
         self.assertContains(success_response, 'data-repeat-table-number="21"')
         self.assertContains(success_response, 'data-repeat-guests-count="3"')
 
+    def test_order_repeat_reads_persisted_table_context_from_local_storage(self):
+        repeat_path = finders.find("js/order-repeat.js")
+        table_context_path = finders.find("js/table-context.js")
+
+        self.assertIsNotNone(repeat_path)
+        self.assertIsNotNone(table_context_path)
+
+        repeat_source = Path(repeat_path).read_text(encoding="utf-8")
+        table_context_source = Path(table_context_path).read_text(encoding="utf-8")
+
+        self.assertIn("window.localStorage", repeat_source)
+        self.assertIn("window.localStorage", table_context_source)
+        self.assertIn("storageBackends", repeat_source)
+        self.assertIn("storageBackends", table_context_source)
+
+    def test_repeat_order_uses_project_modal_instead_of_browser_confirm(self):
+        repeat_path = finders.find("js/order-repeat.js")
+        cart_path = finders.find("js/cart.js")
+        order_history_css_path = finders.find("css/order_history.css")
+
+        self.assertIsNotNone(repeat_path)
+        self.assertIsNotNone(cart_path)
+        self.assertIsNotNone(order_history_css_path)
+
+        repeat_source = Path(repeat_path).read_text(encoding="utf-8")
+        cart_source = Path(cart_path).read_text(encoding="utf-8")
+        order_history_css = Path(order_history_css_path).read_text(encoding="utf-8")
+
+        self.assertIn("function confirmRepeat", repeat_source)
+        self.assertIn("repeat-confirm", repeat_source)
+        self.assertIn("replaceExistingCart: true", repeat_source)
+        self.assertIn(".repeat-confirm", order_history_css)
+        self.assertNotIn("window.confirm", repeat_source)
+        self.assertNotIn("window.confirm", cart_source)
+
     def test_history_page_lists_authenticated_user_orders(self):
         user = get_user_model().objects.create_user(
             email="orders@example.com",
@@ -823,6 +895,17 @@ class OrderApiTests(TestCase):
         self.assertContains(response, 'placeholder="Sipariş veya yemek ara"')
         self.assertContains(response, 'aria-label="Sipariş geçmişinde ara"')
         self.assertContains(response, 'aria-label="Sipariş #')
+
+
+    def test_order_history_meta_badges_do_not_override_language_visibility(self):
+        css_path = finders.find("css/order_history.css")
+
+        self.assertIsNotNone(css_path)
+        css_source = Path(css_path).read_text(encoding="utf-8")
+
+        self.assertIn(".order-history-card__meta > span", css_source)
+        self.assertIn(".order-facts > span", css_source)
+        self.assertNotIn(".order-history-card__meta span,\n.order-facts span", css_source)
 
     def test_history_page_is_paginated(self):
         user = get_user_model().objects.create_user(
@@ -1569,6 +1652,9 @@ class OrderApiTests(TestCase):
         self.assertGreaterEqual(len(token), 32)
         self.assertNotEqual(table.qr_token_hash, token)
         self.assertEqual(table.qr_token_hash, hash_table_qr_token(token))
+        self.assertTrue(table.qr_token_ciphertext)
+        self.assertNotIn(token, table.qr_token_ciphertext)
+        self.assertEqual(decrypt_table_qr_token(table.qr_token_ciphertext), token)
         self.assertEqual(table.qr_token_version, 1)
         self.assertEqual(table.qr_token_kind, "current")
         self.assertIsNotNone(table.qr_token_created_at)
@@ -1576,6 +1662,50 @@ class OrderApiTests(TestCase):
         audit_event = table.qr_token_audit_events.get()
         self.assertEqual(audit_event.action, TableQrTokenAudit.Action.ISSUED)
         self.assertEqual(audit_event.token_hash, table.qr_token_hash)
+
+    def test_admin_can_render_active_qr_link_again_without_rotation(self):
+        table = Table.objects.create(
+            restaurant=self.dish.restaurant,
+            number="14-admin",
+        )
+        token = table.plain_qr_token
+        table.refresh_from_db()
+
+        table_admin = TableAdmin(Table, admin.site)
+        link_html = str(table_admin.qr_link(table))
+        preview_html = str(table_admin.qr_preview(table))
+
+        self.assertIn(f"/t/{token}/", link_html)
+        self.assertIn("data:image/png;base64", preview_html)
+        self.assertIn("Активный QR можно повторно открыть", table_admin.qr_token_storage_status(table))
+
+    def test_legacy_hash_only_qr_explains_that_link_cannot_be_recovered(self):
+        table = Table.objects.create(
+            restaurant=self.dish.restaurant,
+            number="14-legacy",
+        )
+        table.qr_token_ciphertext = ""
+        table.save(update_fields=["qr_token_ciphertext"])
+        table.refresh_from_db()
+
+        table_admin = TableAdmin(Table, admin.site)
+
+        self.assertEqual(table.plain_qr_token, "")
+        self.assertIn("восстановить нельзя", table_admin.qr_token_storage_status(table))
+        self.assertIn("не сохранён", table_admin.qr_link(table))
+
+    def test_revoking_qr_token_removes_encrypted_plaintext(self):
+        table = Table.objects.create(
+            restaurant=self.dish.restaurant,
+            number="14-revoke",
+        )
+        self.assertTrue(table.qr_token_ciphertext)
+
+        table.revoke_qr_token(reason="Sticker removed")
+        table.refresh_from_db()
+
+        self.assertEqual(table.qr_token_ciphertext, "")
+        self.assertEqual(table.plain_qr_token, "")
 
     def test_rotating_qr_token_revokes_previous_token(self):
         table = Table.objects.create(
@@ -1590,6 +1720,7 @@ class OrderApiTests(TestCase):
 
         self.assertNotEqual(new_token, old_token)
         self.assertNotEqual(table.qr_token_hash, old_hash)
+        self.assertEqual(decrypt_table_qr_token(table.qr_token_ciphertext), new_token)
         self.assertEqual(table.qr_token_version, 2)
         self.assertIsNotNone(table.qr_token_rotated_at)
         self.assertIsNone(table.qr_token_revoked_at)
@@ -2069,3 +2200,74 @@ class OrderStatusTransitionTests(TestCase):
 
         self.assertIn("status", readonly_fields)
         self.assertIn("version", readonly_fields)
+
+    def test_order_success_page_resets_legacy_base_card_styles(self):
+        css_path = finders.find("css/order_history.css")
+
+        self.assertIsNotNone(css_path)
+        css_source = Path(css_path).read_text(encoding="utf-8")
+
+        self.assertIn(".order-success {", css_source)
+        self.assertIn("max-width: 1040px", css_source)
+        self.assertIn("background: transparent", css_source)
+        self.assertIn("text-align: left", css_source)
+        self.assertIn("box-shadow: none", css_source)
+
+
+
+class CartStaticContractTests(TestCase):
+    def test_desktop_cart_panel_does_not_shift_page_layout(self):
+        cart_css_path = finders.find("css/cart.css")
+        menu_css_path = finders.find("css/menu.css")
+        base_css_path = finders.find("css/base.css")
+
+        self.assertIsNotNone(cart_css_path)
+        self.assertIsNotNone(menu_css_path)
+        self.assertIsNotNone(base_css_path)
+
+        cart_css = Path(cart_css_path).read_text(encoding="utf-8")
+        menu_css = Path(menu_css_path).read_text(encoding="utf-8")
+        base_css = Path(base_css_path).read_text(encoding="utf-8")
+
+        self.assertIn("Desktop cart is an overlay", cart_css)
+        self.assertIn(".app-shell.cart-is-open {\n    padding-right: 0;", cart_css)
+        self.assertNotIn("padding-right: 380px", cart_css)
+        self.assertIn(".app-shell.cart-is-open .site-header {\n    right: 0;", cart_css)
+        self.assertNotIn("right: 380px", cart_css)
+        self.assertIn("opening it must not move unrelated fixed UI", cart_css)
+        self.assertNotIn("right: calc(380px +", cart_css)
+        self.assertIn("scrollbar-gutter: stable", menu_css)
+        self.assertIn("scrollbar-gutter: stable", base_css)
+        self.assertIn("overflow-y: scroll", menu_css)
+        self.assertIn("overflow-y: scroll", base_css)
+
+
+    def test_desktop_modals_do_not_lock_document_scroll(self):
+        cart_js_path = finders.find("js/cart.js")
+        history_js_path = finders.find("js/order-history.js")
+
+        self.assertIsNotNone(cart_js_path)
+        self.assertIsNotNone(history_js_path)
+
+        cart_js = Path(cart_js_path).read_text(encoding="utf-8")
+        history_js = Path(history_js_path).read_text(encoding="utf-8")
+
+        self.assertIn("lockScroll: isMobile()", cart_js)
+        self.assertIn("function isMobile()", history_js)
+        self.assertIn("lockScroll: isMobile()", history_js)
+
+    def test_cart_payload_sends_numeric_dish_id_not_numeric_string(self):
+        cart_js_path = finders.find("js/cart.js")
+
+        self.assertIsNotNone(cart_js_path)
+        cart_js = Path(cart_js_path).read_text(encoding="utf-8")
+
+        self.assertIn("function cartPayloadDishId", cart_js)
+        self.assertIn("candidates.push(item.dishId)", cart_js)
+        self.assertIn("candidates.push(id)", cart_js)
+        self.assertIn("function sanitizeCartItemsForPayload", cart_js)
+        self.assertIn("parseInt(normalized, 10)", cart_js)
+        self.assertIn("dish_id: cartPayloadDishId(id, item)", cart_js)
+        self.assertIn("['card', 'cash', 'online'].indexOf(cart.payment)", cart_js)
+        self.assertIn('data-pay="online"', cart_js)
+        self.assertNotIn("dish_id: item.dishId || normalizeDishId(id, item)", cart_js)

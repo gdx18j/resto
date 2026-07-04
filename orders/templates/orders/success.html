@@ -9,7 +9,7 @@
 
 {% block content %}
   <section class="order-success" data-confirmed-order-id="{{ order.id }}">
-    <a href="{% url 'menu:dish_list' %}" class="account-back-link order-success__back">
+    <a href="{{ menu_home_url|default:'/' }}" class="account-back-link order-success__back">
       <span class="lang lang--ru">← В меню</span>
       <span class="lang lang--en">← To menu</span>
       <span class="lang lang--tr">← Menüye dön</span>
@@ -78,7 +78,7 @@
               <span class="lang lang--tr">Siparişi tekrarla</span>
             </button>
           {% else %}
-            <a href="{% url 'menu:dish_list' %}" class="primary-button">
+            <a href="{{ menu_home_url|default:'/' }}" class="primary-button">
               <span class="lang lang--ru">Открыть меню</span>
               <span class="lang lang--en">Open menu</span>
               <span class="lang lang--tr">Menüyü aç</span>

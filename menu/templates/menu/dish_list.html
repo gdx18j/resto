@@ -46,9 +46,20 @@
     >
       <label class="search-box">
         <svg><use href="#i-search"/></svg>
-        <input class="lang-input lang-input--ru menu-search-input" type="search" placeholder="Найти блюдо или ингредиент" aria-label="Поиск по меню">
-        <input class="lang-input lang-input--en menu-search-input" type="search" placeholder="Find a dish or ingredient" aria-label="Search menu">
-        <input class="lang-input lang-input--tr menu-search-input" type="search" placeholder="Yemek veya malzeme ara" aria-label="Menüde ara">
+        <input
+          class="menu-search-input"
+          type="search"
+          placeholder="{% if ui_language == 'en' %}Find a dish or ingredient{% elif ui_language == 'tr' %}Yemek veya malzeme ara{% else %}Найти блюдо или ингредиент{% endif %}"
+          aria-label="{% if ui_language == 'en' %}Search menu{% elif ui_language == 'tr' %}Menüde ara{% else %}Поиск по меню{% endif %}"
+          data-i18n-placeholder
+          data-placeholder-ru="Найти блюдо или ингредиент"
+          data-placeholder-en="Find a dish or ingredient"
+          data-placeholder-tr="Yemek veya malzeme ara"
+          data-i18n-aria-label
+          data-aria-label-ru="Поиск по меню"
+          data-aria-label-en="Search menu"
+          data-aria-label-tr="Menüde ara"
+        >
         <button
           class="search-clear-button"
           type="button"
@@ -89,6 +100,8 @@
   </div>
 
   {% if menu_sections %}
+    <div data-menu-search-index="{{ menu_search_index_json }}" hidden></div>
+
     <aside class="preference-note">
       <svg><use href="#i-shield"/></svg>
       <p>
@@ -152,17 +165,13 @@
               id="dish-{{ dish.id }}"
               data-dish-card
               data-detail-url="{% url 'menu:dish_detail' restaurant_slug=restaurant.slug dish_id=dish.id %}"
-              data-search-text="{{ dish.search_text|lower|escape }}"
-              data-search-name="{{ dish.search_name|lower|escape }}"
-              data-search-ingredients="{{ dish.search_ingredients|lower|escape }}"
             >
-              <button class="dish-card__open" type="button" data-dish-open>
-                <span class="visually-hidden">
-                  <span class="lang lang--ru">Открыть описание: {{ dish.name_translations.ru }}</span>
-                  <span class="lang lang--en">Open details: {{ dish.name_translations.en }}</span>
-                  <span class="lang lang--tr">Detayları aç: {{ dish.name_translations.tr }}</span>
-                </span>
-              </button>
+              <button
+                class="dish-card__open"
+                type="button"
+                data-dish-open
+                aria-label="{% if ui_language == 'en' %}Open details: {{ dish.name_translations.en }}{% elif ui_language == 'tr' %}Detayları aç: {{ dish.name_translations.tr }}{% else %}Открыть описание: {{ dish.name_translations.ru }}{% endif %}"
+              ></button>
 
               <div class="dish-image-button" aria-hidden="true">
                 {% if dish.image %}
@@ -263,12 +272,6 @@
                         class="dish-price-button"
                         type="button"
                         data-add-btn
-                        data-id="dish-{{ dish.id }}"
-                        data-name="{{ dish.name|escape }}"
-                        data-name-ru="{{ dish.name_translations.ru|escape }}"
-                        data-name-en="{{ dish.name_translations.en|escape }}"
-                        data-name-tr="{{ dish.name_translations.tr|escape }}"
-                        data-price="{{ dish.price }}"
                         aria-label="{% if ui_language == 'en' %}Add to cart: {{ dish.name_translations.en }}{% elif ui_language == 'tr' %}Sepete ekle: {{ dish.name_translations.tr }}{% else %}Добавить в корзину: {{ dish.name_translations.ru }}{% endif %}"
                       >
                         <svg class="dish-price-button__icon" aria-hidden="true"><use href="#i-cart"/></svg>
@@ -276,9 +279,9 @@
                       </button>
 
                       <div class="dish-qty-stepper" data-dish-qty-stepper hidden>
-                        <button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="dec" data-id="dish-{{ dish.id }}" aria-label="{% if ui_language == 'en' %}Remove one: {{ dish.name_translations.en }}{% elif ui_language == 'tr' %}Bir tane çıkar: {{ dish.name_translations.tr }}{% else %}Убрать одно: {{ dish.name_translations.ru }}{% endif %}">−</button>
+                        <button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="dec" aria-label="{% if ui_language == 'en' %}Remove one: {{ dish.name_translations.en }}{% elif ui_language == 'tr' %}Bir tane çıkar: {{ dish.name_translations.tr }}{% else %}Убрать одно: {{ dish.name_translations.ru }}{% endif %}">−</button>
                         <span class="dish-qty-stepper__count" data-dish-qty-count aria-live="polite">0</span>
-                        <button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="inc" data-id="dish-{{ dish.id }}" aria-label="{% if ui_language == 'en' %}Add one more: {{ dish.name_translations.en }}{% elif ui_language == 'tr' %}Bir tane daha ekle: {{ dish.name_translations.tr }}{% else %}Добавить ещё: {{ dish.name_translations.ru }}{% endif %}">+</button>
+                        <button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="inc" aria-label="{% if ui_language == 'en' %}Add one more: {{ dish.name_translations.en }}{% elif ui_language == 'tr' %}Bir tane daha ekle: {{ dish.name_translations.tr }}{% else %}Добавить ещё: {{ dish.name_translations.ru }}{% endif %}">+</button>
                       </div>
                     </div>
                   {% else %}

@@ -39,7 +39,7 @@
       </form>
 
       <div class="auth-links">
-        <a href="{% url 'menu:dish_list' %}">
+        <a href="{{ menu_home_url|default:'/' }}">
           <span class="lang lang--ru">Вернуться в меню</span>
           <span class="lang lang--en">Back to menu</span>
           <span class="lang lang--tr">Menüye dön</span>

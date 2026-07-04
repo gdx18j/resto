@@ -15,6 +15,7 @@
   var emptyState = document.querySelector(".menu-search-empty");
   var searchStatus = document.querySelector(".menu-search-count");
   var clearButton = document.querySelector(".search-clear-button");
+  var menuSearchIndexElement = document.querySelector("[data-menu-search-index]");
   var categoryLinks = Array.prototype.slice.call(
     document.querySelectorAll(".category-chip")
   );
@@ -32,6 +33,7 @@
   var lastDishTrigger = null;
   var lastDishCard = null;
   var searchDebounceTimer = null;
+  var menuSearchIndex = Object.create(null);
 
   if (!shell || !search) {
     return;
@@ -58,6 +60,7 @@
       addToCart: "Добавить в корзину: ",
       increaseItem: "Добавить ещё: ",
       decreaseItem: "Убрать одно: ",
+      openDetails: "Открыть описание: ",
     },
     en: {
       found: "Found",
@@ -67,6 +70,7 @@
       addToCart: "Add to cart: ",
       increaseItem: "Add one more: ",
       decreaseItem: "Remove one: ",
+      openDetails: "Open details: ",
     },
     tr: {
       found: "Bulundu",
@@ -76,6 +80,7 @@
       addToCart: "Sepete ekle: ",
       increaseItem: "Bir tane daha ekle: ",
       decreaseItem: "Bir tane çıkar: ",
+      openDetails: "Detayları aç: ",
     },
   };
   var ruLayout = "йцукенгшщзхъфывапролджэячсмитьбю";
@@ -139,6 +144,84 @@
 
     return names[language] || (dish && dish.name) || names.ru || "";
   }
+
+  function parseMenuSearchIndex() {
+    var rows;
+
+    if (!menuSearchIndexElement) {
+      return;
+    }
+
+    try {
+      rows = JSON.parse(
+        menuSearchIndexElement.getAttribute("data-menu-search-index") || "[]"
+      );
+    } catch (error) {
+      rows = [];
+    }
+
+    if (Array.isArray(rows)) {
+      rows.forEach(function (row) {
+        var id;
+        var names;
+
+        if (!Array.isArray(row) || row.length < 6) {
+          return;
+        }
+
+        id = "dish-" + String(row[0]);
+        names = {
+          ru: String(row[1] || ""),
+          en: String(row[2] || row[1] || ""),
+          tr: String(row[3] || row[1] || ""),
+        };
+        menuSearchIndex[id] = {
+          names: names,
+          name: [names.ru, names.en, names.tr].filter(Boolean).join(" "),
+          ingredients: String(row[4] || ""),
+          extra: String(row[5] || ""),
+        };
+      });
+    }
+
+    menuSearchIndexElement.removeAttribute("data-menu-search-index");
+    menuSearchIndexElement.remove();
+    menuSearchIndexElement = null;
+  }
+
+  function menuSearchEntry(card) {
+    return card && card.id ? menuSearchIndex[card.id] || null : null;
+  }
+
+  function localizedCardName(card) {
+    var entry = menuSearchEntry(card);
+    var language = currentLanguage();
+    var heading;
+
+    if (entry && entry.names) {
+      return entry.names[language] || entry.names.ru || "";
+    }
+
+    heading = card ? card.querySelector(".dish-copy h2") : null;
+    return heading ? heading.textContent.trim() : "";
+  }
+
+  function syncDishOpenLabels() {
+    dishCards.forEach(function (card) {
+      var button = card.querySelector("[data-dish-open]");
+      var name;
+
+      if (!button) {
+        return;
+      }
+
+      name = localizedCardName(card);
+      button.setAttribute("aria-label", t("openDetails") + name);
+    });
+  }
+
+  parseMenuSearchIndex();
+  syncDishOpenLabels();
 
   function getCookie(name) {
     var value = "; " + document.cookie;
@@ -339,12 +422,6 @@
       ' data-price="', escapeAttr(dish.price), '"',
       ' data-dish-cart-control>',
       '<button class="dish-detail__add" type="button" data-add-btn',
-      ' data-id="', escapeAttr(dish.cart_id), '"',
-      ' data-name="', escapeAttr(dish.name), '"',
-      ' data-name-ru="', escapeAttr(dish.names && dish.names.ru), '"',
-      ' data-name-en="', escapeAttr(dish.names && dish.names.en), '"',
-      ' data-name-tr="', escapeAttr(dish.names && dish.names.tr), '"',
-      ' data-price="', escapeAttr(dish.price), '"',
       ' aria-label="', escapeAttr(t("addToCart") + localizedDishName(dish)), '">',
       detailLabel("add"),
       '<svg class="dish-price-button__icon" aria-hidden="true"><use href="#i-cart"/></svg>',
@@ -352,10 +429,10 @@
       '</button>',
       '<div class="dish-qty-stepper dish-qty-stepper--detail" data-dish-qty-stepper hidden>',
       '<button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="dec"',
-      ' data-id="', escapeAttr(dish.cart_id), '" aria-label="', escapeAttr(t("decreaseItem") + localizedDishName(dish)), '">−</button>',
+      ' aria-label="', escapeAttr(t("decreaseItem") + localizedDishName(dish)), '">−</button>',
       '<span class="dish-qty-stepper__count" data-dish-qty-count aria-live="polite">0</span>',
       '<button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="inc"',
-      ' data-id="', escapeAttr(dish.cart_id), '" aria-label="', escapeAttr(t("increaseItem") + localizedDishName(dish)), '">+</button>',
+      ' aria-label="', escapeAttr(t("increaseItem") + localizedDishName(dish)), '">+</button>',
       '</div>',
       '</div>',
     ].join("");
@@ -587,6 +664,7 @@
           container: dishModal.parentElement || document.body,
           opener: lastDishTrigger,
           initialFocus: closeButton || dishModalShell,
+          lockScroll: !(window.matchMedia && window.matchMedia("(min-width: 768px)").matches),
           requestClose: closeDishDetails,
         });
       } else if (closeButton) {
@@ -807,13 +885,31 @@
   }
 
   function getSearchDoc(card) {
+    var entry;
+    var fallbackHeading;
+    var rawName;
+    var rawIngredients;
+    var rawCombined;
+
     if (card._searchDoc) {
       return card._searchDoc;
     }
 
-    var name = normalize(card.dataset.searchName);
-    var ingredients = normalize(card.dataset.searchIngredients);
-    var combined = normalize(card.dataset.searchText);
+    entry = menuSearchEntry(card);
+    fallbackHeading = card.querySelector(".dish-copy h2");
+    rawName = entry
+      ? entry.name
+      : (card.dataset.searchName || (fallbackHeading ? fallbackHeading.textContent : ""));
+    rawIngredients = entry
+      ? entry.ingredients
+      : (card.dataset.searchIngredients || "");
+    rawCombined = entry
+      ? [entry.name, entry.extra, entry.ingredients].filter(Boolean).join(" ")
+      : (card.dataset.searchText || card.textContent || "");
+
+    var name = normalize(rawName);
+    var ingredients = normalize(rawIngredients);
+    var combined = normalize(rawCombined);
 
     card._searchDoc = {
       name: name,
@@ -1216,6 +1312,7 @@
       searchDebounceTimer = null;
     }
 
+    syncDishOpenLabels();
     filterMenu(activeQuery);
   });
 

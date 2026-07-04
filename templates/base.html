@@ -10,12 +10,17 @@
 
   <script src="{% static 'js/ui-preferences.js' %}"></script>
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Forum&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'css/menu.css' %}">
-  <link rel="stylesheet" href="{% static 'css/ai-assistant.css' %}">
-  <link rel="stylesheet" href="{% static 'css/cart.css' %}">
+  {% if menu_page %}
+    <link rel="stylesheet" href="{% static 'css/menu.css' %}">
+  {% else %}
+    <link rel="stylesheet" href="{% static 'css/base.css' %}">
+  {% endif %}
+  {% if not hide_ai_widget and cart_restaurant %}
+    <link rel="stylesheet" href="{% static 'css/ai-assistant.css' %}">
+  {% endif %}
+  {% if ordering_enabled %}
+    <link rel="stylesheet" href="{% static 'css/cart.css' %}">
+  {% endif %}
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -54,9 +59,9 @@
 
   <div
     class="app-shell"
-    data-ordering-enabled="{% if cart_disabled %}0{% else %}1{% endif %}"
-    data-cart-quote-url="{% if not cart_disabled %}{% url 'orders:quote' %}{% endif %}"
-    data-cart-create-url="{% if not cart_disabled %}{% url 'orders:create' %}{% endif %}"
+    data-ordering-enabled="{% if ordering_enabled %}1{% else %}0{% endif %}"
+    data-cart-quote-url="{% if ordering_enabled %}{% url 'orders:quote' %}{% endif %}"
+    data-cart-create-url="{% if ordering_enabled %}{% url 'orders:create' %}{% endif %}"
     data-cart-restaurant-slug="{% if cart_restaurant %}{{ cart_restaurant.slug }}{% endif %}"
     data-cart-table-context="{{ cart_table_context|default:'' }}"
     data-cart-table-number="{{ current_table_number|default:'' }}"
@@ -173,7 +178,7 @@
           data-aria-label-en="Navigation"
           data-aria-label-tr="Gezinme"
         >
-          <a href="{% url 'menu:dish_list' %}">
+          <a href="{{ menu_home_url|default:'/' }}">
             <span class="lang lang--ru">Меню</span>
             <span class="lang lang--en">Menu</span>
             <span class="lang lang--tr">Menü</span>
@@ -200,6 +205,7 @@
       class="profile-popover-layer"
       id="profile-popover"
       data-modal-toggle-id="profile-toggle"
+      data-modal-lock-scroll="false"
       aria-hidden="true"
     >
       <button
@@ -275,6 +281,7 @@
             </button>
           </form>
         {% else %}
+          {% url 'accounts:profile' as account_profile_url %}
           <p class="profile-popover__kicker">
             <span class="lang lang--ru">Аккаунт</span>
             <span class="lang lang--en">Account</span>
@@ -292,12 +299,12 @@
           </p>
 
           <div class="profile-popover__actions">
-            <a class="profile-popover__primary" href="{% url 'account_login' %}">
+            <a class="profile-popover__primary" href="{% url 'account_login' %}?next={{ account_profile_url|urlencode }}">
               <span class="lang lang--ru">Войти</span>
               <span class="lang lang--en">Log in</span>
               <span class="lang lang--tr">Giriş yap</span>
             </a>
-            <a class="profile-popover__secondary" href="{% url 'account_signup' %}">
+            <a class="profile-popover__secondary" href="{% url 'account_signup' %}?next={{ account_profile_url|urlencode }}">
               <span class="lang lang--ru">Регистрация</span>
               <span class="lang lang--en">Sign up</span>
               <span class="lang lang--tr">Kayıt ol</span>
@@ -310,7 +317,8 @@
             <span class="lang lang--tr">veya</span>
           </div>
 
-          <form method="post" action="{% provider_login_url 'google' process='login' %}">
+          {% provider_login_url 'google' process='login' next=account_profile_url as google_login_url %}
+          <form method="post" action="{{ google_login_url }}">
             {% csrf_token %}
             <button class="profile-popover__google" type="submit">
               <svg class="google-mark" aria-hidden="true"><use href="#i-google"/></svg>
@@ -328,14 +336,31 @@
     {% endif %}
   </div>
 
-  <script src="{% static 'js/table-context.js' %}" defer></script>
+  <script
+    src="{% static 'js/font-loader.js' %}"
+    data-font-stylesheet-url="https://fonts.googleapis.com/css2?family=Forum&amp;family=Inter:wght@400;500;600;700;800&amp;display=optional"
+    defer
+  ></script>
   <script src="{% static 'js/theme.js' %}" defer></script>
   <script src="{% static 'js/modal-manager.js' %}" defer></script>
-  <script src="{% static 'js/menu-ui.js' %}" defer></script>
   <script src="{% static 'js/language-menu.js' %}" defer></script>
   <script src="{% static 'js/password-toggle.js' %}" defer></script>
-  <script src="{% static 'js/ai-assistant.js' %}" defer></script>
-  {% if not cart_disabled %}
+  {% if menu_page %}
+    <script src="{% static 'js/table-context.js' %}" defer></script>
+    <script
+      src="{% static 'js/menu-ui-loader.js' %}"
+      data-menu-ui-script-url="{% static 'js/menu-ui.js' %}"
+      defer
+    ></script>
+  {% endif %}
+  {% if not hide_ai_widget and cart_restaurant %}
+    <script
+      src="{% static 'js/ai-assistant-loader.js' %}"
+      data-ai-script-url="{% static 'js/ai-assistant.js' %}"
+      defer
+    ></script>
+  {% endif %}
+  {% if ordering_enabled %}
     <script src="{% static 'js/cart.js' %}" defer></script>
   {% endif %}
   {% block extra_scripts %}{% endblock %}

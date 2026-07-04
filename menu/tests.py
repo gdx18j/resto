@@ -1,10 +1,14 @@
 import json
-from decimal import Decimal
-from io import StringIO
+import re
 import tempfile
+from decimal import Decimal
+from html import unescape
+from io import StringIO
 from pathlib import Path
 
+from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
+from django.contrib.staticfiles import finders
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.exceptions import ValidationError
@@ -24,6 +28,7 @@ from .allergen_review import (
 )
 from .models import (
     Allergen,
+    AllergenTranslation,
     Category,
     CategoryTranslation,
     Dish,
@@ -63,6 +68,53 @@ class MenuRenderingTests(TestCase):
         self.assertNotIn('id="dish-detail-data"', html)
         self.assertEqual(html.count("data-detail-url="), 2)
         self.assertEqual(html.count("data-dish-modal hidden"), 1)
+
+    def test_menu_uses_one_compact_search_index_without_per_card_duplicates(self):
+        ingredient = Ingredient.objects.create(name="Arabica beans")
+        DishIngredient.objects.create(
+            dish=self.dish,
+            ingredient=ingredient,
+        )
+        DishTranslation.objects.create(
+            dish=self.dish,
+            language="en",
+            name='Americano "Black"',
+            description="Espresso and hot water <script>unsafe()</script>",
+        )
+
+        response = self.client.get(reverse("menu:dish_list"))
+
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode("utf-8")
+        match = re.search(r'data-menu-search-index="([^"]*)"', html)
+        self.assertIsNotNone(match)
+        rows = json.loads(unescape(match.group(1)))
+        row = next(value for value in rows if value[0] == self.dish.id)
+
+        self.assertEqual(row[1], "Americano")
+        self.assertEqual(row[2], 'Americano "Black"')
+        self.assertEqual(row[4], "Arabica beans")
+        self.assertIn("Espresso and hot water <script>unsafe()</script>", row[5])
+        self.assertNotIn("<script>unsafe()</script>", html)
+        self.assertIn("&lt;script&gt;unsafe()&lt;/script&gt;", html)
+        self.assertEqual(html.count("data-menu-search-index="), 1)
+        self.assertNotIn("data-search-text=", html)
+        self.assertNotIn("data-search-name=", html)
+        self.assertNotIn("data-search-ingredients=", html)
+
+    def test_menu_uses_one_localizable_search_input_and_direct_button_labels(self):
+        self.client.cookies["cc_language"] = "en"
+
+        response = self.client.get(reverse("menu:dish_list"))
+
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode("utf-8")
+        self.assertEqual(html.count('class="menu-search-input"'), 1)
+        self.assertContains(response, "data-i18n-placeholder")
+        self.assertContains(response, 'data-placeholder-tr="Yemek veya malzeme ara"')
+        self.assertContains(response, 'aria-label="Open details: Americano"')
+        self.assertNotIn('class="dish-card__open" type="button" data-dish-open>\n', html)
+        self.assertNotIn('class="visually-hidden">\n                  <span class="lang', html)
 
     def test_dish_cards_use_a_real_button_instead_of_button_role_on_article(self):
         response = self.client.get(reverse("menu:dish_list"))
@@ -120,10 +172,85 @@ class MenuRenderingTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-ordering-enabled="0"')
+        self.assertContains(response, "static/css/menu.css")
+        self.assertNotContains(response, "static/css/base.css")
+        self.assertContains(response, "static/js/menu-ui-loader.js")
+        self.assertContains(response, 'data-menu-ui-script-url="/static/js/menu-ui.js"')
+        self.assertNotContains(response, 'src="/static/js/menu-ui.js"')
+        self.assertContains(response, "static/js/font-loader.js")
+        self.assertNotContains(response, '<link href="https://fonts.googleapis.com')
+        self.assertContains(response, "static/js/table-context.js")
         self.assertContains(response, 'class="dish-price-label"')
         self.assertNotContains(response, "data-add-btn")
         self.assertNotContains(response, "static/js/cart.js")
+        self.assertNotContains(response, "static/css/cart.css")
         self.assertContains(response, "Чтобы заказать на стол")
+
+    def test_menu_ui_runtime_loader_is_small_local_static_asset(self):
+        loader_path = finders.find("js/menu-ui-loader.js")
+        runtime_path = finders.find("js/menu-ui.js")
+
+        self.assertIsNotNone(loader_path)
+        self.assertIsNotNone(runtime_path)
+        self.assertLess(Path(loader_path).stat().st_size, 12_000)
+        self.assertGreater(
+            Path(runtime_path).stat().st_size,
+            Path(loader_path).stat().st_size * 3,
+        )
+
+
+    def test_menu_loader_owns_sticky_search_collapse_before_runtime(self):
+        loader_path = finders.find("js/menu-ui-loader.js")
+        css_path = finders.find("css/menu.css")
+
+        self.assertIsNotNone(loader_path)
+        self.assertIsNotNone(css_path)
+
+        loader_source = Path(loader_path).read_text(encoding="utf-8")
+        css_source = Path(css_path).read_text(encoding="utf-8")
+
+        self.assertIn("setupStickySearchCollapse", loader_source)
+        self.assertIn("is-search-collapsed", loader_source)
+        self.assertIn("requestAnimationFrame(updateFromScroll)", loader_source)
+        self.assertIn('window.addEventListener("wheel"', loader_source)
+        self.assertIn('window.addEventListener("touchstart"', loader_source)
+        self.assertIn('window.addEventListener("touchend"', loader_source)
+        self.assertIn("TOGGLE_COOLDOWN_MS", loader_source)
+        self.assertIn("MOBILE_GESTURE_DELTA", loader_source)
+        self.assertNotIn('window.addEventListener("touchmove"', loader_source)
+        self.assertIn('window.addEventListener("scroll"', loader_source)
+        self.assertIn('collapseThreshold', loader_source)
+        self.assertIn("--menu-search-collapse-distance", loader_source)
+        self.assertIn("--menu-controls-collapsed-height", loader_source)
+        self.assertIn("controls.scrollHeight", loader_source)
+        self.assertIn('searchInput.setAttribute("tabindex", "-1")', loader_source)
+        self.assertNotIn("hasFocus", loader_source)
+        self.assertIn(".menu-controls.is-search-collapsed", css_source)
+        self.assertIn(".menu-controls.is-search-collapsed .category-row", css_source)
+        self.assertIn("translate3d(0, calc(-1 * var(--menu-search-collapse-distance)), 0)", css_source)
+        self.assertIn(".menu-controls.is-search-collapsed .search-section", css_source)
+        self.assertIn("pointer-events: none", css_source)
+        self.assertIn("max-height: var(--menu-controls-collapsed-height)", css_source)
+        self.assertIn("overflow: hidden", css_source)
+        self.assertIn("scrollbar-gutter: stable", css_source)
+        self.assertNotIn("grid-template-rows: 0fr", css_source)
+        self.assertNotIn("max-height: 0", css_source)
+
+
+    def test_dish_modal_does_not_lock_desktop_scroll(self):
+        runtime_path = finders.find("js/menu-ui.js")
+        css_path = finders.find("css/menu.css")
+
+        self.assertIsNotNone(runtime_path)
+        self.assertIsNotNone(css_path)
+
+        runtime_source = Path(runtime_path).read_text(encoding="utf-8")
+        css_source = Path(css_path).read_text(encoding="utf-8")
+
+        self.assertIn("lockScroll: !(window.matchMedia", runtime_source)
+        self.assertIn("(min-width: 768px)", runtime_source)
+        self.assertIn("@media (max-width: 767px)", css_source)
+        self.assertIn("body.dish-detail-open", css_source)
 
     def test_unknown_restaurant_slug_returns_404(self):
         response = self.client.get(
@@ -212,14 +339,140 @@ class MenuRenderingTests(TestCase):
         )
         self.assertContains(response, 'data-ordering-enabled="1"')
         self.assertContains(response, "data-add-btn")
+        html = response.content.decode("utf-8")
+        self.assertNotRegex(html, r"data-add-btn[^>]*data-id=")
+        self.assertNotRegex(html, r'data-dish-qty-action="(?:dec|inc)"[^>]*data-id=')
+        self.assertEqual(html.count("data-name-ru="), 1)
         self.assertContains(response, "static/js/cart.js")
+        self.assertContains(response, "static/css/cart.css")
         self.assertContains(response, "static/js/table-context.js")
+        self.assertContains(response, "static/js/menu-ui-loader.js")
+        self.assertContains(response, 'data-menu-ui-script-url="/static/js/menu-ui.js"')
+        self.assertNotContains(response, 'src="/static/js/menu-ui.js"')
         self.assertContains(response, 'data-table-context-ttl-seconds="43200"')
         self.assertContains(response, "Стол 5")
         self.assertEqual(response["Cache-Control"], "no-store, private")
         self.assertEqual(response["Referrer-Policy"], "no-referrer")
         self.assertNotIn("table_token", self.client.session)
         self.assertNotIn("table_id", self.client.session)
+
+    def test_qr_table_context_is_remembered_across_account_navigation(self):
+        user = get_user_model().objects.create_user(
+            email="table-session@example.com",
+            password="strong-pass-123",
+        )
+        restaurant = Restaurant.objects.create(
+            name="Table Session Restaurant",
+            slug="table-session-restaurant",
+        )
+        table = Table.objects.create(
+            restaurant=restaurant,
+            number="12",
+        )
+        entry_response = self.client.get(
+            reverse("menu:table_menu", args=[table.plain_qr_token])
+        )
+        menu_response = self.client.get(entry_response.url)
+        table_context_url = menu_response.context["menu_home_url"]
+
+        self.client.force_login(user)
+        self.client.force_login(user)
+        profile_response = self.client.get(reverse("accounts:profile"))
+
+        self.assertEqual(profile_response.status_code, 200)
+        self.assertEqual(profile_response.context["menu_home_url"], table_context_url)
+        self.assertEqual(profile_response.context["current_table_number"], "12")
+        self.assertContains(profile_response, "Стол 12")
+
+    def test_login_after_qr_table_context_redirects_to_profile_without_forgetting_table(self):
+        user = get_user_model().objects.create_user(
+            email="table-login@example.com",
+            password="strong-pass-123",
+        )
+        EmailAddress.objects.create(
+            user=user,
+            email=user.email,
+            verified=True,
+            primary=True,
+        )
+        restaurant = Restaurant.objects.create(
+            name="Table Login Restaurant",
+            slug="table-login-restaurant",
+        )
+        table = Table.objects.create(
+            restaurant=restaurant,
+            number="12",
+        )
+        entry_response = self.client.get(
+            reverse("menu:table_menu", args=[table.plain_qr_token])
+        )
+        menu_response = self.client.get(entry_response.url)
+        table_context_url = menu_response.context["menu_home_url"]
+
+        login_response = self.client.post(
+            reverse("account_login"),
+            {
+                "login": user.email,
+                "password": "strong-pass-123",
+            },
+        )
+
+        self.assertEqual(login_response.status_code, 302)
+        self.assertEqual(login_response["Location"], reverse("accounts:profile"))
+
+        profile_response = self.client.get(login_response["Location"])
+
+        self.assertEqual(profile_response.status_code, 200)
+        self.assertEqual(profile_response.context["menu_home_url"], table_context_url)
+        self.assertEqual(profile_response.context["current_table_number"], "12")
+        self.assertContains(profile_response, 'data-cart-table-number="12"')
+
+    def test_plain_catalog_visit_leaves_remembered_table_context(self):
+        user = get_user_model().objects.create_user(
+            email="plain-catalog@example.com",
+            password="strong-pass-123",
+        )
+        restaurant = Restaurant.objects.create(
+            name="Plain Catalog Restaurant",
+            slug="plain-catalog-restaurant",
+        )
+        table = Table.objects.create(
+            restaurant=restaurant,
+            number="1",
+        )
+        entry_response = self.client.get(
+            reverse("menu:table_menu", args=[table.plain_qr_token])
+        )
+        table_response = self.client.get(entry_response.url)
+
+        self.assertEqual(table_response.status_code, 200)
+        self.assertEqual(table_response.context["current_table_number"], "1")
+
+        response = self.client.get(reverse("menu:dish_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["current_table_number"])
+        self.assertEqual(response.context["cart_table_context"], "")
+        self.assertEqual(response.context["cart_order_source"], "")
+        self.assertFalse(response.context["ordering_enabled"])
+        self.assertTrue(response.context["clear_table_context"])
+        self.assertContains(response, 'data-table-context-clear="1"')
+
+        self.client.force_login(user)
+        profile_response = self.client.get(reverse("accounts:profile"))
+
+        self.assertEqual(profile_response.status_code, 200)
+        self.assertNotIn("current_table_number", profile_response.context)
+        self.assertNotContains(profile_response, "Стол 1")
+
+    def test_table_context_script_does_not_apply_stale_context_on_plain_catalog(self):
+        path = finders.find("js/table-context.js")
+        self.assertTrue(path)
+        table_context_js = Path(path).read_text(encoding="utf-8")
+
+        self.assertIn("if (shouldResume && storedContext)", table_context_js)
+        self.assertNotIn("replaceVisibleUrl(cleanUrl", table_context_js)
+        self.assertNotIn("if (storedContext) {\n      applyStoredContext(storedContext);", table_context_js)
 
     def test_qr_rotation_changes_context_and_cart_storage_scope(self):
         table = Table.objects.create(
@@ -508,6 +761,102 @@ class MenuRenderingTests(TestCase):
         self.dish.is_available = False
         self.dish.save(update_fields=["is_available", "updated_at"])
         self.assertEqual(self.client.get(valid_url).status_code, 404)
+
+    def test_menu_related_data_stays_within_a_fixed_query_budget(self):
+        allergen = Allergen.objects.create(
+            name="Query budget allergen",
+            code="query-budget-allergen",
+        )
+        AllergenTranslation.objects.create(
+            allergen=allergen,
+            language="en",
+            name="Query budget allergen",
+        )
+
+        for index in range(5):
+            category = Category.objects.create(
+                restaurant=self.dish.restaurant,
+                name=f"Query category {index}",
+            )
+            CategoryTranslation.objects.create(
+                category=category,
+                language="en",
+                name=f"Query category translated {index}",
+            )
+            dish = Dish.objects.create(
+                restaurant=self.dish.restaurant,
+                category=category,
+                name=f"Query dish {index}",
+                price=Decimal("100.00"),
+                is_active=True,
+                is_available=True,
+            )
+            DishTranslation.objects.create(
+                dish=dish,
+                language="en",
+                name=f"Query dish translated {index}",
+            )
+            ingredient = Ingredient.objects.create(
+                name=f"Query ingredient {index}",
+            )
+            DishIngredient.objects.create(
+                dish=dish,
+                ingredient=ingredient,
+            )
+            DishAllergen.objects.create(
+                dish=dish,
+                allergen=allergen,
+                verification_status=DishAllergen.VerificationStatus.SUGGESTED,
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(reverse("menu:dish_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertLessEqual(len(queries), 9)
+
+    def test_authenticated_menu_reads_confirmed_allergies_once(self):
+        user = get_user_model().objects.create_user(
+            email="query-allergies@example.com",
+            password="strong-pass-123",
+        )
+
+        for index in range(3):
+            allergen = Allergen.objects.create(
+                name=f"Profile query allergen {index}",
+                code=f"profile-query-allergen-{index}",
+            )
+            AllergenTranslation.objects.create(
+                allergen=allergen,
+                language="en",
+                name=f"Profile allergen {index}",
+            )
+            UserAllergy.objects.create(
+                user=user,
+                allergen=allergen,
+                status=UserAllergy.Status.CONFIRMED,
+            )
+
+        self.client.force_login(user)
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(reverse("menu:dish_list"))
+
+        allergy_queries = [
+            query
+            for query in queries.captured_queries
+            if '"accounts_userallergy"' in query["sql"]
+        ]
+        allergen_translation_queries = [
+            query
+            for query in queries.captured_queries
+            if '"menu_allergentranslation"' in query["sql"]
+        ]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(allergy_queries), 1)
+        self.assertLessEqual(len(allergen_translation_queries), 2)
+        self.assertContains(response, "Profile allergen 0")
 
     def test_category_translations_do_not_create_a_query_per_section(self):
         for index in range(5):
@@ -848,4 +1197,105 @@ class AllergenReviewWorkflowTests(TestCase):
                 allergen_review_status=Dish.AllergenReviewStatus.COMPLETE,
                 allergen_reviewed_revision=self.dish.recipe_revision + 1,
                 allergen_reviewed_at=timezone.now(),
+            )
+
+
+class InspectMenuDataCommandTests(TestCase):
+    def setUp(self):
+        self.restaurant = Restaurant.objects.create(
+            name="Audit Cafe",
+            slug="audit-cafe",
+            is_active=True,
+        )
+
+    def test_command_reports_suspicious_and_incomplete_menu_data(self):
+        category = Category.objects.create(
+            restaurant=self.restaurant,
+            name="Menu1783027476",
+        )
+        dish = Dish.objects.create(
+            restaurant=self.restaurant,
+            category=category,
+            name="Audit Dish",
+            price=Decimal("0.00"),
+            is_active=True,
+            is_available=True,
+        )
+
+        output = StringIO()
+        call_command(
+            "inspect_menu_data",
+            "--restaurant-slug",
+            self.restaurant.slug,
+            stdout=output,
+        )
+
+        text = output.getvalue()
+        self.assertIn("suspicious_category_name", text)
+        self.assertIn("dish_without_ingredients", text)
+        self.assertIn("orderable_dish_non_positive_price", text)
+        self.assertIn(str(category.pk), text)
+        self.assertIn(str(dish.pk), text)
+
+    def test_command_can_fail_on_detected_problems(self):
+        Category.objects.create(
+            restaurant=self.restaurant,
+            name="Menu999999999",
+        )
+
+        with self.assertRaises(CommandError):
+            call_command(
+                "inspect_menu_data",
+                "--restaurant-slug",
+                self.restaurant.slug,
+                "--fail-on-problems",
+                stdout=StringIO(),
+            )
+
+    def test_command_accepts_complete_minimal_menu(self):
+        category = Category.objects.create(
+            restaurant=self.restaurant,
+            name="Salads",
+        )
+        for language in ("ru", "en", "tr"):
+            CategoryTranslation.objects.create(
+                category=category,
+                language=language,
+                name=f"Salads {language}",
+            )
+        dish = Dish.objects.create(
+            restaurant=self.restaurant,
+            category=category,
+            name="Caesar Salad",
+            price=Decimal("350.00"),
+            image="dishes/test/caesar.webp",
+            is_active=True,
+            is_available=True,
+        )
+        for language in ("ru", "en", "tr"):
+            DishTranslation.objects.create(
+                dish=dish,
+                language=language,
+                name=f"Caesar Salad {language}",
+            )
+        ingredient = Ingredient.objects.create(name="Romaine")
+        DishIngredient.objects.create(dish=dish, ingredient=ingredient)
+
+        output = StringIO()
+        call_command(
+            "inspect_menu_data",
+            "--restaurant-slug",
+            self.restaurant.slug,
+            stdout=output,
+        )
+
+        self.assertIn("Menu data inspection passed.", output.getvalue())
+
+    def test_command_rejects_unknown_restaurant(self):
+        with self.assertRaises(CommandError):
+            call_command(
+                "inspect_menu_data",
+                "--restaurant-slug",
+                "missing-restaurant",
+                stdout=StringIO(),
             )

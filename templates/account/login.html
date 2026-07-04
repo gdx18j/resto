@@ -9,6 +9,7 @@
 {% endblock %}
 
 {% block content %}
+  {% url 'accounts:profile' as account_profile_url %}
   <section class="auth-page" aria-labelledby="login-title">
     <div class="auth-card">
       <p class="auth-kicker">
@@ -104,7 +105,12 @@
         <span class="lang lang--tr">veya</span>
       </div>
 
-      <form class="auth-form" method="post" action="{% provider_login_url 'google' process='login' %}">
+      {% if redirect_field_value %}
+        {% provider_login_url 'google' process='login' as google_login_url %}
+      {% else %}
+        {% provider_login_url 'google' process='login' next=account_profile_url as google_login_url %}
+      {% endif %}
+      <form class="auth-form" method="post" action="{{ google_login_url }}">
         {% csrf_token %}
         <button class="auth-google" type="submit">
           <svg class="google-mark" aria-hidden="true"><use href="#i-google"/></svg>

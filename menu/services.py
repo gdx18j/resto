@@ -100,6 +100,7 @@ def get_confirmed_user_allergens(user):
             status=UserAllergy.Status.CONFIRMED,
         )
         .select_related("allergen")
+        .prefetch_related("allergen__translations")
         .order_by("allergen__name")
     )
 
@@ -122,6 +123,33 @@ def _localized_search_blob(*translation_sets):
                 values.append(value)
 
     return " ".join(values)
+
+
+def build_menu_search_index(dishes):
+    """
+    Возвращает компактный поисковый индекс для клиентского меню.
+
+    Формат строки намеренно позиционный, чтобы не повторять имена JSON-полей
+    для каждого блюда:
+
+    [dish_id, name_ru, name_en, name_tr, ingredients, extra_text]
+
+    ``extra_text`` содержит описания и проверенные аллергены. Полный текст,
+    использовавшийся старым DOM-индексом, восстанавливается в браузере как
+    ``names + extra_text + ingredients`` без потери поисковых данных.
+    """
+
+    return [
+        [
+            dish.id,
+            dish.name_translations["ru"],
+            dish.name_translations["en"],
+            dish.name_translations["tr"],
+            dish.search_ingredients,
+            dish.search_extra,
+        ]
+        for dish in dishes
+    ]
 
 
 def _contains_any(value, words):
@@ -341,7 +369,12 @@ def _nutrition_for_dish(dish, ingredient_names):
     return values
 
 
-def add_allergy_conflicts_to_dishes(dishes, user):
+def add_allergy_conflicts_to_dishes(
+    dishes,
+    user,
+    *,
+    user_allergen_ids=None,
+):
     """
     Проверяет каждое блюдо и добавляет ему временные атрибуты:
 
@@ -353,7 +386,10 @@ def add_allergy_conflicts_to_dishes(dishes, user):
     """
 
     dishes = list(dishes)
-    user_allergen_ids = get_confirmed_user_allergen_ids(user)
+    if user_allergen_ids is None:
+        user_allergen_ids = get_confirmed_user_allergen_ids(user)
+    else:
+        user_allergen_ids = set(user_allergen_ids)
 
     for dish in dishes:
         allergen_groups = _dish_allergen_groups(dish)
@@ -416,19 +452,10 @@ def add_allergy_conflicts_to_dishes(dishes, user):
             )
             for language in LANGUAGES
         }
-        dish.search_name = _localized_search_blob(dish.name_translations)
         dish.search_ingredients = ", ".join(ingredient_names)
-        dish.search_text = " ".join(
-            value
-            for value in [
-                _localized_search_blob(
-                    dish.name_translations,
-                    dish.description_translations,
-                    allergen_search_values,
-                ),
-                " ".join(ingredient_names),
-            ]
-            if value
+        dish.search_extra = _localized_search_blob(
+            dish.description_translations,
+            allergen_search_values,
         )
         dish.conflicting_allergens = _flatten_grouped_allergens(
             {

@@ -14,8 +14,12 @@
       invalidContext: 'Сохранённый контекст стола устарел. Отсканируйте QR-код ещё раз.',
       preparing: 'Открываем меню текущего стола…',
       storageFailed: 'Не удалось подготовить повтор заказа. Обновите страницу и попробуйте ещё раз.',
+      confirmTitle: 'Повтор заказа',
       confirmTable: 'Повторить заказ для стола {table}?',
       confirmUnknownTable: 'Повторить заказ для текущего открытого стола?',
+      confirmHint: 'Текущая корзина будет заменена позициями из выбранного заказа.',
+      confirmCancel: 'Отмена',
+      confirmContinue: 'Повторить',
     },
     en: {
       unavailable: 'This order cannot be repeated right now.',
@@ -23,8 +27,12 @@
       invalidContext: 'The saved table context has expired. Scan the QR code again.',
       preparing: 'Opening the menu for your current table…',
       storageFailed: 'Could not prepare the repeated order. Refresh the page and try again.',
+      confirmTitle: 'Repeat order',
       confirmTable: 'Repeat the order for table {table}?',
       confirmUnknownTable: 'Repeat the order for the currently opened table?',
+      confirmHint: 'The current cart will be replaced with the selected order items.',
+      confirmCancel: 'Cancel',
+      confirmContinue: 'Repeat',
     },
     tr: {
       unavailable: 'Bu sipariş şu anda tekrarlanamaz.',
@@ -32,8 +40,12 @@
       invalidContext: 'Kaydedilen masa bağlamının süresi doldu. QR kodunu yeniden tarayın.',
       preparing: 'Mevcut masanın menüsü açılıyor…',
       storageFailed: 'Sipariş tekrarı hazırlanamadı. Sayfayı yenileyip tekrar deneyin.',
+      confirmTitle: 'Siparişi tekrarla',
       confirmTable: '{table} numaralı masa için sipariş tekrarlansın mı?',
       confirmUnknownTable: 'Sipariş mevcut açık masa için tekrarlansın mı?',
+      confirmHint: 'Mevcut sepet seçilen sipariş ürünleriyle değiştirilecek.',
+      confirmCancel: 'İptal',
+      confirmContinue: 'Tekrarla',
     },
   };
 
@@ -90,28 +102,53 @@
     return 'cc:pending-repeat:v' + PENDING_REPEAT_VERSION + ':' + restaurantSlug;
   }
 
-  function readStoredTableContext(restaurantSlug) {
-    var storageKey = tableContextStorageKey(restaurantSlug);
-    var stored;
+  function storageBackends() {
+    var storages = [];
 
     try {
-      stored = parseJson(window.sessionStorage.getItem(storageKey), null);
-    } catch (_) {
-      return null;
-    }
+      if (window.sessionStorage) storages.push(window.sessionStorage);
+    } catch (_) {}
 
-    if (
-      !stored
-      || stored.version !== TABLE_CONTEXT_STORAGE_VERSION
-      || stored.restaurantSlug !== restaurantSlug
-      || typeof stored.context !== 'string'
-      || !stored.context
-      || typeof stored.activationUrl !== 'string'
-      || !stored.activationUrl
-      || !Number.isFinite(stored.savedAt)
-      || Date.now() - stored.savedAt > TABLE_CONTEXT_MAX_AGE_MS
-    ) {
-      try { window.sessionStorage.removeItem(storageKey); } catch (_) {}
+    try {
+      if (window.localStorage) storages.push(window.localStorage);
+    } catch (_) {}
+
+    return storages;
+  }
+
+  function isValidStoredTableContext(stored, restaurantSlug) {
+    return Boolean(
+      stored
+      && stored.version === TABLE_CONTEXT_STORAGE_VERSION
+      && stored.restaurantSlug === restaurantSlug
+      && typeof stored.context === 'string'
+      && stored.context
+      && typeof stored.activationUrl === 'string'
+      && stored.activationUrl
+      && Number.isFinite(stored.savedAt)
+      && Date.now() - stored.savedAt <= TABLE_CONTEXT_MAX_AGE_MS
+    );
+  }
+
+  function readStoredTableContext(restaurantSlug) {
+    var storageKey = tableContextStorageKey(restaurantSlug);
+    var storages = storageBackends();
+    var stored = null;
+
+    storages.some(function (storage) {
+      try {
+        stored = parseJson(storage.getItem(storageKey), null);
+      } catch (_) {
+        stored = null;
+      }
+
+      return isValidStoredTableContext(stored, restaurantSlug);
+    });
+
+    if (!isValidStoredTableContext(stored, restaurantSlug)) {
+      storages.forEach(function (storage) {
+        try { storage.removeItem(storageKey); } catch (_) {}
+      });
       return null;
     }
 
@@ -178,6 +215,93 @@
     };
   }
 
+  var repeatDialog = null;
+  var repeatDialogResolver = null;
+
+  function ensureRepeatDialog() {
+    var shell;
+
+    if (repeatDialog) {
+      return repeatDialog;
+    }
+
+    shell = document.querySelector('.app-shell') || document.body;
+    repeatDialog = document.createElement('div');
+    repeatDialog.className = 'repeat-confirm';
+    repeatDialog.hidden = true;
+    repeatDialog.setAttribute('role', 'dialog');
+    repeatDialog.setAttribute('aria-modal', 'true');
+    repeatDialog.setAttribute('aria-labelledby', 'repeat-confirm-title');
+    repeatDialog.innerHTML = [
+      '<div class="repeat-confirm__backdrop" data-repeat-confirm-cancel></div>',
+      '<div class="repeat-confirm__card">',
+      '  <h2 id="repeat-confirm-title" class="repeat-confirm__title"></h2>',
+      '  <p class="repeat-confirm__message" data-repeat-confirm-message></p>',
+      '  <p class="repeat-confirm__hint" data-repeat-confirm-hint></p>',
+      '  <div class="repeat-confirm__actions">',
+      '    <button type="button" class="secondary-button" data-repeat-confirm-cancel></button>',
+      '    <button type="button" class="primary-button" data-repeat-confirm-accept></button>',
+      '  </div>',
+      '</div>',
+    ].join('\n');
+    shell.appendChild(repeatDialog);
+
+    repeatDialog.addEventListener('click', function (event) {
+      if (event.target.closest('[data-repeat-confirm-cancel]')) {
+        closeRepeatDialog(false);
+        return;
+      }
+
+      if (event.target.closest('[data-repeat-confirm-accept]')) {
+        closeRepeatDialog(true);
+      }
+    });
+
+    document.addEventListener('keydown', function (event) {
+      if (!repeatDialog || repeatDialog.hidden || event.key !== 'Escape') {
+        return;
+      }
+
+      closeRepeatDialog(false);
+    });
+
+    return repeatDialog;
+  }
+
+  function closeRepeatDialog(confirmed) {
+    var resolver = repeatDialogResolver;
+
+    repeatDialogResolver = null;
+
+    if (repeatDialog) {
+      repeatDialog.hidden = true;
+      document.body.classList.remove('repeat-confirm-open');
+    }
+
+    if (resolver) {
+      resolver(Boolean(confirmed));
+    }
+  }
+
+  function confirmRepeat(message) {
+    var dialog = ensureRepeatDialog();
+    var acceptButton = dialog.querySelector('[data-repeat-confirm-accept]');
+    var cancelButton = dialog.querySelector('[data-repeat-confirm-cancel].secondary-button');
+
+    dialog.querySelector('.repeat-confirm__title').textContent = t('confirmTitle');
+    dialog.querySelector('[data-repeat-confirm-message]').textContent = message;
+    dialog.querySelector('[data-repeat-confirm-hint]').textContent = t('confirmHint');
+    cancelButton.textContent = t('confirmCancel');
+    acceptButton.textContent = t('confirmContinue');
+    dialog.hidden = false;
+    document.body.classList.add('repeat-confirm-open');
+    window.setTimeout(function () { acceptButton.focus(); }, 0);
+
+    return new Promise(function (resolve) {
+      repeatDialogResolver = resolve;
+    });
+  }
+
   function prepareRepeat(button) {
     var restaurantSlug = String(button.dataset.repeatRestaurantSlug || '').trim();
     var orderMode = String(button.dataset.repeatOrderMode || '').trim();
@@ -202,34 +326,37 @@
       ? t('confirmTable', { table: currentTableNumber })
       : t('confirmUnknownTable');
 
-    if (!window.confirm(confirmationMessage)) {
-      return;
-    }
+    confirmRepeat(confirmationMessage).then(function (confirmed) {
+      if (!confirmed) {
+        return;
+      }
 
-    var pendingPayload = {
-      version: PENDING_REPEAT_VERSION,
-      restaurantSlug: restaurantSlug,
-      expectedContext: storedContext.context,
-      originalTableNumber: originalTableNumber,
-      targetTableNumber: currentTableNumber,
-      guestsCount: guestsCount,
-      items: repeat.items,
-      repeatResult: repeat.result,
-      savedAt: Date.now(),
-    };
+      var pendingPayload = {
+        version: PENDING_REPEAT_VERSION,
+        restaurantSlug: restaurantSlug,
+        expectedContext: storedContext.context,
+        originalTableNumber: originalTableNumber,
+        targetTableNumber: currentTableNumber,
+        guestsCount: guestsCount,
+        items: repeat.items,
+        repeatResult: repeat.result,
+        replaceExistingCart: true,
+        savedAt: Date.now(),
+      };
 
-    try {
-      window.sessionStorage.setItem(
-        pendingRepeatStorageKey(restaurantSlug),
-        JSON.stringify(pendingPayload)
-      );
-    } catch (_) {
-      showStatus(t('storageFailed'), true);
-      return;
-    }
+      try {
+        window.sessionStorage.setItem(
+          pendingRepeatStorageKey(restaurantSlug),
+          JSON.stringify(pendingPayload)
+        );
+      } catch (_) {
+        showStatus(t('storageFailed'), true);
+        return;
+      }
 
-    showStatus(t('preparing'), false);
-    window.location.assign(storedContext.activationUrl);
+      showStatus(t('preparing'), false);
+      window.location.assign(storedContext.activationUrl);
+    });
   }
 
   clearCreatedOrderStorage();

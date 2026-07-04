@@ -9,6 +9,13 @@ html {
   scroll-behavior: smooth;
   scroll-padding-top: 132px;
   overscroll-behavior-y: none;
+  overflow-y: scroll;
+}
+
+@supports (scrollbar-gutter: stable) {
+  html {
+    scrollbar-gutter: stable;
+  }
 }
 
 body {
@@ -675,10 +682,12 @@ label[for="theme-toggle"] {
 .search-section {
   display: grid;
   grid-template-rows: 1fr;
+  max-height: 72px;
   opacity: 1;
   overflow: hidden;
-  transition: grid-template-rows 240ms ease, opacity 180ms ease, margin 240ms ease, transform 240ms ease;
-  will-change: opacity, transform;
+  transform: translate3d(0, 0, 0);
+  transition: transform 160ms ease, opacity 140ms ease;
+  will-change: transform, opacity;
 }
 
 .search-box {
@@ -795,7 +804,8 @@ label[for="theme-toggle"] {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  transition: transform 220ms ease;
+  transform: translate3d(0, 0, 0);
+  transition: transform 160ms ease;
   will-change: transform;
 }
 
@@ -842,6 +852,31 @@ label[for="theme-toggle"] {
   margin-left: 0;
 }
 
+
+.menu-controls {
+  --menu-search-collapse-distance: 0px;
+  --menu-controls-collapsed-height: auto;
+  will-change: auto;
+  transition: box-shadow 180ms ease, background-color 260ms ease, border-color 260ms ease;
+}
+
+.menu-controls.is-search-collapsed,
+.menu-hero + .menu-controls.is-search-collapsed {
+  max-height: var(--menu-controls-collapsed-height);
+  overflow: hidden;
+  transform: none;
+}
+
+.menu-controls.is-search-collapsed .search-section,
+.menu-controls.is-search-collapsed .category-row {
+  transform: translate3d(0, calc(-1 * var(--menu-search-collapse-distance)), 0);
+}
+
+.menu-controls.is-search-collapsed .search-section {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .category-chip:hover,
 .category-chip.is-active {
   color: var(--accent-contrast);
@@ -858,6 +893,10 @@ label[for="theme-toggle"] {
 }
 
 @media (max-width: 619px) {
+  .site-header {
+    backdrop-filter: none;
+  }
+
   .menu-controls {
     position: sticky;
     top: calc(var(--header-height) - 1px);
@@ -865,6 +904,9 @@ label[for="theme-toggle"] {
     right: auto;
     width: 100%;
     margin: 0 0 14px;
+    background: var(--page);
+    backdrop-filter: none;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
     transform: none;
     contain: none;
   }
@@ -878,6 +920,7 @@ label[for="theme-toggle"] {
       linear-gradient(90deg, rgba(17, 18, 15, 0.9) 0%, rgba(17, 18, 15, 0.38) 58%, rgba(17, 18, 15, 0.64) 100%),
       url("../img/caesar-mobile-hero.jpg") center center / cover no-repeat;
     animation: none;
+    transform: none;
   }
 
   .menu-hero::before {
@@ -897,7 +940,7 @@ label[for="theme-toggle"] {
   }
 
   .menu-hero__texture {
-    opacity: 0.06;
+    display: none;
   }
 
   .menu-hero__content {
@@ -940,7 +983,7 @@ label[for="theme-toggle"] {
     left: auto;
     right: auto;
     width: 100%;
-    margin: -22px 0 14px;
+    margin: 0 0 14px;
     animation: none;
     transform: none;
     contain: none;
@@ -1449,8 +1492,10 @@ label[for="theme-toggle"] {
   white-space: nowrap;
 }
 
-body.dish-detail-open {
-  overflow: hidden;
+@media (max-width: 767px) {
+  body.dish-detail-open {
+    overflow: hidden;
+  }
 }
 
 .dish-detail-layer[hidden] {
@@ -1478,7 +1523,7 @@ body.dish-detail-open {
   position: absolute;
   inset: 0;
   border: 0;
-  background: rgba(0, 0, 0, 0.68);
+  background: rgba(0, 0, 0, 0.46);
   cursor: pointer;
 }
 

@@ -1,9 +1,8 @@
-from urllib.parse import urlencode
-
+import json
+from django.db.models import Prefetch
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.utils.crypto import salted_hmac
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET
 
@@ -16,22 +15,27 @@ from orders.services import (
     resolve_ordering_context,
 )
 
-from .models import Category, Dish
+from .models import (
+    AllergenTranslation,
+    CategoryTranslation,
+    Dish,
+    DishAllergen,
+    DishIngredient,
+    DishTranslation,
+)
 from .services import (
     add_allergy_conflicts_to_dishes,
     build_dish_detail_payload,
+    build_menu_search_index,
     get_confirmed_user_allergens,
 )
+from .table_context import (
+    build_cart_storage_scope,
+    build_catalog_url,
+    forget_table_context,
+    remember_table_context,
+)
 from .translations import localized_category_html
-
-
-def build_cart_storage_scope(*, restaurant, table):
-    context_value = f"{restaurant.pk}:{table.pk}:{table.qr_token_version}"
-    return salted_hmac(
-        "menu.cart-storage-scope",
-        context_value,
-        algorithm="sha256",
-    ).hexdigest()[:24]
 
 
 def get_menu_restaurant(request):
@@ -65,11 +69,39 @@ def _menu_dish_queryset(restaurant):
         )
         .select_related("category")
         .prefetch_related(
-            "translations",
-            "category__translations",
-            "dish_ingredients__ingredient",
-            "allergen_links__allergen",
-            "allergen_links__allergen__translations",
+            Prefetch(
+                "translations",
+                queryset=DishTranslation.objects.order_by("language"),
+            ),
+            Prefetch(
+                "category__translations",
+                queryset=CategoryTranslation.objects.order_by("language"),
+            ),
+            Prefetch(
+                "dish_ingredients",
+                queryset=(
+                    DishIngredient.objects
+                    .select_related("ingredient")
+                    .order_by("id")
+                ),
+            ),
+            Prefetch(
+                "allergen_links",
+                queryset=(
+                    DishAllergen.objects
+                    .select_related("allergen")
+                    .prefetch_related(
+                        Prefetch(
+                            "allergen__translations",
+                            queryset=(
+                                AllergenTranslation.objects
+                                .order_by("language")
+                            ),
+                        )
+                    )
+                    .order_by("id")
+                ),
+            ),
         )
     )
 
@@ -82,16 +114,10 @@ def _set_private_table_headers(response):
 
 
 def _catalog_url(restaurant=None, *, table_context_error=""):
-    query = {}
-
-    if restaurant is not None and restaurant.slug:
-        query["restaurant"] = restaurant.slug
-
-    if table_context_error:
-        query["table_context_error"] = table_context_error
-
-    url = reverse("menu:dish_list")
-    return f"{url}?{urlencode(query)}" if query else url
+    return build_catalog_url(
+        restaurant,
+        table_context_error=table_context_error,
+    )
 
 
 @require_GET
@@ -139,6 +165,7 @@ def dish_list(request, table_context=None):
         restaurant = table.restaurant
         current_table_number = table.number
         cart_table_context = ordering_context.table_context or ""
+        remember_table_context(request, cart_table_context)
         cart_order_source = "qr"
         cart_storage_scope = build_cart_storage_scope(
             restaurant=restaurant,
@@ -150,6 +177,12 @@ def dish_list(request, table_context=None):
         )
         ordering_enabled = True
     else:
+        # A plain catalog visit is an explicit switch back to non-table browsing.
+        # QR/table ordering is preserved across account/history pages through
+        # the remembered context, but the clean menu URL itself must not
+        # silently inherit an old table from the same browser session.
+        forget_table_context(request)
+        clear_table_context = True
         restaurant = get_menu_restaurant(request)
         ordering_context = OrderingContext(
             restaurant_id=restaurant.id,
@@ -162,24 +195,22 @@ def dish_list(request, table_context=None):
         "name",
     )
 
+    user_allergens = get_confirmed_user_allergens(request.user)
     dishes = add_allergy_conflicts_to_dishes(
         dishes=dishes,
         user=request.user,
+        user_allergen_ids={
+            record.allergen_id
+            for record in user_allergens
+        },
     )
 
-    category_ids = {
-        dish.category_id
-        for dish in dishes
-        if dish.category_id is not None
-    }
-    categories = (
-        Category.objects.filter(
-            restaurant=restaurant,
-            id__in=category_ids,
-        )
-        .prefetch_related("translations")
-        .order_by("name")
-    )
+    categories_by_id = {}
+    for dish in dishes:
+        if dish.category_id is not None:
+            categories_by_id.setdefault(dish.category_id, dish.category)
+
+    categories = list(categories_by_id.values())
     dishes_by_category = {
         category.id: []
         for category in categories
@@ -213,6 +244,7 @@ def dish_list(request, table_context=None):
         )
 
     context = {
+        "menu_page": True,
         "dishes": dishes,
         "menu_sections": menu_sections,
         "restaurant": restaurant,
@@ -223,13 +255,18 @@ def dish_list(request, table_context=None):
         "ordering_enabled": ordering_enabled,
         "cart_disabled": not ordering_enabled,
         "ordering_context": ordering_context,
-        "user_allergens": get_confirmed_user_allergens(request.user),
+        "user_allergens": user_allergens,
         "current_table_number": current_table_number,
         "table_context_activation_url": table_context_activation_url,
         "table_context_clean_url": _catalog_url(restaurant),
         "table_context_ttl_seconds": get_table_context_ttl_seconds(),
         "menu_home_url": table_context_activation_url or _catalog_url(restaurant),
         "clear_table_context": clear_table_context,
+        "menu_search_index_json": json.dumps(
+            build_menu_search_index(dishes),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
     }
 
     response = render(
@@ -264,4 +301,3 @@ def dish_detail(request, restaurant_slug, dish_id):
     response = JsonResponse(payload)
     response["Cache-Control"] = "private, no-store"
     return response
-

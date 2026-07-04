@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import uuid
 
 import httpx
@@ -6,6 +7,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.contrib.staticfiles import finders
 from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 from django.db import IntegrityError, transaction
@@ -30,6 +32,7 @@ from .services import (
     get_configured_model_names,
     generate_ai_answer,
     get_gemini_client,
+    GEMINI_RESPONSE_SCHEMA,
     parse_ai_response,
 )
 from .retrieval import retrieve_menu_dishes
@@ -276,6 +279,16 @@ class GeminiServiceTests(TestCase):
 
         self.assertIn(f"dish_id: {dish.id}", context)
         self.assertIn("menu_candidates", context)
+
+    def test_gemini_response_schema_omits_unsupported_additional_properties(self):
+        schema = GEMINI_RESPONSE_SCHEMA.model_dump(exclude_none=True)
+        serialized = json.dumps(schema, default=str)
+
+        self.assertNotIn("additional_properties", serialized)
+        self.assertNotIn("additionalProperties", serialized)
+        self.assertEqual(schema["type"].value, "OBJECT")
+        self.assertIn("answer", schema["required"])
+        self.assertIn("recommended_dish_ids", schema["required"])
 
     def test_structured_response_filters_unknown_and_duplicate_ids(self):
         result = parse_ai_response(
@@ -986,6 +999,49 @@ class AskViewTests(TestCase):
         self.assertFalse(AIUsageEvent.objects.filter(id=owned_event.id).exists())
         self.assertTrue(AIUsageEvent.objects.filter(id=other_event.id).exists())
 
+    def test_delete_history_removes_completed_request_records_before_messages(self):
+        user = get_user_model().objects.create_user(
+            email="delete-request-records@example.com",
+            password="strong-pass-123",
+        )
+        session = ChatSession.objects.create(
+            restaurant=self.restaurant,
+            user=user,
+            session_key="delete-request-records",
+            title="Delete request records",
+        )
+        user_message = ChatMessage.objects.create(
+            session=session,
+            role=ChatMessage.Role.USER,
+            content="Удалить историю",
+        )
+        assistant_message = ChatMessage.objects.create(
+            session=session,
+            role=ChatMessage.Role.ASSISTANT,
+            content="История будет удалена.",
+        )
+        request_record = AIRequestRecord.objects.create(
+            id=uuid.uuid4(),
+            user=user,
+            restaurant=self.restaurant,
+            chat_session=session,
+            user_message=user_message,
+            assistant_message=assistant_message,
+            request_fingerprint="a" * 64,
+            status=AIRequestRecord.Status.COMPLETED,
+            completed_at=timezone.now(),
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("ai_assistant:delete_history"),
+            HTTP_ACCEPT="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(ChatSession.objects.filter(id=session.id).exists())
+        self.assertFalse(AIRequestRecord.objects.filter(id=request_record.id).exists())
+
     @patch("ai_assistant.views.generate_ai_answer")
     def test_answer_includes_recommended_dish_cards(self, generate_ai_answer_mock):
         dish = Dish.objects.create(
@@ -1524,7 +1580,23 @@ class AssistantWidgetTests(TestCase):
         self.assertContains(response, "data-ai-assistant")
         self.assertContains(response, "data-history-endpoint")
         self.assertContains(response, "ai-assistant.css")
-        self.assertContains(response, "ai-assistant.js")
+
+        content = response.content.decode()
+        self.assertIn('src="/static/js/ai-assistant-loader.js"', content)
+        self.assertIn('data-ai-script-url="/static/js/ai-assistant.js"', content)
+        self.assertNotIn('src="/static/js/ai-assistant.js"', content)
+
+    def test_ai_runtime_loader_is_small_local_static_asset(self):
+        loader_path = finders.find("js/ai-assistant-loader.js")
+        runtime_path = finders.find("js/ai-assistant.js")
+
+        self.assertIsNotNone(loader_path)
+        self.assertIsNotNone(runtime_path)
+        self.assertLess(Path(loader_path).stat().st_size, 5_000)
+        self.assertGreater(
+            Path(runtime_path).stat().st_size,
+            Path(loader_path).stat().st_size * 10,
+        )
 
     def test_menu_dish_cards_have_stable_ai_links(self):
         dish = Dish.objects.create(
@@ -1540,11 +1612,24 @@ class AssistantWidgetTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f'id="dish-{dish.id}"')
 
+    def test_ai_runtime_uses_json_request_by_default(self):
+        runtime_path = finders.find("js/ai-assistant.js")
+
+        self.assertIsNotNone(runtime_path)
+        runtime_source = Path(runtime_path).read_text(encoding="utf-8")
+
+        self.assertIn('"Accept": "application/json"', runtime_source)
+        self.assertNotIn('"X-AI-Stream": "1"', runtime_source)
+        self.assertNotIn('"Accept": "application/x-ndjson"', runtime_source)
+
     def test_non_menu_page_without_restaurant_context_hides_ai_widget(self):
         response = self.client.get(reverse("account_login"))
 
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, "data-ai-assistant")
+        self.assertNotContains(response, "ai-assistant.css")
+        self.assertNotContains(response, "ai-assistant-loader.js")
+        self.assertNotContains(response, "ai-assistant.js")
 
     def test_standalone_ai_page_is_removed(self):
         response = self.client.get("/ai/")

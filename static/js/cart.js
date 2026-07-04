@@ -6,6 +6,11 @@
 (function () {
   'use strict';
 
+  var appShell = document.querySelector('.app-shell');
+  if (!appShell || appShell.dataset.orderingEnabled !== '1') {
+    return;
+  }
+
   var ORDER_COMMENT_MAX_LENGTH = 2000;
   var CART_STORAGE_SCHEMA_VERSION = 2;
   var RECENT_ORDER_STORAGE_KEY = 'cc_recent_order:v2';
@@ -16,7 +21,7 @@
   var cart = {
     items: {},      // { dishId: { name, price, qty, modifiers } }
     persons: 1,
-    payment: null,  // 'card' | 'cash'
+    payment: null,  // 'card' | 'cash' | 'online'
     comment: '',
   };
 
@@ -140,6 +145,10 @@
     },
   };
 
+  function isValidPaymentMethod(value) {
+    return ['card', 'cash', 'online'].indexOf(value) !== -1;
+  }
+
   function currentLanguage() {
     var language = document.documentElement.dataset.language || document.documentElement.lang || 'ru';
     return translations[language] ? language : 'ru';
@@ -150,11 +159,26 @@
     return translations[language][key] || translations.ru[key] || '';
   }
 
+  function dishCartControl(element) {
+    if (!element) {
+      return null;
+    }
+
+    if (element.matches && element.matches('[data-dish-cart-control]')) {
+      return element;
+    }
+
+    return element.closest ? element.closest('[data-dish-cart-control]') : null;
+  }
+
   function localizedDatasetName(element) {
+    var source = dishCartControl(element) || element;
     var language = currentLanguage();
     var key = 'name' + language.charAt(0).toUpperCase() + language.slice(1);
 
-    return element.dataset[key] || element.dataset.name || '';
+    return source && source.dataset
+      ? source.dataset[key] || source.dataset.name || ''
+      : '';
   }
 
   function getCookie(name) {
@@ -174,15 +198,39 @@
   }
 
   function normalizeDishId(id, item) {
-    var raw = item && item.dishId ? item.dishId : id;
-    var value = String(raw || '').trim();
+    var candidates = [];
+    var i;
+    var value;
+    var match;
 
-    if (/^\d+$/.test(value)) {
-      return value;
+    if (item && item.dishId) {
+      candidates.push(item.dishId);
     }
 
-    var match = value.match(/^dish-(\d+)(?:-[0-9a-f]{12})?$/);
-    return match ? match[1] : '';
+    if (item && item.dish_id) {
+      candidates.push(item.dish_id);
+    }
+
+    candidates.push(id);
+
+    for (i = 0; i < candidates.length; i += 1) {
+      value = String(candidates[i] || '').trim();
+
+      if (!value) {
+        continue;
+      }
+
+      if (/^\d+$/.test(value)) {
+        return value;
+      }
+
+      match = value.match(/^dish-(\d+)(?:-[0-9a-f]{12})?$/);
+      if (match) {
+        return match[1];
+      }
+    }
+
+    return '';
   }
 
   /* ─── Cart math ───────────────────────────────────────────────── */
@@ -405,7 +453,7 @@
       try { sessionStorage.removeItem(cartApi.storageKeys.cart); } catch (_) {}
     }
 
-    if (cart.payment !== 'card' && cart.payment !== 'cash') {
+    if (['card', 'cash', 'online'].indexOf(cart.payment) === -1) {
       cart.payment = null;
     }
 
@@ -633,7 +681,38 @@
     configureCartStorage();
   }
 
+  function cartPayloadDishId(id, item) {
+    var normalized = normalizeDishId(id, item);
+    var numericId = parseInt(normalized, 10);
+
+    return Number.isFinite(numericId) && numericId > 0 ? numericId : normalized;
+  }
+
+  function sanitizeCartItemsForPayload() {
+    var changed = false;
+
+    Object.keys(cart.items || {}).forEach(function (id) {
+      var item = cart.items[id];
+      var dishId = cartPayloadDishId(id, item);
+
+      if (!(typeof dishId === 'number' && dishId > 0)) {
+        delete cart.items[id];
+        changed = true;
+        return;
+      }
+
+      item.dishId = String(dishId);
+    });
+
+    if (changed) {
+      save();
+      renderAll();
+    }
+  }
+
   function cartPayload() {
+    sanitizeCartItemsForPayload();
+
     var payload = {
       items: Object.entries(cart.items).map(function (entry) {
         var id = entry[0];
@@ -641,7 +720,7 @@
 
         return {
           id: id,
-          dish_id: item.dishId || normalizeDishId(id, item),
+          dish_id: cartPayloadDishId(id, item),
           quantity: item.qty,
           note: item.note || '',
           modifiers: Array.isArray(item.modifiers) ? item.modifiers : [],
@@ -1152,10 +1231,6 @@
       return false;
     }
 
-    if (totalItems() > 0 && !window.confirm(t('replaceCartForRepeat'))) {
-      return false;
-    }
-
     return applyRepeatedItems(pending.items, {
       replace: true,
       guestsCount: pending.guestsCount,
@@ -1309,7 +1384,10 @@
       return;
     }
 
-    btn = qs('[data-add-btn][data-id="' + id + '"]');
+    control = qsa('[data-dish-cart-control]').find(function (candidate) {
+      return candidate.dataset.id === id;
+    }) || null;
+    btn = control ? control.querySelector('[data-add-btn]') : null;
     restartAddAnimation(btn);
   }
 
@@ -1431,6 +1509,7 @@
         returnFocusTo: focusReturn,
         initialFocus: qs('[data-cart-close]', panel) || qs('button, [tabindex="0"]', panel),
         exemptElements: getCartModalExemptElements(),
+        lockScroll: isMobile(),
         requestClose: closePanel,
       });
     } else {
@@ -1483,6 +1562,7 @@
         opener: lastOrderTrigger,
         initialFocus: qs('[data-order-modal-close]', els.orderModal) || els.orderModal,
         exemptElements: els.orderBackdrop ? [els.orderBackdrop] : [],
+        lockScroll: isMobile(),
         requestClose: closeOrderModal,
       });
     } else {
@@ -1630,12 +1710,21 @@
     }
 
     // Dish card quantity +/-
-    var dishQtyBtn = target.closest('[data-dish-qty-action][data-id]');
+    var dishQtyBtn = target.closest('[data-dish-qty-action]');
     if (dishQtyBtn) {
+      var dishQtyControl = dishCartControl(dishQtyBtn);
+      var dishQtyId = dishQtyControl
+        ? dishQtyControl.dataset.id
+        : dishQtyBtn.dataset.id;
+
+      if (!dishQtyId) {
+        return;
+      }
+
       changeQty(
-        dishQtyBtn.dataset.id,
+        dishQtyId,
         dishQtyBtn.dataset.dishQtyAction === 'inc' ? 1 : -1,
-        dishQtyBtn.closest('[data-dish-cart-control]') || dishQtyBtn
+        dishQtyControl || dishQtyBtn
       );
       return;
     }
@@ -1643,11 +1732,18 @@
     // Add to cart (dish cards)
     var addBtn = target.closest('[data-add-btn]');
     if (addBtn) {
+      var addControl = dishCartControl(addBtn);
+      var addSource = addControl || addBtn;
+
+      if (!addSource.dataset.id) {
+        return;
+      }
+
       addItem(
-        addBtn.dataset.id,
-        localizedDatasetName(addBtn),
-        addBtn.dataset.price,
-        addBtn.closest('[data-dish-cart-control]') || addBtn
+        addSource.dataset.id,
+        localizedDatasetName(addSource),
+        addSource.dataset.price,
+        addSource
       );
       return;
     }
@@ -1719,7 +1815,8 @@
     // Payment
     var payBtn = target.closest('[data-pay]');
     if (payBtn) {
-      cart.payment = payBtn.dataset.pay;
+      var requestedPayment = payBtn.dataset.pay || '';
+      cart.payment = isValidPaymentMethod(requestedPayment) ? requestedPayment : null;
       clearCartNote();
       save(); syncPaymentUI(); updateSubmit(); scheduleQuote();
       return;
@@ -1757,13 +1854,15 @@
   /* ─── Prepare price buttons on dish cards ─────────────────────── */
   function attachDishButtons() {
     qsa('.dish-card').forEach(function (card) {
+      var control = card.querySelector('[data-dish-cart-control]');
       var btn = card.querySelector('[data-add-btn]');
       var nameEl = card.querySelector('.dish-copy h2');
       var priceEl = card.querySelector('.dish-footer strong');
+      var dataSource = control || btn;
 
-      if (!btn || !nameEl || !priceEl || btn.dataset.cartReady === '1') return;
+      if (!btn || !dataSource || !nameEl || !priceEl || dataSource.dataset.cartReady === '1') return;
 
-      var name = localizedDatasetName(btn) || nameEl.textContent.trim();
+      var name = localizedDatasetName(dataSource) || nameEl.textContent.trim();
       var priceRaw = priceEl.textContent
         .replace(/[^\d.,]/g, '')
         .replace(',', '.');
@@ -1771,14 +1870,17 @@
       var price = parseFloat(priceRaw);
       var id = card.id || 'dish-' + btoa(encodeURIComponent(name)).replace(/[^a-z0-9]/gi, '').slice(0, 16);
 
-      btn.setAttribute('data-add-btn', '');
-      btn.setAttribute('data-id', id);
-      if (!btn.dataset.name) {
-        btn.setAttribute('data-name', name);
+      if (!dataSource.dataset.id) {
+        dataSource.setAttribute('data-id', id);
       }
-      btn.setAttribute('data-price', price);
+      if (!dataSource.dataset.name) {
+        dataSource.setAttribute('data-name', name);
+      }
+      if (!dataSource.dataset.price) {
+        dataSource.setAttribute('data-price', price);
+      }
       btn.setAttribute('aria-label', t('addToCart') + name);
-      btn.dataset.cartReady = '1';
+      dataSource.dataset.cartReady = '1';
     });
   }
 
@@ -1904,6 +2006,13 @@
       '        <span class="lang lang--ru">Наличными</span>',
       '        <span class="lang lang--en">Cash</span>',
       '        <span class="lang lang--tr">Nakit</span>',
+      '      </button>',
+
+      '      <button class="cart-pay-btn" data-pay="online">',
+      '        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M3 10h18"/></svg>',
+      '        <span class="lang lang--ru">Онлайн</span>',
+      '        <span class="lang lang--en">Online</span>',
+      '        <span class="lang lang--tr">Online</span>',
       '      </button>',
       '    </div>',
       '  </div>',

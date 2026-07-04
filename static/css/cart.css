@@ -295,12 +295,12 @@ body.cart-bar-suppressed .cart-bar.cart-bar--visible {
     z-index: 2;
   }
 
-  /* Страница плавно сдвигается влево синхронно с панелью */
+  /* Desktop cart is an overlay: do not shift the whole page when it opens. */
   .app-shell {
-    transition: padding-right 500ms cubic-bezier(0.22,1,0.36,1);
+    transition: none;
   }
   .app-shell.cart-is-open {
-    padding-right: 380px;
+    padding-right: 0;
   }
 
   /* Хедер всегда на всю ширину */
@@ -317,7 +317,7 @@ body.cart-bar-suppressed .cart-bar.cart-bar--visible {
                 background-color 260ms ease;
   }
   .app-shell.cart-is-open .site-header {
-    right: 380px;
+    right: 0;
   }
 }
 
@@ -820,20 +820,12 @@ body.cart-bar-suppressed .cart-bar.cart-bar--visible {
   background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
 
-/* ── AI кнопка сдвигается когда открыта корзина (десктоп) ─────── */
+/* Desktop cart is an overlay; opening it must not move unrelated fixed UI. */
 @media (min-width: 768px) {
   .app-shell.cart-is-open .ai-assistant__launcher {
-    right: calc(380px + 16px);
-    transition: right 500ms cubic-bezier(0.22,1,0.36,1),
-                transform 180ms ease,
-                box-shadow 180ms ease,
-                background-color 220ms ease,
-                opacity 180ms ease;
+    right: max(16px, env(safe-area-inset-right));
   }
   .app-shell.cart-is-open .ai-assistant__panel {
-    right: calc(380px + 18px);
-    transition: right 500ms cubic-bezier(0.22,1,0.36,1),
-                opacity 210ms ease,
-                transform 260ms cubic-bezier(0.22,1,0.36,1);
+    right: max(18px, env(safe-area-inset-right));
   }
 }

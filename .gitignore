@@ -81,3 +81,10 @@ desktop.ini
 *.bak
 *.tmp
 .cache/
+
+# Local patch/export artifacts
+resto*.zip
+PATCH_*_README*.md
+FILES_TO_REPLACE.txt
+PATCH_FILE_HASHES.txt
+SHA256SUMS.txt

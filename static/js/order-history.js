@@ -41,6 +41,10 @@
     return translations[language][key] || translations.ru[key] || '';
   }
 
+  function isMobile() {
+    return window.innerWidth < 768;
+  }
+
   function syncModalLabels() {
     if (!orderModal) return;
 
@@ -137,6 +141,7 @@
         opener: lastOrderTrigger,
         initialFocus: orderModal.querySelector('[data-order-modal-close]') || orderModal,
         exemptElements: [orderBackdrop],
+        lockScroll: isMobile(),
         requestClose: closeOrderModal,
       });
     } else {

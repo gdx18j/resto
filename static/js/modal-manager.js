@@ -20,6 +20,7 @@
   var stack = [];
   var scrollLocks = 0;
   var previousBodyOverflow = "";
+  var previousBodyPaddingRight = "";
 
   function toArray(value) {
     return Array.prototype.slice.call(value || []);
@@ -98,9 +99,24 @@
     focusElement(target);
   }
 
+  function currentScrollbarWidth() {
+    return Math.max(0, window.innerWidth - document.documentElement.clientWidth);
+  }
+
   function lockScroll() {
+    var scrollbarWidth;
+    var currentPaddingRight;
+
     if (scrollLocks === 0) {
       previousBodyOverflow = document.body.style.overflow;
+      previousBodyPaddingRight = document.body.style.paddingRight;
+      scrollbarWidth = currentScrollbarWidth();
+
+      if (scrollbarWidth > 0) {
+        currentPaddingRight = parseFloat(window.getComputedStyle(document.body).paddingRight) || 0;
+        document.body.style.paddingRight = (currentPaddingRight + scrollbarWidth) + "px";
+      }
+
       document.body.style.overflow = "hidden";
     }
 
@@ -112,7 +128,9 @@
 
     if (scrollLocks === 0) {
       document.body.style.overflow = previousBodyOverflow;
+      document.body.style.paddingRight = previousBodyPaddingRight;
       previousBodyOverflow = "";
+      previousBodyPaddingRight = "";
     }
   }
 
@@ -274,6 +292,7 @@
       addedDialogTabindex: false,
     };
 
+    focusInitial(instance);
     applyBackgroundIsolation(instance);
     stack.push(instance);
 
@@ -368,6 +387,14 @@
     });
   }
 
+  function parseBooleanOption(value, fallback) {
+    if (value === null || value === undefined || value === "") {
+      return fallback;
+    }
+
+    return !/^(false|0|no)$/i.test(String(value).trim());
+  }
+
   function initDeclarativeModal(root) {
     var toggleId = root.getAttribute("data-modal-toggle-id");
     var checkbox = toggleId ? document.getElementById(toggleId) : null;
@@ -375,6 +402,7 @@
     var dialog = root.querySelector("[data-modal-dialog]") || root.querySelector("[role='dialog']") || root;
     var openers = toArray(document.querySelectorAll("[data-modal-open='" + id + "']"));
     var closers = toArray(root.querySelectorAll("[data-modal-close]"));
+    var shouldLockScroll = parseBooleanOption(root.getAttribute("data-modal-lock-scroll"), true);
 
     if (!checkbox || !id) {
       return;
@@ -391,6 +419,7 @@
           container: root.parentElement || document.body,
           opener: opener || document.activeElement,
           initialFocus: closers[0] || dialog,
+          lockScroll: shouldLockScroll,
           requestClose: function () {
             setOpen(false);
           },

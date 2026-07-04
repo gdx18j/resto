@@ -31,3 +31,8 @@ backups
 deploy/nginx/certs/*.pem
 deploy/nginx/certs/*.key
 deploy/nginx/certs/*.crt
+PATCH_*_README*.md
+FILES_TO_REPLACE.txt
+PATCH_FILE_HASHES.txt
+SHA256SUMS.txt
+resto*.zip

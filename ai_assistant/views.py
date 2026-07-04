@@ -610,13 +610,16 @@ def delete_history(request):
     session_ids = list(sessions.values_list("id", flat=True))
     deleted_count = len(session_ids)
 
-    if session_id:
-        AIUsageEvent.objects.filter(
-            user=request.user,
-            chat_session_id__in=session_ids,
-        ).delete()
-    else:
+    AIUsageEvent.objects.filter(
+        chat_session_id__in=session_ids,
+    ).delete()
+
+    if not session_id:
         AIUsageEvent.objects.filter(user=request.user).delete()
+
+    AIRequestRecord.objects.filter(
+        chat_session_id__in=session_ids,
+    ).delete()
 
     sessions.delete()
 
