@@ -492,6 +492,12 @@ label[for="theme-toggle"] {
   transform: translateZ(0);
 }
 
+.menu-hero:has(.seasonal-menu) {
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: end;
+  row-gap: clamp(18px, 4vh, 34px);
+}
+
 .menu-hero::before {
   position: absolute;
   left: 0;
@@ -653,6 +659,130 @@ label[for="theme-toggle"] {
 
 .menu-hero__menu-link {
   animation-delay: 230ms;
+}
+
+.seasonal-menu {
+  position: relative;
+  z-index: 5;
+  width: min(100%, 900px);
+  justify-self: center;
+  margin: 0;
+}
+
+.seasonal-menu__track {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: min(620px, 100%);
+  gap: 14px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 1px;
+  scrollbar-width: none;
+}
+
+.seasonal-menu__track::-webkit-scrollbar {
+  display: none;
+}
+
+.seasonal-card {
+  min-height: 206px;
+  scroll-snap-align: start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 46%);
+  gap: 20px;
+  overflow: clip;
+  padding: 22px 22px 22px 24px;
+  border: 1px solid rgba(255, 248, 236, 0.74);
+  border-radius: 20px;
+  color: #271f16;
+  background:
+    radial-gradient(circle at 78% 12%, rgba(202, 163, 92, 0.12), transparent 34%),
+    linear-gradient(135deg, rgba(255, 253, 249, 0.98) 0%, rgba(241, 234, 222, 0.96) 100%);
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(10px);
+}
+
+.seasonal-card__copy {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 10px;
+}
+
+.seasonal-card__kicker {
+  margin: 0;
+  color: #ad7e32;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.seasonal-card h2 {
+  margin: 0;
+  color: #261d14;
+  font-size: clamp(28px, 5vw, 42px);
+  line-height: 1;
+}
+
+.seasonal-card__text {
+  margin: 0;
+  max-width: 360px;
+  color: #6d6255;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.55;
+}
+
+.seasonal-card__link {
+  width: fit-content;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #ad7e32;
+  font-size: 12px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.seasonal-card__link span[aria-hidden="true"] {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(173, 126, 50, 0.12);
+}
+
+.seasonal-card__media {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 16px;
+  background: #ded2c0;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.42);
+}
+
+.seasonal-card__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.seasonal-card__placeholder {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(173, 126, 50, 0.34);
+  border-radius: 50%;
+  color: #ad7e32;
+  background: rgba(255, 255, 255, 0.44);
+  font: 400 42px/1 "Forum", Georgia, serif;
 }
 
 .menu-hero + .menu-controls {
@@ -929,6 +1059,72 @@ label[for="theme-toggle"] {
     backdrop-filter: none;
   }
 
+  .seasonal-menu {
+    width: 100%;
+    margin: 0;
+  }
+
+  .seasonal-menu__track {
+    grid-auto-columns: 100%;
+    gap: 10px;
+  }
+
+  .seasonal-menu::after {
+    width: 46px;
+    height: 7px;
+    margin: 12px auto 0;
+    display: block;
+    border-radius: 999px;
+    background:
+      radial-gradient(circle at 3px 50%, rgba(255, 248, 236, 0.96) 0 3px, transparent 3.5px),
+      radial-gradient(circle at 17px 50%, rgba(255, 248, 236, 0.36) 0 2.5px, transparent 3px),
+      radial-gradient(circle at 30px 50%, rgba(255, 248, 236, 0.28) 0 2.5px, transparent 3px),
+      radial-gradient(circle at 43px 50%, rgba(255, 248, 236, 0.24) 0 2.5px, transparent 3px);
+    content: "";
+  }
+
+  .seasonal-card {
+    min-height: 178px;
+    grid-template-columns: minmax(0, 1fr) minmax(132px, 48%);
+    gap: 13px;
+    padding: 16px 8px 16px 17px;
+    border-radius: 18px;
+    box-shadow: 0 18px 38px rgba(0, 0, 0, 0.3);
+  }
+
+  .seasonal-card__copy {
+    gap: 9px;
+  }
+
+  .seasonal-card__kicker {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+  }
+
+  .seasonal-card h2 {
+    font-size: clamp(26px, 7.8vw, 36px);
+    line-height: 1.02;
+  }
+
+  .seasonal-card__text {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 11px;
+    line-height: 1.55;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .seasonal-card__link {
+    min-height: 30px;
+    font-size: 11px;
+  }
+
+  .seasonal-card__media {
+    border-radius: 16px;
+    align-self: stretch;
+  }
+
   .menu-controls,
   .menu-hero + .menu-controls {
     --menu-search-gap: 8px;
@@ -1031,16 +1227,21 @@ label[for="theme-toggle"] {
     transform: none;
   }
   .menu-hero {
-    min-height: 88svh;
+    min-height: calc(100svh - 12px);
     margin-top: calc(-1 * (var(--header-height) + 18px));
-    margin-bottom: 12px;
-    padding: calc(var(--header-height) + 22px) 18px 24px;
+    margin-bottom: 10px;
+    padding: calc(var(--header-height) + 104px) 18px 24px;
     background:
       linear-gradient(180deg, rgba(17, 18, 15, 0.24) 0%, rgba(17, 18, 15, 0.18) 42%, #11120f 100%),
       linear-gradient(90deg, rgba(17, 18, 15, 0.9) 0%, rgba(17, 18, 15, 0.38) 58%, rgba(17, 18, 15, 0.64) 100%),
       url("../img/caesar-mobile-hero.jpg") center center / cover no-repeat;
     animation: none;
     transform: none;
+  }
+
+  .menu-hero:has(.seasonal-menu) {
+    grid-template-rows: minmax(0, 1fr) auto;
+    row-gap: 28px;
   }
 
   .menu-hero::before {
@@ -1065,7 +1266,7 @@ label[for="theme-toggle"] {
 
   .menu-hero__content {
     width: min(390px, 100%);
-    padding-bottom: clamp(30px, 7vh, 56px);
+    padding-bottom: 0;
   }
 
   .menu-hero__content::before {

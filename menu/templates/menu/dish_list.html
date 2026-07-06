@@ -33,6 +33,52 @@
           <span class="menu-hero__menu-link-icon" aria-hidden="true">↓</span>
         </a>
       </div>
+      {% if seasonal_features %}
+        <section
+          class="seasonal-menu"
+          aria-label="{% if ui_language == 'en' %}Seasonal dishes{% elif ui_language == 'tr' %}Mevsim yemekleri{% else %}Сезонные блюда{% endif %}"
+        >
+          <div class="seasonal-menu__track">
+            {% for feature in seasonal_features %}
+              <article
+                class="seasonal-card{% if not feature.image_url %} seasonal-card--no-image{% endif %}"
+                aria-labelledby="seasonal-feature-title-{{ feature.id }}"
+              >
+                <div class="seasonal-card__copy">
+                  <p class="seasonal-card__kicker">{{ feature.label_html }}</p>
+                  <h2 id="seasonal-feature-title-{{ feature.id }}">{{ feature.title_html }}</h2>
+                  {% if feature.has_description %}
+                    <p class="seasonal-card__text">{{ feature.description_html }}</p>
+                  {% endif %}
+                  <a class="seasonal-card__link" href="#dish-{{ feature.dish.id }}">
+                    {{ feature.cta_html }}
+                    <span aria-hidden="true">→</span>
+                  </a>
+                </div>
+                <a
+                  class="seasonal-card__media"
+                  href="#dish-{{ feature.dish.id }}"
+                  tabindex="-1"
+                  aria-hidden="true"
+                >
+                  {% if feature.image_url %}
+                    <img
+                      src="{{ feature.image_url }}"
+                      alt=""
+                      width="560"
+                      height="420"
+                      loading="lazy"
+                      decoding="async"
+                    >
+                  {% else %}
+                    <span class="seasonal-card__placeholder">{{ feature.placeholder }}</span>
+                  {% endif %}
+                </a>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
     </section>
   {% endif %}
   <div class="menu-controls" id="menu-controls" data-menu-sticky-controls>

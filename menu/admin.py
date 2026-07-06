@@ -20,6 +20,7 @@ from .models import (
     DishIngredient,
     DishTranslation,
     Ingredient,
+    SeasonalDishFeature,
 )
 
 
@@ -80,6 +81,62 @@ class IngredientAdmin(admin.ModelAdmin):
                 flat=True,
             )
         )
+
+
+
+@admin.register(SeasonalDishFeature)
+class SeasonalDishFeatureAdmin(admin.ModelAdmin):
+    list_display = (
+        "dish",
+        "restaurant",
+        "is_active",
+        "sort_order",
+        "starts_at",
+        "ends_at",
+        "updated_at",
+    )
+    list_filter = ("restaurant", "is_active", "starts_at", "ends_at")
+    search_fields = (
+        "dish__name",
+        "dish__translations__name",
+        "title_ru",
+        "title_en",
+        "title_tr",
+        "description_ru",
+        "description_en",
+        "description_tr",
+    )
+    autocomplete_fields = ("restaurant", "dish")
+    readonly_fields = ("created_at", "updated_at")
+    fieldsets = (
+        (
+            "Блюдо и показ",
+            {
+                "fields": (
+                    "restaurant",
+                    "dish",
+                    "image",
+                    "sort_order",
+                    "is_active",
+                    "starts_at",
+                    "ends_at",
+                )
+            },
+        ),
+        (
+            "Текст RU",
+            {"fields": ("label_ru", "title_ru", "description_ru", "cta_ru")},
+        ),
+        (
+            "Text EN",
+            {"fields": ("label_en", "title_en", "description_en", "cta_en")},
+        ),
+        (
+            "Metin TR",
+            {"fields": ("label_tr", "title_tr", "description_tr", "cta_tr")},
+        ),
+        ("Служебное", {"fields": ("created_at", "updated_at")}),
+    )
 
 
 class DishIngredientInline(admin.TabularInline):

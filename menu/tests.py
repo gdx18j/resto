@@ -37,6 +37,7 @@ from .models import (
     DishIngredient,
     DishTranslation,
     Ingredient,
+    SeasonalDishFeature,
 )
 from .translations import localized_dish_string
 
@@ -68,6 +69,84 @@ class MenuRenderingTests(TestCase):
         self.assertNotIn('id="dish-detail-data"', html)
         self.assertEqual(html.count("data-detail-url="), 2)
         self.assertEqual(html.count("data-dish-modal hidden"), 1)
+
+
+    def test_seasonal_feature_renders_admin_selected_dish_card(self):
+        self.dish.description = "Классический кофе для сезонного меню."
+        self.dish.image = "dishes/test/americano.jpg"
+        self.dish.save(update_fields=["description", "image", "updated_at"])
+        SeasonalDishFeature.objects.create(
+            restaurant=self.dish.restaurant,
+            dish=self.dish,
+            label_ru="Сезонная история",
+            title_ru="Летний американо",
+            description_ru="Лёгкий вкус для тёплого дня.",
+            cta_ru="Попробовать",
+        )
+
+        response = self.client.get(reverse("menu:dish_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'class="seasonal-menu"')
+        self.assertContains(response, 'class="seasonal-card')
+        self.assertContains(response, "Сезонная история")
+        self.assertContains(response, "Летний американо")
+        self.assertContains(response, "Лёгкий вкус для тёплого дня.")
+        self.assertContains(response, "Попробовать")
+        self.assertContains(response, f'href="#dish-{self.dish.id}"')
+        self.assertContains(response, 'src="/media/dishes/test/americano.jpg"')
+
+    def test_seasonal_feature_uses_dish_fallbacks_and_hides_inactive_items(self):
+        inactive_dish = Dish.objects.create(
+            category=self.dish.category,
+            name="Hidden seasonal",
+            description="Should not render",
+            price=Decimal("300.00"),
+            is_active=True,
+            is_available=True,
+        )
+        SeasonalDishFeature.objects.create(
+            restaurant=self.dish.restaurant,
+            dish=self.dish,
+        )
+        SeasonalDishFeature.objects.create(
+            restaurant=self.dish.restaurant,
+            dish=inactive_dish,
+            is_active=False,
+            title_ru="Не показывать",
+        )
+
+        response = self.client.get(reverse("menu:dish_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Сезонная история")
+        self.assertContains(response, "Americano")
+        self.assertContains(response, "Открыть блюдо")
+        self.assertNotContains(response, "Не показывать")
+
+    def test_seasonal_feature_validates_restaurant_and_period(self):
+        second_restaurant = Restaurant.objects.create(
+            name="Second Restaurant",
+            slug="second-seasonal",
+        )
+        feature = SeasonalDishFeature(
+            restaurant=second_restaurant,
+            dish=self.dish,
+        )
+
+        with self.assertRaises(ValidationError):
+            feature.full_clean()
+
+        now = timezone.now()
+        feature = SeasonalDishFeature(
+            restaurant=self.dish.restaurant,
+            dish=self.dish,
+            starts_at=now,
+            ends_at=now,
+        )
+
+        with self.assertRaises(ValidationError):
+            feature.full_clean()
 
     def test_menu_uses_one_compact_search_index_without_per_card_duplicates(self):
         ingredient = Ingredient.objects.create(name="Arabica beans")

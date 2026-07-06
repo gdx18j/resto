@@ -464,6 +464,160 @@ class Dish(models.Model):
         ).exists()
 
 
+class SeasonalDishFeature(models.Model):
+    """
+    Администрируемая сезонная карточка на публичной странице меню.
+
+    Карточка ссылается на существующее блюдо, поэтому цена, доступность,
+    состав, аллергены и перевод блюда остаются единственным источником
+    правды. Поля текста здесь нужны только для промо-подачи.
+    """
+
+    restaurant = models.ForeignKey(
+        "orders.Restaurant",
+        on_delete=models.CASCADE,
+        related_name="seasonal_dish_features",
+        default=get_default_restaurant_id,
+        verbose_name="Ресторан",
+    )
+
+    dish = models.ForeignKey(
+        Dish,
+        on_delete=models.CASCADE,
+        related_name="seasonal_features",
+        verbose_name="Блюдо",
+    )
+
+    label_ru = models.CharField(
+        max_length=80,
+        blank=True,
+        verbose_name="Надпись RU",
+        help_text="Например: Сезонная история. Если пусто — используется стандартный текст.",
+    )
+    label_en = models.CharField(
+        max_length=80,
+        blank=True,
+        verbose_name="Надпись EN",
+    )
+    label_tr = models.CharField(
+        max_length=80,
+        blank=True,
+        verbose_name="Надпись TR",
+    )
+
+    title_ru = models.CharField(
+        max_length=160,
+        blank=True,
+        verbose_name="Заголовок RU",
+        help_text="Если пусто — берётся название блюда.",
+    )
+    title_en = models.CharField(
+        max_length=160,
+        blank=True,
+        verbose_name="Заголовок EN",
+    )
+    title_tr = models.CharField(
+        max_length=160,
+        blank=True,
+        verbose_name="Заголовок TR",
+    )
+
+    description_ru = models.TextField(
+        blank=True,
+        verbose_name="Описание RU",
+        help_text="Если пусто — берётся описание блюда.",
+    )
+    description_en = models.TextField(
+        blank=True,
+        verbose_name="Описание EN",
+    )
+    description_tr = models.TextField(
+        blank=True,
+        verbose_name="Описание TR",
+    )
+
+    cta_ru = models.CharField(
+        max_length=80,
+        blank=True,
+        verbose_name="Кнопка RU",
+        help_text="Если пусто — используется стандартный текст.",
+    )
+    cta_en = models.CharField(
+        max_length=80,
+        blank=True,
+        verbose_name="Кнопка EN",
+    )
+    cta_tr = models.CharField(
+        max_length=80,
+        blank=True,
+        verbose_name="Кнопка TR",
+    )
+
+    image = models.ImageField(
+        upload_to="seasonal/%Y/%m/",
+        blank=True,
+        verbose_name="Промо-изображение",
+        help_text="Если пусто — используется фотография выбранного блюда.",
+    )
+
+    sort_order = models.PositiveSmallIntegerField(
+        default=0,
+        db_index=True,
+        verbose_name="Порядок",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        db_index=True,
+        verbose_name="Показывать",
+    )
+    starts_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="Показывать с",
+    )
+    ends_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="Показывать до",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создано")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Обновлено")
+
+    class Meta:
+        verbose_name = "Сезонное блюдо"
+        verbose_name_plural = "Сезонные блюда"
+        ordering = ["restaurant__name", "sort_order", "id"]
+        indexes = [
+            models.Index(
+                fields=["restaurant", "is_active", "sort_order"],
+                name="seasonal_rest_active_sort_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.restaurant}: {self.dish}"
+
+    def clean(self):
+        super().clean()
+
+        if (
+            self.dish_id
+            and self.restaurant_id
+            and self.dish.restaurant_id != self.restaurant_id
+        ):
+            raise ValidationError(
+                {"dish": "Блюдо должно принадлежать тому же ресторану, что и сезонная карточка."}
+            )
+
+        if self.starts_at and self.ends_at and self.ends_at <= self.starts_at:
+            raise ValidationError(
+                {"ends_at": "Дата окончания должна быть позже даты начала."}
+            )
+
+
+
 class DishAllergen(models.Model):
     class RelationType(models.TextChoices):
         CONTAINS = "contains", "Содержит"
