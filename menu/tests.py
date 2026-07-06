@@ -75,7 +75,7 @@ class MenuRenderingTests(TestCase):
         self.dish.description = "Классический кофе для сезонного меню."
         self.dish.image = "dishes/test/americano.jpg"
         self.dish.save(update_fields=["description", "image", "updated_at"])
-        SeasonalDishFeature.objects.create(
+        seasonal_feature = SeasonalDishFeature.objects.create(
             restaurant=self.dish.restaurant,
             dish=self.dish,
             label_ru="Сезонная история",
@@ -87,8 +87,20 @@ class MenuRenderingTests(TestCase):
         response = self.client.get(reverse("menu:dish_list"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'class="seasonal-menu"')
+        self.assertContains(response, 'class="seasonal-menu seasonal-menu--mobile"')
+        self.assertContains(response, 'class="seasonal-menu seasonal-menu--desktop"')
+        self.assertContains(response, "data-seasonal-track")
+        self.assertContains(response, "data-seasonal-card")
+        self.assertContains(response, "data-seasonal-dots")
         self.assertContains(response, 'class="seasonal-card')
+        self.assertContains(
+            response,
+            f'id="seasonal-feature-mobile-title-{seasonal_feature.id}"',
+        )
+        self.assertContains(
+            response,
+            f'id="seasonal-feature-title-{seasonal_feature.id}"',
+        )
         self.assertContains(response, "Сезонная история")
         self.assertContains(response, "Летний американо")
         self.assertContains(response, "Лёгкий вкус для тёплого дня.")
@@ -123,6 +135,24 @@ class MenuRenderingTests(TestCase):
         self.assertContains(response, "Americano")
         self.assertContains(response, "Открыть блюдо")
         self.assertNotContains(response, "Не показывать")
+
+    def test_seasonal_carousel_indicator_is_runtime_driven(self):
+        loader_path = finders.find("js/menu-ui-loader.js")
+        css_path = finders.find("css/menu.css")
+
+        self.assertIsNotNone(loader_path)
+        self.assertIsNotNone(css_path)
+
+        loader_source = Path(loader_path).read_text(encoding="utf-8")
+        css_source = Path(css_path).read_text(encoding="utf-8")
+
+        self.assertIn("setupSeasonalCarouselDots", loader_source)
+        self.assertIn("maxDots = 4", loader_source)
+        self.assertIn("cards.length <= 1", loader_source)
+        self.assertIn("requestAnimationFrame(update)", loader_source)
+        self.assertIn("scrollIntoView", loader_source)
+        self.assertIn(".seasonal-menu__dot.is-active", css_source)
+        self.assertNotIn(".seasonal-menu::after", css_source)
 
     def test_seasonal_feature_validates_restaurant_and_period(self):
         second_restaurant = Restaurant.objects.create(
