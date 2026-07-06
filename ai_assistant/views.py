@@ -68,6 +68,48 @@ logger = logging.getLogger(__name__)
 MAX_PROMPT_LENGTH = 4000
 MAX_RECOMMENDED_DISHES = 3
 
+
+def _request_body_too_large_response(request):
+    limit = int(getattr(settings, "AI_MAX_REQUEST_BODY_BYTES", 32768) or 0)
+
+    if limit <= 0:
+        return None
+
+    content_length = request.META.get("CONTENT_LENGTH")
+    if content_length:
+        try:
+            if int(content_length) > limit:
+                return _error_response(
+                    "Запрос к ИИ слишком большой.",
+                    status=413,
+                    code="ai_request_too_large",
+                )
+        except (TypeError, ValueError):
+            pass
+
+    return None
+
+
+def _read_ai_json_payload(request):
+    too_large_response = _request_body_too_large_response(request)
+    if too_large_response is not None:
+        return None, too_large_response
+
+    body = request.body or b"{}"
+    limit = int(getattr(settings, "AI_MAX_REQUEST_BODY_BYTES", 32768) or 0)
+
+    if limit > 0 and len(body) > limit:
+        return None, _error_response(
+            "Запрос к ИИ слишком большой.",
+            status=413,
+            code="ai_request_too_large",
+        )
+
+    try:
+        return json.loads(body), None
+    except json.JSONDecodeError:
+        return None, _error_response("Передан некорректный JSON.", status=400)
+
 def _error_response(message, status, session=None, code=None):
     payload = {
         "error": message,
@@ -694,10 +736,9 @@ def _close_provider_stream(stream_handle):
 
 @require_POST
 def ask(request):
-    try:
-        payload = json.loads(request.body or b"{}")
-    except json.JSONDecodeError:
-        return _error_response("Передан некорректный JSON.", status=400)
+    payload, payload_error = _read_ai_json_payload(request)
+    if payload_error is not None:
+        return payload_error
 
     if not isinstance(payload, dict):
         return _error_response("Тело запроса должно быть JSON-объектом.", status=400)

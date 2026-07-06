@@ -17,10 +17,12 @@ build time.
 1. Copy `.env.example` to `.env`.
 2. Fill every blank required value.
 3. Generate a unique `DJANGO_SECRET_KEY`.
-4. Set `DJANGO_DEBUG=False`.
-5. Set `DJANGO_ALLOWED_HOSTS` to the real domains plus the healthcheck host.
-6. Set `DJANGO_CSRF_TRUSTED_ORIGINS` to the HTTPS origins.
-7. Configure a real email delivery backend. Production must not use console,
+4. Generate a unique `TABLE_QR_TOKEN_ENCRYPTION_KEY` that is different from
+   `DJANGO_SECRET_KEY`.
+5. Set `DJANGO_DEBUG=False`.
+6. Set `DJANGO_ALLOWED_HOSTS` to the real domains plus the healthcheck host.
+7. Set `DJANGO_CSRF_TRUSTED_ORIGINS` to the HTTPS origins.
+8. Configure a real email delivery backend. Production must not use console,
    dummy, locmem, or file-based email backends.
 
 PostgreSQL and Redis are exposed only on the internal Docker network. The web
@@ -36,6 +38,30 @@ DJANGO_TRUSTED_PROXY_CIDRS=172.16.0.0/12
 
 The CIDR list must contain only the direct proxy network. Never use
 `0.0.0.0/0`.
+
+## Table QR token encryption
+
+`TABLE_QR_TOKEN_ENCRYPTION_KEY` protects the recoverable plaintext copy of table
+QR tokens stored in `orders_table.qr_token_ciphertext`. It must stay stable
+across Django secret-key rotations. Generate it as a separate random value, for
+example:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Older releases encrypted this field with a key derived from
+`DJANGO_SECRET_KEY`. For an existing installation, deploy the new
+`TABLE_QR_TOKEN_ENCRYPTION_KEY` while the current Django secret is still
+available, then run:
+
+```bash
+docker compose exec web python manage.py reencrypt_table_qr_tokens --fail-on-unreadable
+```
+
+If `DJANGO_SECRET_KEY` has already changed, put the previous Django secret in
+`TABLE_QR_TOKEN_ENCRYPTION_FALLBACK_KEYS` before running the command. After all
+rows are re-encrypted successfully, remove fallback values from the environment.
 
 ## Image reproducibility
 

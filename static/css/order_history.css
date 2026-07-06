@@ -943,6 +943,17 @@
   border-color: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
+.order-repeat-status--floating {
+  position: fixed;
+  left: 50%;
+  bottom: calc(22px + env(safe-area-inset-bottom));
+  z-index: 1400;
+  width: min(calc(100% - 28px), 440px);
+  margin: 0;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
+  transform: translateX(-50%);
+}
+
 .repeat-confirm[hidden] {
   display: none !important;
 }

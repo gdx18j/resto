@@ -35,47 +35,50 @@
       </div>
     </section>
   {% endif %}
-  <div class="menu-controls" id="menu-search">
-    <section
-      class="search-section"
-      aria-label="{% if ui_language == 'en' %}Search menu{% elif ui_language == 'tr' %}Menüde ara{% else %}Поиск по меню{% endif %}"
-      data-i18n-aria-label
-      data-aria-label-ru="Поиск по меню"
-      data-aria-label-en="Search menu"
-      data-aria-label-tr="Menüde ara"
-    >
-      <label class="search-box">
-        <svg><use href="#i-search"/></svg>
-        <input
-          class="menu-search-input"
-          type="search"
-          placeholder="{% if ui_language == 'en' %}Find a dish or ingredient{% elif ui_language == 'tr' %}Yemek veya malzeme ara{% else %}Найти блюдо или ингредиент{% endif %}"
-          aria-label="{% if ui_language == 'en' %}Search menu{% elif ui_language == 'tr' %}Menüde ara{% else %}Поиск по меню{% endif %}"
-          data-i18n-placeholder
-          data-placeholder-ru="Найти блюдо или ингредиент"
-          data-placeholder-en="Find a dish or ingredient"
-          data-placeholder-tr="Yemek veya malzeme ara"
-          data-i18n-aria-label
-          data-aria-label-ru="Поиск по меню"
-          data-aria-label-en="Search menu"
-          data-aria-label-tr="Menüde ara"
-        >
-        <button
-          class="search-clear-button"
-          type="button"
-          aria-label="{% if ui_language == 'en' %}Clear search{% elif ui_language == 'tr' %}Aramayı temizle{% else %}Очистить поиск{% endif %}"
-          data-i18n-aria-label
-          data-aria-label-ru="Очистить поиск"
-          data-aria-label-en="Clear search"
-          data-aria-label-tr="Aramayı temizle"
-          hidden
-        >
-          <svg><use href="#i-close"/></svg>
-        </button>
-      </label>
-    </section>
+  <div class="menu-controls" id="menu-controls" data-menu-sticky-controls>
+    <div class="menu-search-panel" id="menu-search">
+      <section
+        class="search-section"
+        aria-label="{% if ui_language == 'en' %}Search menu{% elif ui_language == 'tr' %}Menüde ara{% else %}Поиск по меню{% endif %}"
+        data-i18n-aria-label
+        data-aria-label-ru="Поиск по меню"
+        data-aria-label-en="Search menu"
+        data-aria-label-tr="Menüde ara"
+      >
+        <label class="search-box">
+          <svg><use href="#i-search"/></svg>
+          <input
+            class="menu-search-input"
+            type="search"
+            placeholder="{% if ui_language == 'en' %}Find a dish or ingredient{% elif ui_language == 'tr' %}Yemek veya malzeme ara{% else %}Найти блюдо или ингредиент{% endif %}"
+            aria-label="{% if ui_language == 'en' %}Search menu{% elif ui_language == 'tr' %}Menüde ara{% else %}Поиск по меню{% endif %}"
+            data-i18n-placeholder
+            data-placeholder-ru="Найти блюдо или ингредиент"
+            data-placeholder-en="Find a dish or ingredient"
+            data-placeholder-tr="Yemek veya malzeme ara"
+            data-i18n-aria-label
+            data-aria-label-ru="Поиск по меню"
+            data-aria-label-en="Search menu"
+            data-aria-label-tr="Menüde ara"
+          >
+          <button
+            class="search-clear-button"
+            type="button"
+            aria-label="{% if ui_language == 'en' %}Clear search{% elif ui_language == 'tr' %}Aramayı temizle{% else %}Очистить поиск{% endif %}"
+            data-i18n-aria-label
+            data-aria-label-ru="Очистить поиск"
+            data-aria-label-en="Clear search"
+            data-aria-label-tr="Aramayı temizle"
+            hidden
+          >
+            <svg><use href="#i-close"/></svg>
+          </button>
+        </label>
+      </section>
+    </div>
 
-    {% if menu_sections %}
+  {% if menu_sections %}
+    <div class="category-controls" id="menu-categories">
       <div class="category-row">
         <nav
           class="category-strip"
@@ -96,7 +99,8 @@
         </nav>
         <span class="menu-search-count" aria-live="polite"></span>
       </div>
-    {% endif %}
+    </div>
+  {% endif %}
   </div>
 
   {% if menu_sections %}

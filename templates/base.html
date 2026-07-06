@@ -311,6 +311,7 @@
             </a>
           </div>
 
+          {% if google_oauth_enabled %}
           <div class="profile-popover__divider">
             <span class="lang lang--ru">или</span>
             <span class="lang lang--en">or</span>
@@ -327,6 +328,7 @@
               <span class="lang lang--tr">Google ile devam et</span>
             </button>
           </form>
+          {% endif %}
         {% endif %}
       </aside>
     </div>
@@ -347,6 +349,7 @@
   <script src="{% static 'js/password-toggle.js' %}" defer></script>
   {% if menu_page %}
     <script src="{% static 'js/table-context.js' %}" defer></script>
+    <script src="{% static 'js/menu-sticky.js' %}" defer></script>
     <script
       src="{% static 'js/menu-ui-loader.js' %}"
       data-menu-ui-script-url="{% static 'js/menu-ui.js' %}"

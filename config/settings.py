@@ -118,6 +118,27 @@ if IS_PRODUCTION and SECRET_KEY in INSECURE_SECRET_KEYS:
         "DJANGO_SECRET_KEY must be set to a unique, non-example value in production."
     )
 
+TABLE_QR_TOKEN_ENCRYPTION_KEY = env_value(
+    "TABLE_QR_TOKEN_ENCRYPTION_KEY",
+    SECRET_KEY if not IS_PRODUCTION else None,
+    required=IS_PRODUCTION,
+)
+TABLE_QR_TOKEN_ENCRYPTION_KEY = str(TABLE_QR_TOKEN_ENCRYPTION_KEY or "").strip()
+TABLE_QR_TOKEN_ENCRYPTION_FALLBACK_KEYS = env_list(
+    "TABLE_QR_TOKEN_ENCRYPTION_FALLBACK_KEYS",
+    "",
+)
+
+if IS_PRODUCTION and not TABLE_QR_TOKEN_ENCRYPTION_KEY:
+    raise ImproperlyConfigured(
+        "TABLE_QR_TOKEN_ENCRYPTION_KEY environment variable is required."
+    )
+
+if IS_PRODUCTION and TABLE_QR_TOKEN_ENCRYPTION_KEY == SECRET_KEY:
+    raise ImproperlyConfigured(
+        "TABLE_QR_TOKEN_ENCRYPTION_KEY must be independent from DJANGO_SECRET_KEY."
+    )
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool(
     "DJANGO_DEBUG",
@@ -199,6 +220,7 @@ if IS_PRODUCTION and TRUST_PROXY_HEADERS and not TRUSTED_PROXY_CIDRS:
 SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", IS_PRODUCTION)
 SESSION_COOKIE_SECURE = env_bool("DJANGO_SESSION_COOKIE_SECURE", IS_PRODUCTION)
 CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", IS_PRODUCTION)
+CSRF_ALLOW_NULL_ORIGIN = env_bool("DJANGO_CSRF_ALLOW_NULL_ORIGIN", DEBUG)
 
 if DEBUG:
     # Local development normally runs over plain HTTP. Secure cookies or forced
@@ -300,7 +322,7 @@ MIDDLEWARE = [
     "config.security.SecurityPolicyMiddleware",
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
+    "config.csrf.RestoCsrfViewMiddleware",
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     "allauth.account.middleware.AccountMiddleware",
     "config.rate_limit.RateLimitMiddleware",
@@ -327,6 +349,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 "accounts.context_processors.account_identity",
                 "config.context_processors.ui_preferences",
+                "config.context_processors.oauth_providers",
                 "menu.context_processors.remembered_table_context",
             ],
         },
@@ -418,11 +441,42 @@ SOCIALACCOUNT_STORE_TOKENS = False
 SOCIALACCOUNT_EMAIL_AUTHENTICATION = True
 SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True
 
+GOOGLE_OAUTH_PLACEHOLDER_PREFIXES = ("replace-with-", "change-me")
+GOOGLE_OAUTH_CLIENT_ID = env_value("GOOGLE_OAUTH_CLIENT_ID", "")
+GOOGLE_OAUTH_CLIENT_SECRET = env_value("GOOGLE_OAUTH_CLIENT_SECRET", "")
+
+
+def is_configured_secret(value):
+    normalized = str(value or "").strip()
+    if not normalized:
+        return False
+
+    return not any(
+        normalized.lower().startswith(prefix)
+        for prefix in GOOGLE_OAUTH_PLACEHOLDER_PREFIXES
+    )
+
+
+GOOGLE_OAUTH_ENABLED = env_bool(
+    "GOOGLE_OAUTH_ENABLED",
+    is_configured_secret(GOOGLE_OAUTH_CLIENT_ID)
+    and is_configured_secret(GOOGLE_OAUTH_CLIENT_SECRET),
+)
+
+if GOOGLE_OAUTH_ENABLED and not (
+    is_configured_secret(GOOGLE_OAUTH_CLIENT_ID)
+    and is_configured_secret(GOOGLE_OAUTH_CLIENT_SECRET)
+):
+    raise ImproperlyConfigured(
+        "GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET must be set "
+        "to real values when GOOGLE_OAUTH_ENABLED is true."
+    )
+
 SOCIALACCOUNT_PROVIDERS = {
     "google": {
         "APP": {
-            "client_id": os.getenv("GOOGLE_OAUTH_CLIENT_ID", ""),
-            "secret": os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", ""),
+            "client_id": GOOGLE_OAUTH_CLIENT_ID if GOOGLE_OAUTH_ENABLED else "",
+            "secret": GOOGLE_OAUTH_CLIENT_SECRET if GOOGLE_OAUTH_ENABLED else "",
             "key": "",
         },
         "SCOPE": [
@@ -696,6 +750,8 @@ GEMINI_FALLBACK_MODEL = os.getenv(
     "GEMINI_FALLBACK_MODEL",
     "gemini-2.5-flash",
 )
+
+AI_MAX_REQUEST_BODY_BYTES = env_int("AI_MAX_REQUEST_BODY_BYTES", 32768)
 
 AI_MAX_OUTPUT_TOKENS = int(
     os.getenv("AI_MAX_OUTPUT_TOKENS", "1000")

@@ -428,6 +428,28 @@ class AskViewTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("JSON", response.json()["error"])
 
+    @override_settings(AI_MAX_REQUEST_BODY_BYTES=64)
+    def test_rejects_oversized_body_before_creating_ai_records(self):
+        request_id = uuid.uuid4()
+        payload = {
+            "prompt": "x" * 200,
+            "restaurant_slug": self.restaurant.slug,
+            "request_id": str(request_id),
+        }
+
+        response = self.client.post(
+            reverse("ai_assistant:ask"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.json()["code"], "ai_request_too_large")
+        self.assertFalse(ChatSession.objects.exists())
+        self.assertFalse(ChatMessage.objects.exists())
+        self.assertFalse(AIRequestRecord.objects.filter(pk=request_id).exists())
+        self.assertFalse(AIUsageEvent.objects.exists())
+
     @patch(
         "ai_assistant.views.generate_ai_answer",
         return_value=AIResult(text="Legacy client answer", model_name="gemini-test"),

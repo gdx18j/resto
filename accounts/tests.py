@@ -416,6 +416,14 @@ class AccountViewTests(TestCase):
 
 
 class GoogleAuthTests(TestCase):
+    @override_settings(GOOGLE_OAUTH_ENABLED=False)
+    def test_login_page_hides_google_when_oauth_is_not_configured(self):
+        response = self.client.get(reverse("account_login"))
+
+        self.assertNotContains(response, "Continue with Google")
+        self.assertNotContains(response, reverse("google_login"))
+
+    @override_settings(GOOGLE_OAUTH_ENABLED=True)
     def test_login_page_contains_google_post_form(self):
         response = self.client.get(reverse("account_login"))
 
@@ -424,6 +432,7 @@ class GoogleAuthTests(TestCase):
         self.assertContains(response, "csrfmiddlewaretoken")
         self.assertContains(response, "next=%2Faccount%2F")
 
+    @override_settings(GOOGLE_OAUTH_ENABLED=True)
     def test_login_page_preserves_explicit_next_for_google(self):
         response = self.client.get(
             reverse("account_login"),

@@ -65,16 +65,24 @@
   }
 
   function statusElement() {
-    return document.querySelector('[data-repeat-order-status]');
+    var element = document.querySelector('[data-repeat-order-status]');
+
+    if (element) {
+      return element;
+    }
+
+    element = document.createElement('p');
+    element.className = 'order-repeat-status order-repeat-status--floating';
+    element.setAttribute('data-repeat-order-status', '');
+    element.setAttribute('role', 'status');
+    element.setAttribute('aria-live', 'polite');
+    element.hidden = true;
+    document.body.appendChild(element);
+    return element;
   }
 
   function showStatus(message, isError) {
     var element = statusElement();
-
-    if (!element) {
-      window.alert(message);
-      return;
-    }
 
     element.textContent = message;
     element.hidden = false;

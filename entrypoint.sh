@@ -11,6 +11,7 @@ is_true() {
 
 if [ "${DJANGO_ENV:-development}" = "production" ]; then
     : "${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY is required}"
+    : "${TABLE_QR_TOKEN_ENCRYPTION_KEY:?TABLE_QR_TOKEN_ENCRYPTION_KEY is required}"
     : "${DJANGO_DEBUG:?DJANGO_DEBUG is required}"
     : "${DJANGO_ALLOWED_HOSTS:?DJANGO_ALLOWED_HOSTS is required}"
     : "${DB_HOST:?DB_HOST is required}"

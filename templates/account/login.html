@@ -99,6 +99,7 @@
         </button>
       </form>
 
+      {% if google_oauth_enabled %}
       <div class="auth-divider">
         <span class="lang lang--ru">или</span>
         <span class="lang lang--en">or</span>
@@ -119,6 +120,7 @@
           <span class="lang lang--tr">Google ile devam et</span>
         </button>
       </form>
+      {% endif %}
 
       <div class="auth-links">
         <a href="{% url 'account_signup' %}">

@@ -1,3 +1,4 @@
+import io
 import json
 from pathlib import Path
 from datetime import timedelta
@@ -9,6 +10,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.staticfiles import finders
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.db import IntegrityError, connection, transaction
 from django.test import Client, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -27,6 +29,7 @@ from orders.models import (
     Table,
     TableQrTokenAudit,
     decrypt_table_qr_token,
+    encrypt_table_qr_token,
     hash_table_qr_token,
 )
 from orders.presentation import repeat_order_result
@@ -828,8 +831,12 @@ class OrderApiTests(TestCase):
         self.assertIn("repeat-confirm", repeat_source)
         self.assertIn("replaceExistingCart: true", repeat_source)
         self.assertIn(".repeat-confirm", order_history_css)
+        self.assertIn("order-repeat-status--floating", repeat_source)
+        self.assertIn(".order-repeat-status--floating", order_history_css)
         self.assertNotIn("window.confirm", repeat_source)
         self.assertNotIn("window.confirm", cart_source)
+        self.assertNotIn("window.alert", repeat_source)
+        self.assertNotIn("window.alert", cart_source)
 
     def test_history_page_lists_authenticated_user_orders(self):
         user = get_user_model().objects.create_user(
@@ -1662,6 +1669,92 @@ class OrderApiTests(TestCase):
         audit_event = table.qr_token_audit_events.get()
         self.assertEqual(audit_event.action, TableQrTokenAudit.Action.ISSUED)
         self.assertEqual(audit_event.token_hash, table.qr_token_hash)
+
+    def test_qr_ciphertext_uses_independent_key_after_django_secret_rotation(self):
+        token = "table-qr-token-secret-key-rotation"
+
+        with override_settings(
+            SECRET_KEY="django-secret-one",
+            TABLE_QR_TOKEN_ENCRYPTION_KEY="stable-table-qr-key",
+            TABLE_QR_TOKEN_ENCRYPTION_FALLBACK_KEYS=[],
+        ):
+            ciphertext = encrypt_table_qr_token(token)
+
+        with override_settings(
+            SECRET_KEY="django-secret-two",
+            TABLE_QR_TOKEN_ENCRYPTION_KEY="stable-table-qr-key",
+            TABLE_QR_TOKEN_ENCRYPTION_FALLBACK_KEYS=[],
+        ):
+            self.assertEqual(decrypt_table_qr_token(ciphertext), token)
+
+        with override_settings(
+            SECRET_KEY="django-secret-two",
+            TABLE_QR_TOKEN_ENCRYPTION_KEY="different-table-qr-key",
+            TABLE_QR_TOKEN_ENCRYPTION_FALLBACK_KEYS=[],
+        ):
+            self.assertEqual(decrypt_table_qr_token(ciphertext), "")
+
+    def test_legacy_secret_key_qr_ciphertext_can_use_fallback_key(self):
+        token = "legacy-table-qr-token"
+
+        with override_settings(
+            SECRET_KEY="old-django-secret",
+            TABLE_QR_TOKEN_ENCRYPTION_KEY="",
+            TABLE_QR_TOKEN_ENCRYPTION_FALLBACK_KEYS=[],
+        ):
+            legacy_ciphertext = encrypt_table_qr_token(token)
+
+        with override_settings(
+            SECRET_KEY="new-django-secret",
+            TABLE_QR_TOKEN_ENCRYPTION_KEY="stable-table-qr-key",
+            TABLE_QR_TOKEN_ENCRYPTION_FALLBACK_KEYS=["old-django-secret"],
+        ):
+            self.assertEqual(decrypt_table_qr_token(legacy_ciphertext), token)
+
+    def test_reencrypt_table_qr_tokens_moves_legacy_ciphertext_to_primary_key(self):
+        table = Table.objects.create(
+            restaurant=self.dish.restaurant,
+            number="14-reencrypt",
+        )
+        token = table.plain_qr_token
+
+        with override_settings(
+            SECRET_KEY="old-django-secret",
+            TABLE_QR_TOKEN_ENCRYPTION_KEY="",
+            TABLE_QR_TOKEN_ENCRYPTION_FALLBACK_KEYS=[],
+        ):
+            legacy_ciphertext = encrypt_table_qr_token(token)
+
+        table.qr_token_ciphertext = legacy_ciphertext
+        table.save(update_fields=["qr_token_ciphertext"])
+
+        with override_settings(
+            SECRET_KEY="old-django-secret",
+            TABLE_QR_TOKEN_ENCRYPTION_KEY="stable-table-qr-key",
+            TABLE_QR_TOKEN_ENCRYPTION_FALLBACK_KEYS=[],
+        ):
+            output = io.StringIO()
+            call_command("reencrypt_table_qr_tokens", stdout=output)
+
+            table.refresh_from_db()
+            self.assertNotEqual(table.qr_token_ciphertext, legacy_ciphertext)
+            self.assertEqual(decrypt_table_qr_token(table.qr_token_ciphertext), token)
+            self.assertEqual(hash_table_qr_token(token), table.qr_token_hash)
+            self.assertIn("1 re-encrypted", output.getvalue())
+            self.assertTrue(
+                table.qr_token_audit_events.filter(
+                    action=TableQrTokenAudit.Action.MIGRATED,
+                    token_hash=table.qr_token_hash,
+                ).exists()
+            )
+
+        with override_settings(
+            SECRET_KEY="new-django-secret",
+            TABLE_QR_TOKEN_ENCRYPTION_KEY="stable-table-qr-key",
+            TABLE_QR_TOKEN_ENCRYPTION_FALLBACK_KEYS=[],
+        ):
+            table.refresh_from_db()
+            self.assertEqual(decrypt_table_qr_token(table.qr_token_ciphertext), token)
 
     def test_admin_can_render_active_qr_link_again_without_rotation(self):
         table = Table.objects.create(

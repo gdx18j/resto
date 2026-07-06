@@ -29,12 +29,62 @@ def hash_table_qr_token(token):
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _table_qr_token_cipher():
-    secret_key = str(settings.SECRET_KEY or "")
+def _normalize_qr_token_encryption_keys(value):
+    if isinstance(value, str):
+        values = value.split(",")
+    else:
+        values = value or ()
+
+    return tuple(str(item).strip() for item in values if str(item).strip())
+
+
+def _table_qr_token_cipher_for_secret(secret):
+    secret_key = str(secret or "").strip()
+    if not secret_key:
+        return None
+
     key_material = hashlib.sha256(
         f"{QR_TOKEN_ENCRYPTION_SALT}:{secret_key}".encode("utf-8")
     ).digest()
     return Fernet(base64.urlsafe_b64encode(key_material))
+
+
+def _table_qr_token_primary_cipher():
+    secret_key = (
+        getattr(settings, "TABLE_QR_TOKEN_ENCRYPTION_KEY", "")
+        or settings.SECRET_KEY
+    )
+    cipher = _table_qr_token_cipher_for_secret(secret_key)
+    if cipher is None:
+        raise ValueError("TABLE_QR_TOKEN_ENCRYPTION_KEY must not be empty.")
+
+    return cipher
+
+
+def _table_qr_token_decryption_ciphers():
+    keys = [
+        getattr(settings, "TABLE_QR_TOKEN_ENCRYPTION_KEY", "")
+        or settings.SECRET_KEY,
+        *_normalize_qr_token_encryption_keys(
+            getattr(settings, "TABLE_QR_TOKEN_ENCRYPTION_FALLBACK_KEYS", ())
+        ),
+        # Compatibility with ciphertext created before QR encryption had its own key.
+        settings.SECRET_KEY,
+    ]
+
+    ciphers = []
+    seen = set()
+    for key in keys:
+        normalized_key = str(key or "").strip()
+        if not normalized_key or normalized_key in seen:
+            continue
+
+        seen.add(normalized_key)
+        cipher = _table_qr_token_cipher_for_secret(normalized_key)
+        if cipher is not None:
+            ciphers.append(cipher)
+
+    return tuple(ciphers)
 
 
 def encrypt_table_qr_token(token):
@@ -42,7 +92,7 @@ def encrypt_table_qr_token(token):
     if not token:
         return ""
 
-    return _table_qr_token_cipher().encrypt(token.encode("utf-8")).decode("ascii")
+    return _table_qr_token_primary_cipher().encrypt(token.encode("utf-8")).decode("ascii")
 
 
 def decrypt_table_qr_token(ciphertext):
@@ -50,10 +100,26 @@ def decrypt_table_qr_token(ciphertext):
     if not ciphertext:
         return ""
 
+    for cipher in _table_qr_token_decryption_ciphers():
+        try:
+            return cipher.decrypt(ciphertext.encode("ascii")).decode("utf-8")
+        except (InvalidToken, ValueError, TypeError, UnicodeDecodeError):
+            continue
+
+    return ""
+
+
+def is_table_qr_token_ciphertext_encrypted_with_primary(ciphertext):
+    ciphertext = str(ciphertext or "").strip()
+    if not ciphertext:
+        return False
+
     try:
-        return _table_qr_token_cipher().decrypt(ciphertext.encode("ascii")).decode("utf-8")
+        _table_qr_token_primary_cipher().decrypt(ciphertext.encode("ascii"))
     except (InvalidToken, ValueError, TypeError, UnicodeDecodeError):
-        return ""
+        return False
+
+    return True
 
 
 ORDER_SNAPSHOT_FIELDS = {

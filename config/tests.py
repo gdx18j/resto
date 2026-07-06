@@ -2,6 +2,7 @@ import contextlib
 import importlib.util
 import io
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -14,8 +15,16 @@ import zipfile
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ImproperlyConfigured
 from django.http import HttpResponse, JsonResponse
+from django.middleware.csrf import get_token
 from django.middleware.security import SecurityMiddleware
-from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
+from django.test import (
+    Client,
+    RequestFactory,
+    SimpleTestCase,
+    TestCase,
+    override_settings,
+)
+from django.urls import path
 
 from ai_assistant.throttling import (
     AIStreamSlot,
@@ -26,6 +35,22 @@ from ai_assistant.views import _rate_limited_response
 from config.client_ip import get_client_ip
 from config.proxy import TrustedProxyHeadersMiddleware
 from config.rate_limit import RateLimitMiddleware
+
+
+def csrf_echo_view(request):
+    if request.method == "POST":
+        return HttpResponse("ok")
+
+    return HttpResponse(
+        '<input type="hidden" name="csrfmiddlewaretoken" value="{}">'.format(
+            get_token(request)
+        )
+    )
+
+
+urlpatterns = [
+    path("csrf-echo/", csrf_echo_view),
+]
 
 
 class CleanMigrationSeedTests(SimpleTestCase):
@@ -300,6 +325,67 @@ class ClientIPTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
 
 
+class CsrfMiddlewareTests(SimpleTestCase):
+    @override_settings(
+        ROOT_URLCONF=__name__,
+        ALLOWED_HOSTS=["testserver"],
+        CSRF_ALLOW_NULL_ORIGIN=True,
+    )
+    def test_null_origin_post_uses_token_when_explicitly_allowed(self):
+        client = Client(enforce_csrf_checks=True)
+        response = client.get("/csrf-echo/")
+        match = re.search(
+            r'name="csrfmiddlewaretoken" value="([^"]+)"',
+            response.content.decode("utf-8"),
+        )
+
+        self.assertIsNotNone(match)
+
+        response = client.post(
+            "/csrf-echo/",
+            {"csrfmiddlewaretoken": match.group(1)},
+            HTTP_ORIGIN="null",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+    @override_settings(
+        ROOT_URLCONF=__name__,
+        ALLOWED_HOSTS=["testserver"],
+        CSRF_ALLOW_NULL_ORIGIN=True,
+    )
+    def test_null_origin_still_requires_csrf_token_when_allowed(self):
+        client = Client(enforce_csrf_checks=True)
+        client.get("/csrf-echo/")
+
+        response = client.post("/csrf-echo/", {}, HTTP_ORIGIN="null")
+
+        self.assertEqual(response.status_code, 403)
+
+    @override_settings(
+        ROOT_URLCONF=__name__,
+        ALLOWED_HOSTS=["testserver"],
+        CSRF_ALLOW_NULL_ORIGIN=False,
+    )
+    def test_null_origin_is_rejected_when_not_allowed(self):
+        client = Client(enforce_csrf_checks=True)
+        response = client.get("/csrf-echo/")
+        match = re.search(
+            r'name="csrfmiddlewaretoken" value="([^"]+)"',
+            response.content.decode("utf-8"),
+        )
+
+        self.assertIsNotNone(match)
+
+        response = client.post(
+            "/csrf-echo/",
+            {"csrfmiddlewaretoken": match.group(1)},
+            HTTP_ORIGIN="null",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+
 class SecurityHeaderTests(TestCase):
     def test_dynamic_response_has_security_policies(self):
         response = self.client.get("/health/live/")
@@ -526,6 +612,7 @@ class RuntimeDeploymentConfigurationTests(SimpleTestCase):
                 "DJANGO_ENV": "production",
                 "DJANGO_DEBUG": "False",
                 "DJANGO_SECRET_KEY": "production-test-secret-key-not-an-example-value",
+                "TABLE_QR_TOKEN_ENCRYPTION_KEY": "production-test-table-qr-token-encryption-key",
                 "DJANGO_ALLOWED_HOSTS": "example.com",
                 "DJANGO_CSRF_TRUSTED_ORIGINS": "https://example.com",
                 "DJANGO_TRUST_PROXY_HEADERS": "False",
@@ -575,6 +662,64 @@ class RuntimeDeploymentConfigurationTests(SimpleTestCase):
             "whitenoise.storage.CompressedManifestStaticFilesStorage",
         )
 
+    def test_production_requires_dedicated_table_qr_encryption_key(self):
+        env = os.environ.copy()
+        env.update(
+            {
+                "DJANGO_ENV": "production",
+                "DJANGO_SECRET_KEY": "production-test-secret-key-not-an-example-value",
+            }
+        )
+        env.pop("TABLE_QR_TOKEN_ENCRYPTION_KEY", None)
+        env.pop("RESTO_LOAD_DOTENV", None)
+
+        result = subprocess.run(
+            [sys.executable, "-c", "import django; django.setup()"],
+            cwd=self.base_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "TABLE_QR_TOKEN_ENCRYPTION_KEY environment variable is required",
+            result.stderr,
+        )
+
+    def test_production_table_qr_encryption_key_must_not_equal_django_secret(self):
+        env = os.environ.copy()
+        env.update(
+            {
+                "DJANGO_ENV": "production",
+                "DJANGO_SECRET_KEY": "production-test-secret-key-not-an-example-value",
+                "TABLE_QR_TOKEN_ENCRYPTION_KEY": (
+                    "production-test-secret-key-not-an-example-value"
+                ),
+            }
+        )
+        env.pop("RESTO_LOAD_DOTENV", None)
+
+        result = subprocess.run(
+            [sys.executable, "-c", "import django; django.setup()"],
+            cwd=self.base_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "TABLE_QR_TOKEN_ENCRYPTION_KEY must be independent from DJANGO_SECRET_KEY",
+            result.stderr,
+        )
+
 
 class DotenvLoadingPolicyTests(SimpleTestCase):
     def test_loads_dotenv_by_default_for_local_development(self):
@@ -618,6 +763,7 @@ class DotenvLoadingPolicyTests(SimpleTestCase):
                 "DJANGO_ENV": "production",
                 "DJANGO_DEBUG": "False",
                 "DJANGO_SECRET_KEY": "production-test-secret-key-not-an-example-value",
+                "TABLE_QR_TOKEN_ENCRYPTION_KEY": "production-test-table-qr-token-encryption-key",
                 "DJANGO_ALLOWED_HOSTS": "example.com",
                 "DJANGO_CSRF_TRUSTED_ORIGINS": "https://example.com",
                 "DJANGO_TRUST_PROXY_HEADERS": "False",
