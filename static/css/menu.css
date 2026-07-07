@@ -1408,6 +1408,7 @@ label[for="theme-toggle"] {
     --menu-search-gap: 8px;
     position: relative;
     top: auto;
+    z-index: 42;
     width: 100%;
     margin: 0 0 16px;
     padding: 8px 10px 10px;
@@ -1422,26 +1423,23 @@ label[for="theme-toggle"] {
 
   .menu-controls.is-mobile-directional-menu {
     isolation: isolate;
-    contain: layout paint;
   }
 
   .menu-controls.is-mobile-menu-floating {
-    position: fixed;
-    top: calc(var(--header-height) - 1px);
-    left: max(14px, env(safe-area-inset-left));
-    right: max(14px, env(safe-area-inset-right));
-    z-index: 61;
-    width: auto;
-    height: var(--menu-mobile-visible-height);
-    margin: 0;
-    border-radius: 0 0 16px 16px;
+    position: relative;
+    top: auto;
+    z-index: 42;
+    width: 100%;
+    height: auto;
+    margin: 0 0 16px;
+    border-radius: 16px;
     transform: translate3d(0, 0, 0);
-    transition: height 140ms ease, border-radius 140ms ease;
-    will-change: height;
+    transition: none;
+    will-change: auto;
   }
 
   .menu-controls.is-mobile-menu-floating.is-search-hidden {
-    height: var(--menu-mobile-hidden-height);
+    height: auto;
     border-radius: 16px;
   }
 
@@ -1456,18 +1454,18 @@ label[for="theme-toggle"] {
 
   .category-controls {
     transform: translate3d(0, 0, 0);
-    transition: transform 170ms ease;
-    will-change: transform;
+    transition: none;
+    will-change: auto;
   }
 
-  .menu-controls.is-mobile-menu-floating.is-search-hidden .menu-search-panel {
+  .menu-controls.is-mobile-directional-menu.is-search-hidden .menu-search-panel {
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
     transform: translate3d(0, calc(-1 * var(--menu-mobile-search-offset)), 0);
   }
 
-  .menu-controls.is-mobile-menu-floating.is-search-hidden .category-controls {
+  .menu-controls.is-mobile-directional-menu.is-search-hidden .category-controls {
     transform: translate3d(0, calc(-1 * var(--menu-mobile-search-offset)), 0);
   }
 

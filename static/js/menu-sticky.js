@@ -210,15 +210,7 @@
     var placeholder = document.createElement("div");
     var hiddenClass = "is-search-hidden";
     var visibleClass = "is-search-visible";
-    var lastY = getScrollY();
-    var ticking = false;
-    var floating = false;
     var searchVisible = true;
-    var downDistance = 0;
-    var minDelta = 8;
-    var hideDistance = 34;
-    var releaseDistance = 24;
-    var topLock = 88;
 
     placeholder.className = "menu-controls-placeholder";
     placeholder.hidden = true;
@@ -227,15 +219,8 @@
       placeholder.remove();
     });
 
-    var flowBottomMargin = cssPx(controls, "margin-bottom", 0);
-
-    function headerTop() {
-      return rootPx("--header-height", 68) - 1;
-    }
-
     function measure() {
       var controlsStyle = window.getComputedStyle(controls);
-      var searchStyle = window.getComputedStyle(searchPanel);
       var paddingY = cssPx(controls, "padding-top", 0) + cssPx(controls, "padding-bottom", 0);
       var searchOffset = Math.max(
         0,
@@ -251,20 +236,9 @@
         return;
       }
 
-      if (!floating) {
-        flowBottomMargin = cssPx(controls, "margin-bottom", flowBottomMargin);
-      }
       controls.style.setProperty("--menu-mobile-search-offset", searchOffset + "px");
       controls.style.setProperty("--menu-mobile-hidden-height", hiddenHeight + "px");
       controls.style.setProperty("--menu-mobile-visible-height", visibleHeight + "px");
-      controls.style.setProperty("--menu-mobile-placeholder-height", Math.round(visibleHeight + flowBottomMargin) + "px");
-      placeholder.style.height = "var(--menu-mobile-placeholder-height)";
-    }
-
-    function anchorTop() {
-      return floating
-        ? placeholder.getBoundingClientRect().top
-        : controls.getBoundingClientRect().top;
     }
 
     function setSearchVisible(nextVisible, force) {
@@ -280,67 +254,6 @@
       setTabIndex(searchVisible);
     }
 
-    function setFloating(nextFloating) {
-      if (nextFloating === floating) {
-        return;
-      }
-
-      floating = nextFloating;
-      if (floating) {
-        measure();
-        placeholder.hidden = false;
-        controls.classList.add("is-mobile-menu-floating");
-      } else {
-        placeholder.hidden = true;
-        controls.classList.remove("is-mobile-menu-floating");
-        setSearchVisible(true, true);
-        downDistance = 0;
-      }
-    }
-
-    function updateFromScroll() {
-      var y = getScrollY();
-      var delta = y - lastY;
-
-      ticking = false;
-      measure();
-
-      if (y <= topLock) {
-        setFloating(false);
-        lastY = y;
-        return;
-      }
-
-      if (floating) {
-        if (anchorTop() > headerTop() + releaseDistance) {
-          setFloating(false);
-        }
-      } else if (anchorTop() <= headerTop()) {
-        setFloating(true);
-      }
-
-      if (floating && Math.abs(delta) >= minDelta) {
-        if (delta > 0) {
-          downDistance += delta;
-          if (downDistance >= hideDistance) {
-            setSearchVisible(false);
-          }
-        } else {
-          downDistance = 0;
-          setSearchVisible(true);
-        }
-      }
-
-      lastY = y;
-    }
-
-    function requestUpdate() {
-      if (!ticking) {
-        ticking = true;
-        window.requestAnimationFrame(updateFromScroll);
-      }
-    }
-
     controls.classList.add("is-mobile-directional-menu", visibleClass);
     measure();
 
@@ -352,13 +265,9 @@
         setSearchVisible(true, true);
       });
     });
-    on(window, "scroll", requestUpdate, { passive: true });
     on(window, "resize", function () {
       measure();
-      lastY = getScrollY();
-      requestUpdate();
     }, { passive: true });
-    requestUpdate();
   }
 
   function setup() {

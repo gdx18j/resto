@@ -17,7 +17,7 @@
 
   .menu-hero {
     min-height: clamp(380px, 34vw, 430px);
-    margin: calc(-1 * (var(--header-height) + 18px)) 0 0 calc(50% - 50vw);
+    margin: calc(-1 * (var(--header-height) + 18px)) 0 -1px calc(50% - 50vw);
     padding:
       calc(var(--header-height) + clamp(34px, 4vw, 56px))
       max(64px, calc((100vw - var(--content-width)) / 2 + 24px))
@@ -36,6 +36,7 @@
   }
 
   .menu-hero::before {
+    bottom: -2px;
     height: min(34vh, 300px);
   }
 
@@ -59,8 +60,8 @@
 
   .seasonal-menu--desktop {
     width: var(--menu-showcase-width);
-    margin: 0 auto 22px;
-    padding-top: 14px;
+    margin: 0 auto;
+    padding: 30px 0;
   }
 
   .seasonal-menu__heading {
@@ -95,7 +96,7 @@
   }
 
   .seasonal-menu--stack .seasonal-menu__track {
-    height: 214px;
+    height: 258px;
   }
 
   .seasonal-menu--single .seasonal-card,
@@ -104,7 +105,7 @@
     top: auto;
     left: auto;
     width: 100%;
-    height: 188px;
+    height: 212px;
     opacity: 1;
     pointer-events: auto;
     transform: none;
@@ -136,7 +137,7 @@
     top: 0;
     left: 50%;
     width: min(560px, 62%);
-    height: 206px;
+    height: 232px;
     opacity: 0;
     pointer-events: none;
     transform: translate3d(-50%, 0, 0) scale(0.94);
