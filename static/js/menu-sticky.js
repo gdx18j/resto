@@ -7,8 +7,9 @@
   var categoryControls = controls ? controls.querySelector(".category-controls") : null;
   var searchInputs = controls ? controls.querySelectorAll(searchSelector) : [];
   var scroller = document.scrollingElement || document.documentElement;
-  var mediaQuery = window.matchMedia ? window.matchMedia("(max-width: 619px)") : null;
+  var compactQuery = window.matchMedia ? window.matchMedia("(max-width: 959px)") : null;
   var cleanup = [];
+  var compactPlaceholder = null;
 
   if (!controls || !searchPanel || !categoryControls || !scroller) {
     return;
@@ -21,6 +22,13 @@
     });
   }
 
+  function removeCompactPlaceholder() {
+    if (compactPlaceholder && compactPlaceholder.parentNode) {
+      compactPlaceholder.parentNode.removeChild(compactPlaceholder);
+    }
+    compactPlaceholder = null;
+  }
+
   function clearMode() {
     cleanup.forEach(function (dispose) {
       dispose();
@@ -28,6 +36,7 @@
     cleanup = [];
     controls.classList.remove(
       "is-sticky-search-enhanced",
+      "is-compact-sticky",
       "is-mobile-directional-menu",
       "is-mobile-menu-floating",
       "is-mobile-stable-menu",
@@ -35,11 +44,16 @@
       "is-search-visible"
     );
     controls.style.removeProperty("--menu-search-height");
+    controls.style.removeProperty("--menu-compact-left");
+    controls.style.removeProperty("--menu-compact-width");
+    controls.style.removeProperty("--menu-compact-search-height");
+    controls.style.removeProperty("--menu-compact-full-height");
     controls.style.removeProperty("--menu-mobile-search-offset");
     controls.style.removeProperty("--menu-mobile-hidden-height");
     controls.style.removeProperty("--menu-mobile-visible-height");
     controls.style.removeProperty("--menu-mobile-placeholder-height");
     controls.style.removeProperty("--menu-mobile-search-panel-height");
+    removeCompactPlaceholder();
     Array.prototype.forEach.call(searchInputs, function (input) {
       input.removeAttribute("tabindex");
     });
@@ -202,43 +216,258 @@
     requestUpdate();
   }
 
-  function setupMobile() {
-    function keepSearchVisible() {
-      controls.classList.add("is-mobile-stable-menu", "is-search-visible");
-      controls.classList.remove("is-search-hidden", "is-mobile-directional-menu", "is-mobile-menu-floating");
-      setTabIndex(true);
+  function setupCompact() {
+    var hiddenClass = "is-search-hidden";
+    var visibleClass = "is-search-visible";
+    var lastY = getScrollY();
+    var ticking = false;
+    var isFixed = false;
+    var searchVisible = true;
+    var lastToggleAt = 0;
+    var naturalControlsTop = 0;
+    var stickyAt = 0;
+    var releaseAt = 0;
+    var fullOuterHeight = 0;
+    var accumulatedDelta = 0;
+    var lastDirection = 0;
+    var minDelta = 8;
+    var hideThreshold = 46;
+    var showThreshold = 30;
+    var toggleCooldownMs = 170;
+    var releaseHysteresis = 12;
+
+    function headerTop() {
+      return rootPx("--header-height", 68) - 1;
     }
 
-    // Mobile browsers and DevTools responsive mode are very sensitive to sticky
-    // elements whose height changes while scrolling. Keep the mobile layout
-    // stable: the whole search/category block sticks together, while the
-    // desktop mode keeps the directional search hiding behavior.
-    keepSearchVisible();
+    function ensurePlaceholder() {
+      if (!compactPlaceholder || !compactPlaceholder.isConnected) {
+        compactPlaceholder = document.createElement("div");
+        compactPlaceholder.className = "menu-controls-placeholder";
+        compactPlaceholder.dataset.menuControlsPlaceholder = "";
+        compactPlaceholder.hidden = true;
+        controls.insertAdjacentElement("afterend", compactPlaceholder);
+      }
+
+      return compactPlaceholder;
+    }
+
+    function resetDirectionState() {
+      accumulatedDelta = 0;
+      lastDirection = 0;
+    }
+
+    function outerHeightFor(element, rect) {
+      var styles = window.getComputedStyle(element);
+      var marginBottom = parseFloat(styles.marginBottom) || 0;
+
+      return Math.max(0, Math.round(rect.height + marginBottom));
+    }
+
+    function searchPanelHeight() {
+      return Math.max(
+        0,
+        Math.round(searchPanel.scrollHeight || searchPanel.getBoundingClientRect().height)
+      );
+    }
+
+    function syncCompactGeometry() {
+      var placeholder = ensurePlaceholder();
+      var anchor = isFixed && !placeholder.hidden ? placeholder : controls;
+      var rect = anchor.getBoundingClientRect();
+      var measuredHeight = isFixed && fullOuterHeight
+        ? fullOuterHeight
+        : outerHeightFor(controls, controls.getBoundingClientRect());
+      var searchHeight = searchPanelHeight();
+
+      naturalControlsTop = Math.max(0, Math.round(rect.top + getScrollY()));
+      stickyAt = Math.max(0, naturalControlsTop - headerTop());
+      releaseAt = Math.max(0, stickyAt - releaseHysteresis);
+      fullOuterHeight = measuredHeight;
+
+      controls.style.setProperty("--menu-compact-left", Math.round(rect.left) + "px");
+      controls.style.setProperty("--menu-compact-width", Math.round(rect.width) + "px");
+      controls.style.setProperty("--menu-compact-search-height", searchHeight + "px");
+      controls.style.setProperty("--menu-compact-full-height", measuredHeight + "px");
+      placeholder.style.height = measuredHeight + "px";
+    }
+
+    function showPlaceholder() {
+      var placeholder = ensurePlaceholder();
+
+      placeholder.hidden = false;
+      placeholder.style.height = fullOuterHeight + "px";
+    }
+
+    function hidePlaceholder() {
+      if (!compactPlaceholder) {
+        return;
+      }
+
+      compactPlaceholder.hidden = true;
+      compactPlaceholder.style.removeProperty("height");
+    }
+
+    function setSearchVisible(nextVisible, force) {
+      if (!isFixed) {
+        nextVisible = true;
+      }
+      nextVisible = Boolean(nextVisible || searchHasQuery() || hasFocusedSearch());
+
+      if (!force && nextVisible === searchVisible) {
+        return;
+      }
+      if (!force && Date.now() - lastToggleAt < toggleCooldownMs) {
+        return;
+      }
+
+      searchVisible = nextVisible;
+      lastToggleAt = Date.now();
+      resetDirectionState();
+      controls.classList.toggle(visibleClass, searchVisible);
+      controls.classList.toggle(hiddenClass, !searchVisible);
+      setTabIndex(searchVisible);
+    }
+
+    function fixControls() {
+      if (isFixed) {
+        return;
+      }
+
+      syncCompactGeometry();
+      showPlaceholder();
+      controls.classList.add("is-compact-sticky");
+      isFixed = true;
+      setSearchVisible(true, true);
+      syncCompactGeometry();
+    }
+
+    function releaseControls() {
+      if (!isFixed) {
+        return;
+      }
+
+      isFixed = false;
+      controls.classList.remove("is-compact-sticky", hiddenClass);
+      controls.classList.add(visibleClass);
+      controls.style.removeProperty("--menu-compact-left");
+      controls.style.removeProperty("--menu-compact-width");
+      hidePlaceholder();
+      searchVisible = true;
+      resetDirectionState();
+      setTabIndex(true);
+      syncCompactGeometry();
+    }
+
+    function updateFromScroll() {
+      var y = getScrollY();
+      var delta = y - lastY;
+      var direction;
+
+      ticking = false;
+
+      if (!isFixed) {
+        syncCompactGeometry();
+      }
+
+      if (!isFixed && y >= stickyAt) {
+        fixControls();
+      } else if (isFixed && y <= releaseAt) {
+        releaseControls();
+        lastY = y;
+        return;
+      }
+
+      if (!isFixed) {
+        setSearchVisible(true);
+        lastY = y;
+        return;
+      }
+
+      if (Math.abs(delta) < minDelta) {
+        lastY = y;
+        return;
+      }
+
+      direction = delta > 0 ? 1 : -1;
+      if (direction !== lastDirection) {
+        accumulatedDelta = 0;
+        lastDirection = direction;
+      }
+      accumulatedDelta += delta;
+
+      if (direction > 0 && accumulatedDelta >= hideThreshold) {
+        setSearchVisible(false);
+      } else if (direction < 0 && Math.abs(accumulatedDelta) >= showThreshold) {
+        setSearchVisible(true);
+      }
+
+      lastY = y;
+    }
+
+    function requestUpdate() {
+      if (!ticking) {
+        ticking = true;
+        window.requestAnimationFrame(updateFromScroll);
+      }
+    }
+
+    ensurePlaceholder();
+    controls.classList.add(visibleClass);
+    syncCompactGeometry();
+    setSearchVisible(true, true);
 
     Array.prototype.forEach.call(searchInputs, function (input) {
-      on(input, "focus", keepSearchVisible);
-      on(input, "input", keepSearchVisible);
+      on(input, "focus", function () {
+        setSearchVisible(true, true);
+      });
+      on(input, "input", function () {
+        setSearchVisible(true, true);
+      });
     });
-    on(window, "resize", keepSearchVisible, { passive: true });
-    on(window, "orientationchange", keepSearchVisible, { passive: true });
-    on(window, "pageshow", keepSearchVisible);
+    on(window, "scroll", requestUpdate, { passive: true });
+    on(window, "resize", function () {
+      syncCompactGeometry();
+      if (isFixed) {
+        showPlaceholder();
+      }
+      lastY = getScrollY();
+      resetDirectionState();
+      requestUpdate();
+    }, { passive: true });
+    on(window, "orientationchange", function () {
+      syncCompactGeometry();
+      if (isFixed) {
+        showPlaceholder();
+      }
+      lastY = getScrollY();
+      resetDirectionState();
+      requestUpdate();
+    }, { passive: true });
+    on(window, "pageshow", function () {
+      syncCompactGeometry();
+      lastY = getScrollY();
+      resetDirectionState();
+      requestUpdate();
+    });
+    requestUpdate();
   }
 
   function setup() {
     clearMode();
-    if (mediaQuery && mediaQuery.matches) {
-      setupMobile();
+    if (compactQuery && compactQuery.matches) {
+      setupCompact();
     } else {
       setupDesktop();
     }
   }
 
   setup();
-  if (mediaQuery) {
-    if (typeof mediaQuery.addEventListener === "function") {
-      mediaQuery.addEventListener("change", setup);
-    } else if (typeof mediaQuery.addListener === "function") {
-      mediaQuery.addListener(setup);
+  if (compactQuery) {
+    if (typeof compactQuery.addEventListener === "function") {
+      compactQuery.addEventListener("change", setup);
+    } else if (typeof compactQuery.addListener === "function") {
+      compactQuery.addListener(setup);
     }
   }
 })();
