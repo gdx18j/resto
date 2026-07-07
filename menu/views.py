@@ -1,8 +1,9 @@
 import json
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET
 
@@ -22,6 +23,7 @@ from .models import (
     DishAllergen,
     DishIngredient,
     DishTranslation,
+    SeasonalDishFeature,
 )
 from .services import (
     add_allergy_conflicts_to_dishes,
@@ -35,7 +37,101 @@ from .table_context import (
     forget_table_context,
     remember_table_context,
 )
-from .translations import localized_category_html
+from .translations import LANGUAGES, localized_category_html, localized_text_html
+
+
+SEASONAL_DEFAULT_LABELS = {
+    "ru": "Сезонная история",
+    "en": "Seasonal story",
+    "tr": "Mevsim hikayesi",
+}
+SEASONAL_DEFAULT_CTA = {
+    "ru": "Открыть блюдо",
+    "en": "Open dish",
+    "tr": "Yemeği aç",
+}
+
+
+def _localized_feature_html(feature, field_prefix, fallback_values):
+    return localized_text_html(
+        {
+            language: (
+                getattr(feature, f"{field_prefix}_{language}", "").strip()
+                or fallback_values.get(language, "")
+            )
+            for language in LANGUAGES
+        }
+    )
+
+
+def _image_url(image_field):
+    if not image_field:
+        return ""
+
+    try:
+        return image_field.url
+    except ValueError:
+        return ""
+
+
+def _seasonal_feature_queryset(restaurant):
+    now = timezone.now()
+    return (
+        SeasonalDishFeature.objects.filter(
+            restaurant=restaurant,
+            is_active=True,
+            dish__restaurant=restaurant,
+            dish__is_active=True,
+            dish__is_available=True,
+        )
+        .filter(Q(starts_at__isnull=True) | Q(starts_at__lte=now))
+        .filter(Q(ends_at__isnull=True) | Q(ends_at__gt=now))
+        .select_related("dish")
+        .order_by("sort_order", "id")
+    )
+
+
+def _prepare_seasonal_features(restaurant, dishes):
+    prepared_dishes = {dish.id: dish for dish in dishes}
+    features = []
+
+    for feature in _seasonal_feature_queryset(restaurant):
+        dish = prepared_dishes.get(feature.dish_id)
+
+        if dish is None:
+            continue
+
+        feature.dish = dish
+        feature.label_html = _localized_feature_html(
+            feature,
+            "label",
+            SEASONAL_DEFAULT_LABELS,
+        )
+        feature.title_html = _localized_feature_html(
+            feature,
+            "title",
+            dish.name_translations,
+        )
+        feature.description_html = _localized_feature_html(
+            feature,
+            "description",
+            dish.description_translations,
+        )
+        feature.has_description = any(
+            getattr(feature, f"description_{language}", "").strip()
+            or dish.description_translations.get(language, "").strip()
+            for language in LANGUAGES
+        )
+        feature.cta_html = _localized_feature_html(
+            feature,
+            "cta",
+            SEASONAL_DEFAULT_CTA,
+        )
+        feature.image_url = _image_url(feature.image) or _image_url(dish.image)
+        feature.placeholder = (dish.name or "C")[:1]
+        features.append(feature)
+
+    return features
 
 
 def get_menu_restaurant(request):
@@ -243,10 +339,13 @@ def dish_list(request, table_context=None):
             }
         )
 
+    seasonal_features = _prepare_seasonal_features(restaurant, dishes)
+
     context = {
         "menu_page": True,
         "dishes": dishes,
         "menu_sections": menu_sections,
+        "seasonal_features": seasonal_features,
         "restaurant": restaurant,
         "cart_restaurant": restaurant,
         "cart_table_context": cart_table_context,

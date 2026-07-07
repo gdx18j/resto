@@ -12,6 +12,7 @@
 
   {% if menu_page %}
     <link rel="stylesheet" href="{% static 'css/menu.css' %}">
+    <link rel="stylesheet" href="{% static 'css/menu-showcase.css' %}">
   {% else %}
     <link rel="stylesheet" href="{% static 'css/base.css' %}">
   {% endif %}
@@ -350,6 +351,7 @@
   {% if menu_page %}
     <script src="{% static 'js/table-context.js' %}" defer></script>
     <script src="{% static 'js/menu-sticky.js' %}" defer></script>
+    <script src="{% static 'js/menu-showcase.js' %}" defer></script>
     <script
       src="{% static 'js/menu-ui-loader.js' %}"
       data-menu-ui-script-url="{% static 'js/menu-ui.js' %}"

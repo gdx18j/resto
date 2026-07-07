@@ -5,7 +5,7 @@
 
 {% block content %}
   {% if menu_sections %}
-    <section class="menu-hero" aria-label="Caesar & Company">
+    <section class="menu-hero{% if seasonal_features %} menu-hero--with-seasonal{% endif %}" aria-label="Caesar & Company">
       <span class="menu-hero__light" aria-hidden="true"></span>
       <span class="menu-hero__texture" aria-hidden="true"></span>
       <div class="menu-hero__content">
@@ -33,6 +33,108 @@
           <span class="menu-hero__menu-link-icon" aria-hidden="true">↓</span>
         </a>
       </div>
+      {% if seasonal_features %}
+        <section
+          class="seasonal-menu seasonal-menu--mobile"
+          aria-label="{% if ui_language == 'en' %}Seasonal dishes{% elif ui_language == 'tr' %}Mevsim yemekleri{% else %}Сезонные блюда{% endif %}"
+        >
+          <div class="seasonal-menu__track" data-seasonal-track>
+            {% for feature in seasonal_features %}
+              <article
+                class="seasonal-card{% if not feature.image_url %} seasonal-card--no-image{% endif %}"
+                aria-labelledby="seasonal-feature-mobile-title-{{ feature.id }}"
+                data-seasonal-card
+              >
+                <div class="seasonal-card__copy">
+                  <p class="seasonal-card__kicker">{{ feature.label_html }}</p>
+                  <h2 id="seasonal-feature-mobile-title-{{ feature.id }}">{{ feature.title_html }}</h2>
+                  {% if feature.has_description %}
+                    <p class="seasonal-card__text">{{ feature.description_html }}</p>
+                  {% endif %}
+                  <a class="seasonal-card__link" href="#dish-{{ feature.dish.id }}">
+                    {{ feature.cta_html }}
+                    <span aria-hidden="true">→</span>
+                  </a>
+                </div>
+                <a
+                  class="seasonal-card__media"
+                  href="#dish-{{ feature.dish.id }}"
+                  tabindex="-1"
+                  aria-hidden="true"
+                >
+                  {% if feature.image_url %}
+                    <img
+                      src="{{ feature.image_url }}"
+                      alt=""
+                      width="560"
+                      height="420"
+                      loading="lazy"
+                      decoding="async"
+                    >
+                    <span class="seasonal-card__badge">{{ feature.placeholder }}</span>
+                  {% else %}
+                    <span class="seasonal-card__placeholder">{{ feature.placeholder }}</span>
+                  {% endif %}
+                </a>
+              </article>
+            {% endfor %}
+          </div>
+          <div class="seasonal-menu__dots" data-seasonal-dots hidden></div>
+        </section>
+      {% endif %}
+    </section>
+  {% endif %}
+  {% if seasonal_features %}
+    <section
+      class="seasonal-menu seasonal-menu--desktop"
+      aria-label="{% if ui_language == 'en' %}Seasonal dishes{% elif ui_language == 'tr' %}Mevsim yemekleri{% else %}Сезонные блюда{% endif %}"
+    >
+      <h2 class="seasonal-menu__heading">
+        <span class="lang lang--ru">Сезонные истории</span>
+        <span class="lang lang--en">Seasonal stories</span>
+        <span class="lang lang--tr">Mevsim hikayeleri</span>
+      </h2>
+      <div class="seasonal-menu__track" data-seasonal-track>
+        {% for feature in seasonal_features %}
+          <article
+            class="seasonal-card{% if not feature.image_url %} seasonal-card--no-image{% endif %}"
+            aria-labelledby="seasonal-feature-title-{{ feature.id }}"
+            data-seasonal-card
+          >
+            <div class="seasonal-card__copy">
+              <p class="seasonal-card__kicker">{{ feature.label_html }}</p>
+              <h2 id="seasonal-feature-title-{{ feature.id }}">{{ feature.title_html }}</h2>
+              {% if feature.has_description %}
+                <p class="seasonal-card__text">{{ feature.description_html }}</p>
+              {% endif %}
+              <a class="seasonal-card__link" href="#dish-{{ feature.dish.id }}">
+                {{ feature.cta_html }}
+                <span aria-hidden="true">→</span>
+              </a>
+            </div>
+            <a
+              class="seasonal-card__media"
+              href="#dish-{{ feature.dish.id }}"
+              tabindex="-1"
+              aria-hidden="true"
+            >
+              {% if feature.image_url %}
+                <img
+                  src="{{ feature.image_url }}"
+                  alt=""
+                  width="560"
+                  height="420"
+                  loading="lazy"
+                  decoding="async"
+                >
+              {% else %}
+                <span class="seasonal-card__placeholder">{{ feature.placeholder }}</span>
+              {% endif %}
+            </a>
+          </article>
+        {% endfor %}
+      </div>
+      <div class="seasonal-menu__dots" data-seasonal-dots hidden></div>
     </section>
   {% endif %}
   <div class="menu-controls" id="menu-controls" data-menu-sticky-controls>

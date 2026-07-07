@@ -37,6 +37,7 @@ from .models import (
     DishIngredient,
     DishTranslation,
     Ingredient,
+    SeasonalDishFeature,
 )
 from .translations import localized_dish_string
 
@@ -68,6 +69,129 @@ class MenuRenderingTests(TestCase):
         self.assertNotIn('id="dish-detail-data"', html)
         self.assertEqual(html.count("data-detail-url="), 2)
         self.assertEqual(html.count("data-dish-modal hidden"), 1)
+
+
+    def test_seasonal_feature_renders_admin_selected_dish_card(self):
+        self.dish.description = "Классический кофе для сезонного меню."
+        self.dish.image = "dishes/test/americano.jpg"
+        self.dish.save(update_fields=["description", "image", "updated_at"])
+        seasonal_feature = SeasonalDishFeature.objects.create(
+            restaurant=self.dish.restaurant,
+            dish=self.dish,
+            label_ru="Сезонная история",
+            title_ru="Летний американо",
+            description_ru="Лёгкий вкус для тёплого дня.",
+            cta_ru="Попробовать",
+        )
+
+        response = self.client.get(reverse("menu:dish_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'class="seasonal-menu seasonal-menu--mobile"')
+        self.assertContains(response, 'class="seasonal-menu seasonal-menu--desktop"')
+        self.assertContains(response, "menu-hero--with-seasonal")
+        self.assertContains(response, "seasonal-card__badge")
+        self.assertContains(response, "data-seasonal-track")
+        self.assertContains(response, "data-seasonal-card")
+        self.assertContains(response, "data-seasonal-dots")
+        self.assertContains(response, 'class="seasonal-card')
+        self.assertContains(
+            response,
+            f'id="seasonal-feature-mobile-title-{seasonal_feature.id}"',
+        )
+        self.assertContains(
+            response,
+            f'id="seasonal-feature-title-{seasonal_feature.id}"',
+        )
+        self.assertContains(response, "Сезонная история")
+        self.assertContains(response, "Летний американо")
+        self.assertContains(response, "Лёгкий вкус для тёплого дня.")
+        self.assertContains(response, "Попробовать")
+        self.assertContains(response, f'href="#dish-{self.dish.id}"')
+        self.assertContains(response, 'src="/media/dishes/test/americano.jpg"')
+
+    def test_seasonal_feature_uses_dish_fallbacks_and_hides_inactive_items(self):
+        inactive_dish = Dish.objects.create(
+            category=self.dish.category,
+            name="Hidden seasonal",
+            description="Should not render",
+            price=Decimal("300.00"),
+            is_active=True,
+            is_available=True,
+        )
+        SeasonalDishFeature.objects.create(
+            restaurant=self.dish.restaurant,
+            dish=self.dish,
+        )
+        SeasonalDishFeature.objects.create(
+            restaurant=self.dish.restaurant,
+            dish=inactive_dish,
+            is_active=False,
+            title_ru="Не показывать",
+        )
+
+        response = self.client.get(reverse("menu:dish_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Сезонная история")
+        self.assertContains(response, "Americano")
+        self.assertContains(response, "Открыть блюдо")
+        self.assertNotContains(response, "Не показывать")
+
+    def test_seasonal_carousel_indicator_is_runtime_driven(self):
+        showcase_js_path = finders.find("js/menu-showcase.js")
+        css_path = finders.find("css/menu.css")
+        showcase_css_path = finders.find("css/menu-showcase.css")
+
+        self.assertIsNotNone(showcase_js_path)
+        self.assertIsNotNone(css_path)
+        self.assertIsNotNone(showcase_css_path)
+
+        showcase_js_source = Path(showcase_js_path).read_text(encoding="utf-8")
+        css_source = Path(css_path).read_text(encoding="utf-8")
+        showcase_css_source = Path(showcase_css_path).read_text(encoding="utf-8")
+
+        self.assertIn("setupSeasonalShowcase", showcase_js_source)
+        self.assertIn("seasonal-menu--single", showcase_js_source)
+        self.assertIn("seasonal-menu--pair", showcase_js_source)
+        self.assertIn("seasonal-menu--stack", showcase_js_source)
+        self.assertIn("cards.length <= 1", showcase_js_source)
+        self.assertIn("window.requestAnimationFrame", showcase_js_source)
+        self.assertIn("scrollIntoView", showcase_js_source)
+        self.assertIn("window.setInterval", showcase_js_source)
+        self.assertIn("autoplayPaused", showcase_js_source)
+        self.assertIn(".seasonal-menu__dot.is-active", css_source)
+        self.assertIn("--content-width: 1180px", showcase_css_source)
+        self.assertIn("--menu-showcase-width", showcase_css_source)
+        self.assertIn(".seasonal-menu--single .seasonal-menu__track", showcase_css_source)
+        self.assertIn(".seasonal-menu--pair .seasonal-menu__track", showcase_css_source)
+        self.assertIn(".seasonal-menu--stack .seasonal-card.is-active", showcase_css_source)
+        self.assertIn("scroll-snap-type: x proximity", showcase_css_source)
+        self.assertNotIn(".seasonal-menu::after", css_source)
+
+    def test_seasonal_feature_validates_restaurant_and_period(self):
+        second_restaurant = Restaurant.objects.create(
+            name="Second Restaurant",
+            slug="second-seasonal",
+        )
+        feature = SeasonalDishFeature(
+            restaurant=second_restaurant,
+            dish=self.dish,
+        )
+
+        with self.assertRaises(ValidationError):
+            feature.full_clean()
+
+        now = timezone.now()
+        feature = SeasonalDishFeature(
+            restaurant=self.dish.restaurant,
+            dish=self.dish,
+            starts_at=now,
+            ends_at=now,
+        )
+
+        with self.assertRaises(ValidationError):
+            feature.full_clean()
 
     def test_menu_uses_one_compact_search_index_without_per_card_duplicates(self):
         ingredient = Ingredient.objects.create(name="Arabica beans")
@@ -173,8 +297,10 @@ class MenuRenderingTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-ordering-enabled="0"')
         self.assertContains(response, "static/css/menu.css")
+        self.assertContains(response, "static/css/menu-showcase.css")
         self.assertNotContains(response, "static/css/base.css")
         self.assertContains(response, "static/js/menu-sticky.js")
+        self.assertContains(response, "static/js/menu-showcase.js")
         self.assertContains(response, "static/js/menu-ui-loader.js")
         self.assertContains(response, 'data-menu-ui-script-url="/static/js/menu-ui.js"')
         self.assertNotContains(response, 'src="/static/js/menu-ui.js"')

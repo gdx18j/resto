@@ -1,5 +1,6 @@
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 from .allergen_review import (
     complete_dish_allergen_review,
@@ -20,6 +21,7 @@ from .models import (
     DishIngredient,
     DishTranslation,
     Ingredient,
+    SeasonalDishFeature,
 )
 
 
@@ -80,6 +82,106 @@ class IngredientAdmin(admin.ModelAdmin):
                 flat=True,
             )
         )
+
+
+
+@admin.register(SeasonalDishFeature)
+class SeasonalDishFeatureAdmin(admin.ModelAdmin):
+    list_display = (
+        "dish",
+        "restaurant",
+        "is_active",
+        "visible_now",
+        "sort_order",
+        "starts_at",
+        "ends_at",
+        "updated_at",
+    )
+    list_filter = ("restaurant", "is_active", "starts_at", "ends_at")
+    search_fields = (
+        "dish__name",
+        "dish__translations__name",
+        "title_ru",
+        "title_en",
+        "title_tr",
+        "description_ru",
+        "description_en",
+        "description_tr",
+    )
+    autocomplete_fields = ("restaurant", "dish")
+    readonly_fields = ("created_at", "updated_at")
+    date_hierarchy = "starts_at"
+    ordering = ("restaurant__name", "sort_order", "id")
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("restaurant", "dish")
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "dish":
+            queryset = Dish.objects.filter(
+                is_active=True,
+                is_available=True,
+            ).select_related("restaurant", "category").order_by(
+                "restaurant__name",
+                "category__name",
+                "name",
+            )
+            object_id = None
+            if request.resolver_match:
+                object_id = request.resolver_match.kwargs.get("object_id")
+            if object_id:
+                feature = (
+                    SeasonalDishFeature.objects
+                    .filter(pk=object_id)
+                    .select_related("restaurant")
+                    .first()
+                )
+                if feature:
+                    queryset = queryset.filter(restaurant=feature.restaurant)
+            kwargs["queryset"] = queryset
+
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    @admin.display(boolean=True, description="Показывается сейчас")
+    def visible_now(self, obj):
+        now = timezone.now()
+        if not obj.is_active:
+            return False
+        if obj.starts_at and obj.starts_at > now:
+            return False
+        if obj.ends_at and obj.ends_at <= now:
+            return False
+        return True
+
+    fieldsets = (
+        (
+            "Блюдо и показ",
+            {
+                "fields": (
+                    "restaurant",
+                    "dish",
+                    "image",
+                    "sort_order",
+                    "is_active",
+                    "starts_at",
+                    "ends_at",
+                )
+            },
+        ),
+        (
+            "Текст RU",
+            {"fields": ("label_ru", "title_ru", "description_ru", "cta_ru")},
+        ),
+        (
+            "Text EN",
+            {"fields": ("label_en", "title_en", "description_en", "cta_en")},
+        ),
+        (
+            "Metin TR",
+            {"fields": ("label_tr", "title_tr", "description_tr", "cta_tr")},
+        ),
+        ("Служебное", {"fields": ("created_at", "updated_at")}),
+    )
 
 
 class DishIngredientInline(admin.TabularInline):
