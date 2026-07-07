@@ -1448,20 +1448,22 @@ label[for="theme-toggle"] {
     isolation: isolate;
   }
 
-  .menu-controls.is-mobile-directional-menu {
-    overflow: visible;
-  }
-
   .menu-search-panel {
+    position: relative;
     margin: 0 0 var(--menu-search-gap);
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
     opacity: 1;
     visibility: visible;
     transform: translate3d(0, 0, 0);
-    transition: opacity 140ms ease, transform 170ms ease, visibility 170ms ease;
-    will-change: opacity, transform;
+    transition: none;
+    will-change: auto;
   }
 
   .category-controls {
+    position: relative;
     transform: translate3d(0, 0, 0);
     transition: none;
     will-change: auto;
@@ -1480,9 +1482,25 @@ label[for="theme-toggle"] {
     mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 22px), transparent 100%);
   }
 
+  .menu-controls.is-mobile-stable-menu,
+  .menu-controls.is-mobile-stable-menu.is-search-visible,
+  .menu-controls.is-mobile-stable-menu.is-search-hidden {
+    top: calc(var(--header-height) - 1px);
+    border-color: color-mix(in srgb, var(--accent) 15%, var(--line));
+    border-radius: 16px;
+    background: var(--surface-raised);
+  }
+
   .menu-controls.is-mobile-stable-menu .menu-search-panel,
-  .menu-controls.is-mobile-stable-menu.is-search-hidden .menu-search-panel,
-  .menu-controls.is-mobile-directional-menu .menu-search-panel {
+  .menu-controls.is-mobile-stable-menu.is-search-hidden .menu-search-panel {
+    position: relative;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    height: auto;
+    max-height: none;
+    margin: 0 0 var(--menu-search-gap);
+    padding: 0;
     visibility: visible;
     opacity: 1;
     pointer-events: auto;
@@ -1490,35 +1508,8 @@ label[for="theme-toggle"] {
   }
 
   .menu-controls.is-mobile-stable-menu .category-controls,
-  .menu-controls.is-mobile-stable-menu.is-search-hidden .category-controls,
-  .menu-controls.is-mobile-directional-menu .category-controls,
-  .menu-controls.is-mobile-directional-menu.is-search-hidden .category-controls {
+  .menu-controls.is-mobile-stable-menu.is-search-hidden .category-controls {
     transform: translate3d(0, 0, 0);
-  }
-
-  .menu-controls.is-mobile-directional-menu .menu-search-panel {
-    overflow: hidden;
-    max-height: var(--menu-mobile-search-panel-height, 96px);
-    margin-bottom: var(--menu-search-gap);
-    transition:
-      max-height 170ms ease,
-      margin-bottom 170ms ease,
-      opacity 130ms ease,
-      visibility 0s linear 0s;
-  }
-
-  .menu-controls.is-mobile-directional-menu.is-search-hidden .menu-search-panel {
-    max-height: 0;
-    margin-bottom: 0;
-    visibility: hidden;
-    opacity: 0;
-    pointer-events: none;
-    transform: translate3d(0, 0, 0);
-    transition:
-      max-height 170ms ease,
-      margin-bottom 170ms ease,
-      opacity 120ms ease,
-      visibility 0s linear 140ms;
   }
 
   .menu-controls.is-sticky-search-enhanced,
@@ -1633,8 +1624,6 @@ label[for="theme-toggle"] {
   }
 
   .menu-controls + .preference-note,
-  .menu-controls-placeholder + .preference-note,
-  .menu-controls-placeholder:not([hidden]) ~ .preference-note,
   .menu-controls + .menu-section {
     margin-top: 16px;
   }

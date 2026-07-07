@@ -203,141 +203,25 @@
   }
 
   function setupMobile() {
-    var hiddenClass = "is-search-hidden";
-    var visibleClass = "is-search-visible";
-    var lastY = getScrollY();
-    var ticking = false;
-    var searchVisible = true;
-    var lastToggleAt = 0;
-    var naturalControlsTop = 0;
-    var accumulatedDelta = 0;
-    var lastDirection = 0;
-    var minDelta = 6;
-    var hideThreshold = 34;
-    var showThreshold = 22;
-    var topLock = 56;
-    var pinnedOffset = 28;
-    var toggleCooldownMs = 240;
-
-    function headerTop() {
-      return rootPx("--header-height", 68) - 1;
+    function keepSearchVisible() {
+      controls.classList.add("is-mobile-stable-menu", "is-search-visible");
+      controls.classList.remove("is-search-hidden", "is-mobile-directional-menu", "is-mobile-menu-floating");
+      setTabIndex(true);
     }
 
-    function syncMeasurements() {
-      // Use intrinsic height. getBoundingClientRect().height becomes 0 when
-      // the panel is collapsed, which would otherwise prevent reopening.
-      var height = Math.max(
-        0,
-        Math.round(searchPanel.scrollHeight || searchPanel.getBoundingClientRect().height)
-      );
-
-      controls.style.setProperty("--menu-mobile-search-panel-height", height + "px");
-      naturalControlsTop = Math.max(0, Math.round(controls.offsetTop || 0));
-    }
-
-    function isPinnedEnough(y) {
-      return y >= naturalControlsTop - headerTop() + pinnedOffset;
-    }
-
-    function resetDirectionState() {
-      accumulatedDelta = 0;
-      lastDirection = 0;
-    }
-
-    function setSearchVisible(nextVisible, force) {
-      nextVisible = Boolean(nextVisible || searchHasQuery() || hasFocusedSearch());
-
-      if (!force && nextVisible === searchVisible) {
-        return;
-      }
-      if (!force && Date.now() - lastToggleAt < toggleCooldownMs) {
-        return;
-      }
-
-      syncMeasurements();
-      searchVisible = nextVisible;
-      lastToggleAt = Date.now();
-      resetDirectionState();
-      controls.classList.add("is-mobile-directional-menu");
-      controls.classList.remove("is-mobile-stable-menu", "is-mobile-menu-floating");
-      controls.classList.toggle(visibleClass, searchVisible);
-      controls.classList.toggle(hiddenClass, !searchVisible);
-      setTabIndex(searchVisible);
-    }
-
-    function updateFromScroll() {
-      var y = getScrollY();
-      var delta = y - lastY;
-      var direction;
-
-      ticking = false;
-
-      if (y <= topLock || !isPinnedEnough(y)) {
-        setSearchVisible(true);
-        lastY = y;
-        resetDirectionState();
-        return;
-      }
-
-      if (Math.abs(delta) < minDelta) {
-        lastY = y;
-        return;
-      }
-
-      direction = delta > 0 ? 1 : -1;
-      if (direction !== lastDirection) {
-        accumulatedDelta = 0;
-        lastDirection = direction;
-      }
-      accumulatedDelta += delta;
-
-      if (direction > 0 && accumulatedDelta >= hideThreshold) {
-        setSearchVisible(false);
-      } else if (direction < 0 && Math.abs(accumulatedDelta) >= showThreshold) {
-        setSearchVisible(true);
-      }
-
-      lastY = y;
-    }
-
-    function requestUpdate() {
-      if (!ticking) {
-        ticking = true;
-        window.requestAnimationFrame(updateFromScroll);
-      }
-    }
-
-    syncMeasurements();
-    setSearchVisible(true, true);
+    // Mobile browsers and DevTools responsive mode are very sensitive to sticky
+    // elements whose height changes while scrolling. Keep the mobile layout
+    // stable: the whole search/category block sticks together, while the
+    // desktop mode keeps the directional search hiding behavior.
+    keepSearchVisible();
 
     Array.prototype.forEach.call(searchInputs, function (input) {
-      on(input, "focus", function () {
-        setSearchVisible(true, true);
-      });
-      on(input, "input", function () {
-        setSearchVisible(true, true);
-      });
+      on(input, "focus", keepSearchVisible);
+      on(input, "input", keepSearchVisible);
     });
-    on(window, "scroll", requestUpdate, { passive: true });
-    on(window, "resize", function () {
-      syncMeasurements();
-      lastY = getScrollY();
-      resetDirectionState();
-      requestUpdate();
-    }, { passive: true });
-    on(window, "orientationchange", function () {
-      syncMeasurements();
-      lastY = getScrollY();
-      resetDirectionState();
-      requestUpdate();
-    }, { passive: true });
-    on(window, "pageshow", function () {
-      syncMeasurements();
-      lastY = getScrollY();
-      resetDirectionState();
-      requestUpdate();
-    });
-    requestUpdate();
+    on(window, "resize", keepSearchVisible, { passive: true });
+    on(window, "orientationchange", keepSearchVisible, { passive: true });
+    on(window, "pageshow", keepSearchVisible);
   }
 
   function setup() {
