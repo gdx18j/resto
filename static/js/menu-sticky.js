@@ -30,6 +30,7 @@
       "is-sticky-search-enhanced",
       "is-mobile-directional-menu",
       "is-mobile-menu-floating",
+      "is-mobile-stable-menu",
       "is-search-hidden",
       "is-search-visible"
     );
@@ -62,12 +63,6 @@
     return cssPx(document.documentElement, name, fallback);
   }
 
-  function controlVar(name) {
-    var parsed = parseFloat(controls.style.getPropertyValue(name));
-
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
   function searchHasQuery() {
     return Array.prototype.some.call(searchInputs, function (input) {
       return Boolean(input.value && input.value.trim());
@@ -95,20 +90,15 @@
     var ticking = false;
     var searchVisible = true;
     var lastToggleAt = 0;
-    var pinnedAtY = null;
-    var minDelta = 14;
-    var pinnedHideDistance = 54;
+    var naturalControlsTop = 0;
+    var minDelta = 10;
+    var hideAfterPinned = 72;
+    var showDelta = 18;
     var topLock = 96;
     var toggleCooldownMs = 150;
 
-    function stickyTop() {
-      var headerHeight = rootPx("--header-height", 68);
-      var searchHeight = controlVar("--menu-search-height");
-      var searchGap = controlVar("--menu-search-gap");
-
-      return searchVisible
-        ? headerHeight + searchHeight + searchGap - 1
-        : headerHeight - 1;
+    function headerTop() {
+      return rootPx("--header-height", 68) - 1;
     }
 
     function syncSearchHeight() {
@@ -116,6 +106,21 @@
         "--menu-search-height",
         Math.max(0, Math.round(searchPanel.getBoundingClientRect().height)) + "px"
       );
+    }
+
+    function syncNaturalTop() {
+      // offsetTop is stable for sticky elements and avoids a feedback loop where
+      // getBoundingClientRect().top changes after we toggle the hidden/visible classes.
+      naturalControlsTop = Math.max(0, Math.round(controls.offsetTop || 0));
+    }
+
+    function syncMeasurements() {
+      syncSearchHeight();
+      syncNaturalTop();
+    }
+
+    function isNearOrPastControls(y) {
+      return y >= naturalControlsTop - headerTop() - 2;
     }
 
     function setSearchVisible(nextVisible, force) {
@@ -136,18 +141,14 @@
       setTabIndex(searchVisible);
     }
 
-    function isControlsPinned() {
-      return controls.getBoundingClientRect().top <= stickyTop() + 2;
-    }
-
     function updateFromScroll() {
       var y = getScrollY();
       var delta = y - lastY;
+      var distancePastControls = y - Math.max(0, naturalControlsTop - headerTop());
 
       ticking = false;
 
-      if (y <= topLock) {
-        pinnedAtY = null;
+      if (y <= topLock || !isNearOrPastControls(y)) {
         setSearchVisible(true);
         lastY = y;
         return;
@@ -158,19 +159,9 @@
         return;
       }
 
-      if (!isControlsPinned()) {
-        pinnedAtY = null;
-        setSearchVisible(true);
-        lastY = y;
-        return;
-      }
-
-      if (pinnedAtY === null) {
-        pinnedAtY = y;
-      } else if (delta > 0 && y - pinnedAtY >= pinnedHideDistance) {
+      if (delta > 0 && distancePastControls >= hideAfterPinned) {
         setSearchVisible(false);
-      } else if (delta < 0) {
-        pinnedAtY = y;
+      } else if (delta < 0 && (searchVisible === false || Math.abs(delta) >= showDelta)) {
         setSearchVisible(true);
       }
 
@@ -185,7 +176,7 @@
     }
 
     controls.classList.add("is-sticky-search-enhanced");
-    syncSearchHeight();
+    syncMeasurements();
     setSearchVisible(true, true);
 
     Array.prototype.forEach.call(searchInputs, function (input) {
@@ -198,76 +189,34 @@
     });
     on(window, "scroll", requestUpdate, { passive: true });
     on(window, "resize", function () {
-      syncSearchHeight();
+      syncMeasurements();
       lastY = getScrollY();
-      pinnedAtY = null;
       requestUpdate();
     }, { passive: true });
+    on(window, "pageshow", function () {
+      syncMeasurements();
+      lastY = getScrollY();
+      requestUpdate();
+    });
     requestUpdate();
   }
 
   function setupMobile() {
-    var placeholder = document.createElement("div");
-    var hiddenClass = "is-search-hidden";
-    var visibleClass = "is-search-visible";
-    var searchVisible = true;
-
-    placeholder.className = "menu-controls-placeholder";
-    placeholder.hidden = true;
-    controls.insertAdjacentElement("afterend", placeholder);
-    cleanup.push(function () {
-      placeholder.remove();
-    });
-
-    function measure() {
-      var controlsStyle = window.getComputedStyle(controls);
-      var paddingY = cssPx(controls, "padding-top", 0) + cssPx(controls, "padding-bottom", 0);
-      var searchOffset = Math.max(
-        0,
-        Math.round(searchPanel.getBoundingClientRect().height + cssPx(searchPanel, "margin-bottom", 0))
-      );
-      var hiddenHeight = Math.max(
-        0,
-        Math.round(categoryControls.getBoundingClientRect().height + paddingY)
-      );
-      var visibleHeight = Math.max(hiddenHeight, hiddenHeight + searchOffset);
-
-      if (controlsStyle.display === "none") {
-        return;
-      }
-
-      controls.style.setProperty("--menu-mobile-search-offset", searchOffset + "px");
-      controls.style.setProperty("--menu-mobile-hidden-height", hiddenHeight + "px");
-      controls.style.setProperty("--menu-mobile-visible-height", visibleHeight + "px");
+    function keepSearchVisible() {
+      controls.classList.add("is-mobile-stable-menu", "is-search-visible");
+      controls.classList.remove("is-search-hidden", "is-mobile-directional-menu", "is-mobile-menu-floating");
+      setTabIndex(true);
     }
 
-    function setSearchVisible(nextVisible, force) {
-      nextVisible = Boolean(nextVisible || searchHasQuery() || hasFocusedSearch());
-
-      if (!force && nextVisible === searchVisible) {
-        return;
-      }
-
-      searchVisible = nextVisible;
-      controls.classList.toggle(visibleClass, searchVisible);
-      controls.classList.toggle(hiddenClass, !searchVisible);
-      setTabIndex(searchVisible);
-    }
-
-    controls.classList.add("is-mobile-directional-menu", visibleClass);
-    measure();
+    keepSearchVisible();
 
     Array.prototype.forEach.call(searchInputs, function (input) {
-      on(input, "focus", function () {
-        setSearchVisible(true, true);
-      });
-      on(input, "input", function () {
-        setSearchVisible(true, true);
-      });
+      on(input, "focus", keepSearchVisible);
+      on(input, "input", keepSearchVisible);
     });
-    on(window, "resize", function () {
-      measure();
-    }, { passive: true });
+    on(window, "resize", keepSearchVisible, { passive: true });
+    on(window, "orientationchange", keepSearchVisible, { passive: true });
+    on(window, "pageshow", keepSearchVisible);
   }
 
   function setup() {

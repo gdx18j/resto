@@ -12,6 +12,11 @@
     var desktopQuery = window.matchMedia("(min-width: 620px)");
 
     Array.prototype.forEach.call(carousels, function (carousel) {
+      if (carousel.dataset.seasonalShowcaseReady === "true") {
+        return;
+      }
+      carousel.dataset.seasonalShowcaseReady = "true";
+
       var track = carousel.querySelector("[data-seasonal-track]");
       var dotsRoot = carousel.querySelector("[data-seasonal-dots]");
       var cards = track

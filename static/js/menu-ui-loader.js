@@ -150,125 +150,16 @@
     return closest(target, searchSelector) || closest(target, dishOpenSelector);
   }
 
-  function setupSeasonalCarouselDots() {
-    var carousels = document.querySelectorAll(".seasonal-menu");
-
-    Array.prototype.forEach.call(carousels, function (carousel) {
-      var track = carousel.querySelector("[data-seasonal-track]");
-      var dotsRoot = carousel.querySelector("[data-seasonal-dots]");
-      var cards = track
-        ? Array.prototype.slice.call(track.querySelectorAll("[data-seasonal-card]"))
-        : [];
-      var maxDots = 4;
-      var dotCount = Math.min(maxDots, cards.length);
-      var ticking = false;
-      var activeDot = -1;
-      var dots = [];
-
-      if (!track || !dotsRoot || cards.length <= 1) {
-        if (dotsRoot) {
-          dotsRoot.hidden = true;
-        }
-        return;
-      }
-
-      function cardIndexForDot(dotIndex) {
-        if (dotCount <= 1) {
-          return 0;
-        }
-
-        return Math.round(dotIndex * (cards.length - 1) / (dotCount - 1));
-      }
-
-      function dotIndexForCard(cardIndex) {
-        if (cards.length <= 1 || dotCount <= 1) {
-          return 0;
-        }
-
-        return Math.round(cardIndex * (dotCount - 1) / (cards.length - 1));
-      }
-
-      function closestCardIndex() {
-        var trackRect = track.getBoundingClientRect();
-        var targetLeft = trackRect.left;
-        var closestIndex = 0;
-        var closestDistance = Infinity;
-
-        cards.forEach(function (card, index) {
-          var distance = Math.abs(card.getBoundingClientRect().left - targetLeft);
-
-          if (distance < closestDistance) {
-            closestDistance = distance;
-            closestIndex = index;
-          }
-        });
-
-        return closestIndex;
-      }
-
-      function setActiveDot(nextDot) {
-        if (nextDot === activeDot) {
-          return;
-        }
-
-        activeDot = nextDot;
-        dots.forEach(function (dot, index) {
-          var isActive = index === activeDot;
-
-          dot.classList.toggle("is-active", isActive);
-          dot.setAttribute("aria-current", isActive ? "true" : "false");
-        });
-      }
-
-      function update() {
-        ticking = false;
-        setActiveDot(dotIndexForCard(closestCardIndex()));
-      }
-
-      function requestUpdate() {
-        if (!ticking) {
-          ticking = true;
-          window.requestAnimationFrame(update);
-        }
-      }
-
-      dotsRoot.textContent = "";
-      dotsRoot.hidden = false;
-      dotsRoot.setAttribute("role", "tablist");
-
-      for (var index = 0; index < dotCount; index += 1) {
-        var dot = document.createElement("button");
-        var targetIndex = cardIndexForDot(index);
-
-        dot.className = "seasonal-menu__dot";
-        dot.type = "button";
-        dot.setAttribute("role", "tab");
-        dot.setAttribute("aria-label", String(targetIndex + 1));
-        dot.addEventListener("click", function (card) {
-          return function () {
-            card.scrollIntoView({
-              behavior: "smooth",
-              block: "nearest",
-              inline: "start",
-            });
-          };
-        }(cards[targetIndex]));
-        dotsRoot.appendChild(dot);
-        dots.push(dot);
-      }
-
-      track.addEventListener("scroll", requestUpdate, { passive: true });
-      window.addEventListener("resize", requestUpdate, { passive: true });
-      requestUpdate();
-    });
-  }
+  // Seasonal showcase state is intentionally owned by menu-showcase.js.
+  // The loader must not recreate dots or attach carousel handlers here, because
+  // doing so destroys the buttons and state that menu-showcase.js has already
+  // initialized.
 
   var categoryStrip = document.querySelector(".category-strip");
   if (categoryStrip) {
     categoryStrip.scrollLeft = 0;
   }
 
-  setupSeasonalCarouselDots();
   syncDishOpenLabels();
   window.addEventListener("cc:languagechange", syncDishOpenLabels);
 
