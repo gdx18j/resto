@@ -258,3 +258,117 @@
     --content-width: 1180px;
   }
 }
+@media (min-width: 620px) and (max-width: 767px) {
+  .app-shell:has(.menu-hero) {
+    --menu-showcase-width: min(720px, calc(100vw - 40px));
+  }
+
+  .seasonal-menu--mobile {
+    display: none !important;
+  }
+
+  .seasonal-menu--desktop {
+    width: var(--menu-showcase-width);
+    margin: 0 auto 18px;
+    padding: 22px 0 18px;
+    display: block;
+    overflow: visible;
+  }
+
+  .seasonal-menu--desktop .seasonal-menu__heading {
+    display: block;
+    margin: 0 0 12px;
+    padding-inline: 2px;
+  }
+
+  .seasonal-menu--stack .seasonal-menu__track {
+    height: 258px;
+    overflow: hidden;
+    touch-action: pan-y;
+  }
+
+  .seasonal-menu--stack .seasonal-card,
+  .seasonal-menu--stack .seasonal-card.is-active,
+  .seasonal-menu--stack .seasonal-card.is-prev,
+  .seasonal-menu--stack .seasonal-card.is-next,
+  .seasonal-menu--stack .seasonal-card.is-before-prev,
+  .seasonal-menu--stack .seasonal-card.is-after-next {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 100%;
+    max-width: 100%;
+    height: 238px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(206px, 40%);
+    gap: 16px;
+    padding: 18px 14px 16px 20px;
+    border-radius: 18px;
+    box-shadow: 0 18px 38px rgba(73, 61, 44, 0.14);
+    filter: none;
+  }
+
+  .seasonal-menu--stack .seasonal-card.is-active {
+    z-index: 4;
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate3d(-50%, 0, 0) scale(1);
+  }
+
+  .seasonal-menu--stack .seasonal-card.is-prev,
+  .seasonal-menu--stack .seasonal-card.is-next,
+  .seasonal-menu--stack .seasonal-card.is-before-prev,
+  .seasonal-menu--stack .seasonal-card.is-after-next {
+    z-index: 1;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(-50%, 0, 0) scale(0.98);
+  }
+
+  .seasonal-menu--stack .seasonal-card__copy {
+    gap: 10px;
+  }
+
+  .seasonal-menu--stack .seasonal-card__kicker {
+    font-size: 9px;
+    letter-spacing: 0.13em;
+  }
+
+  .seasonal-menu--stack .seasonal-card h2 {
+    font-size: clamp(28px, 4.9vw, 34px);
+    line-height: 1.03;
+  }
+
+  .seasonal-menu--stack .seasonal-card__text {
+    display: -webkit-box;
+    overflow: hidden;
+    max-width: none;
+    font-size: 11px;
+    line-height: 1.5;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .seasonal-menu--stack .seasonal-card__link {
+    min-height: 32px;
+    font-size: 11px;
+  }
+
+  .seasonal-menu--stack .seasonal-card__media {
+    min-height: 0;
+    align-self: stretch;
+    border-radius: 16px;
+  }
+
+  .seasonal-menu--stack .seasonal-menu__dots {
+    min-height: 18px;
+    margin-top: 8px;
+    display: flex;
+    gap: 7px;
+  }
+
+  .seasonal-menu--stack .seasonal-menu__arrow {
+    display: none !important;
+  }
+}
+
