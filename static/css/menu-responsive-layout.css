@@ -1,0 +1,375 @@
+/*
+ * Late responsive grid/modal/header overrides, keyframes, and reduced-motion defaults.
+ * Extracted from static/css/menu.css. Keep cascade order in menu.css.
+ */
+
+@media (max-width: 860px) {
+  .profile-popover-layer {
+    justify-items: center;
+    padding: calc(var(--header-height) + 10px) 14px 18px;
+  }
+
+  .profile-popover {
+    width: min(420px, 100%);
+    transform-origin: top center;
+  }
+
+  .profile-popover::before {
+    display: none;
+  }
+
+  .profile-popover__actions {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 520px) {
+  .profile-popover-layer {
+    padding: calc(var(--header-height) + 8px) 12px 16px;
+  }
+
+  .profile-popover {
+    width: 100%;
+    max-height: calc(100dvh - var(--header-height) - 24px);
+    padding: 16px;
+    border-radius: 14px;
+  }
+
+  .profile-popover h2 {
+    font-size: 24px;
+  }
+
+  .profile-popover__copy {
+    margin-right: 32px;
+  }
+
+  .profile-popover__actions {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 720px) {
+  .dish-detail-layer {
+    align-items: end;
+    padding: 0;
+  }
+
+  .dish-detail-shell {
+    width: 100%;
+    max-height: 92dvh;
+    border-radius: 20px 20px 0 0;
+  }
+
+  .dish-detail {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .dish-detail__media {
+    min-height: 220px;
+    max-height: 36dvh;
+  }
+
+  .dish-detail__body {
+    padding: 22px 18px 24px;
+  }
+
+  .dish-detail h2 {
+    font-size: clamp(30px, 9vw, 42px);
+  }
+
+  .dish-detail__nutrition {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 620px) {
+  .page-width {
+    width: min(calc(100% - 40px), var(--content-width));
+  }
+
+  .menu-controls {
+    width: 100%;
+    max-width: var(--content-width);
+    margin-inline: auto;
+  }
+
+  .dish-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+  }
+
+  .dish-card {
+    border-radius: 18px;
+  }
+
+  .dish-image-button {
+    aspect-ratio: 4 / 3;
+  }
+
+  .category-strip {
+    margin-inline: 0;
+    padding-inline: 0;
+    scroll-padding-inline: 12px;
+  }
+
+  .dish-body {
+    min-height: 236px;
+    padding: 18px;
+    gap: 16px;
+  }
+
+  .dish-copy h2 {
+    font-size: clamp(27px, 4vw, 36px);
+    line-height: 1.02;
+    min-height: 2.04em;
+  }
+
+  .dish-copy > p {
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .dish-allergens {
+    padding: 8px 10px;
+  }
+
+  .dish-cart-control {
+    width: 136px;
+    min-width: 136px;
+  }
+
+  .dish-price-button strong {
+    font-size: 18px;
+  }
+
+  .dish-price-button__icon {
+    width: 18px;
+    height: 18px;
+    flex-basis: 18px;
+  }
+
+  .footer__grid {
+    grid-template-columns: 1fr auto;
+    align-items: end;
+  }
+}
+
+
+@media (min-width: 1200px) {
+  .menu-hero {
+    background-position: center, center, center, center top;
+  }
+}
+@media (min-width: 960px) {
+  .menu-hero {
+    margin-top: calc(-1 * (var(--header-height) + 24px));
+  }
+
+  .main-content {
+    padding-top: 14px;
+  }
+
+  .menu-controls {
+    width: var(--menu-showcase-width, min(100%, var(--content-width)));
+    margin: 0 auto 18px;
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .search-section {
+    max-width: 100%;
+  }
+
+  .category-strip {
+    margin-inline: -4px;
+    padding-inline: 4px 18px;
+    scroll-padding-inline: 12px;
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent);
+    mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent);
+  }
+
+  .category-chip {
+    min-height: 34px;
+    padding-inline: 14px;
+    font-size: 12px;
+  }
+
+  .dish-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 22px;
+  }
+
+  .dish-image-button {
+    height: 210px;
+  }
+}
+
+@media (max-width: 420px) {
+  .brand-copy small {
+    display: none;
+  }
+
+  .brand-copy strong {
+    font-size: 17px;
+  }
+
+  .dish-grid {
+    gap: 9px;
+  }
+
+  .dish-body {
+    padding: 10px;
+  }
+
+  .dish-copy h2 {
+    font-size: clamp(17px, 5.4vw, 21px);
+  }
+
+  .dish-copy > p {
+    -webkit-line-clamp: 2;
+    min-height: calc(1.42em * 2);
+  }
+
+  .dish-allergens {
+    padding: 6px 7px;
+  }
+
+  .dish-allergens__label {
+    font-size: 8.5px;
+  }
+
+  .dish-allergens__list {
+    font-size: 10px;
+  }
+
+
+  .dish-cart-control {
+    width: 104px;
+    min-width: 104px;
+  }
+
+  .dish-qty-stepper {
+    min-height: 34px;
+    grid-template-columns: 34px minmax(24px, 1fr) 34px;
+  }
+
+  .dish-qty-stepper__btn {
+    width: 34px;
+    height: 34px;
+  }
+
+  .dish-detail__facts > span,
+  .dish-detail__allergens > span {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+  .dish-price-button strong {
+    min-height: 34px;
+    font-size: 13px;
+  }
+
+  .dish-price-button__icon {
+    width: 15px;
+    height: 15px;
+    flex-basis: 15px;
+  }
+
+}
+
+@keyframes heroLightSweep {
+  0% {
+    opacity: 0.5;
+    transform: translateX(-24%) skewX(-10deg);
+  }
+
+  52% {
+    opacity: 0.76;
+  }
+
+  100% {
+    opacity: 0.58;
+    transform: translateX(8%) skewX(-10deg);
+  }
+}
+
+@keyframes heroTextIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes heroFrameLeave {
+  to {
+    background-position: center center, center center, center center, center 47%;
+    box-shadow: inset 0 -180px 160px rgba(17, 18, 15, 0.86), inset 0 0 0 100vw rgba(17, 18, 15, 0.08);
+  }
+}
+
+@keyframes heroContentLeave {
+  to {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.985);
+  }
+}
+
+@keyframes heroShadeLeave {
+  to {
+    opacity: 0.38;
+  }
+}
+@keyframes riseIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes languagePopoverIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.96);
+  }
+
+  60% {
+    opacity: 1;
+    transform: translateY(2px) scale(1.01);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+

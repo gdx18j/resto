@@ -1,0 +1,193 @@
+/*
+ * Hero section and hero entrance animation hooks.
+ * Extracted from static/css/menu.css. Keep cascade order in menu.css.
+ */
+
+.menu-hero {
+  position: relative;
+  width: 100vw;
+  min-height: clamp(340px, 30vw, 382px);
+  margin: calc(-1 * (var(--header-height) + 18px)) 0 0 calc(50% - 50vw);
+  padding: calc(var(--header-height) + clamp(24px, 3vw, 36px)) max(64px, calc((100vw - var(--content-width)) / 2 + 24px)) clamp(24px, 3vw, 36px);
+  overflow: hidden;
+  display: grid;
+  align-items: center;
+  color: #fff8ec;
+  background:
+    linear-gradient(90deg, rgba(17, 18, 15, 0.94) 0%, rgba(17, 18, 15, 0.7) 46%, rgba(17, 18, 15, 0.2) 100%),
+    radial-gradient(circle at 78% 34%, rgba(202, 163, 92, 0.18), transparent 34%),
+    linear-gradient(180deg, rgba(17, 18, 15, 0.08) 0%, rgba(17, 18, 15, 0.12) 52%, #11120f 100%),
+    url("../img/caesar-hero.jpg") center top / cover no-repeat;
+  background-color: #11120f;
+  box-shadow: inset 0 -130px 120px rgba(17, 18, 15, 0.72);
+  isolation: isolate;
+  transform: translateZ(0);
+}
+
+.menu-hero:has(.seasonal-menu) {
+  min-height: clamp(340px, 30vw, 382px);
+}
+
+.menu-hero::before {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  z-index: 3;
+  height: min(34vh, 300px);
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, transparent 0%, rgba(17, 18, 15, 0.86) 62%, #11120f 100%);
+  content: "";
+}
+
+.menu-hero::after {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    linear-gradient(180deg, rgba(202, 163, 92, 0.1), transparent 28%),
+    linear-gradient(90deg, rgba(202, 163, 92, 0.13), transparent 34%),
+    radial-gradient(circle at 76% 18%, rgba(245, 239, 227, 0.06), transparent 28%);
+  content: "";
+}
+
+.menu-hero__light,
+.menu-hero__texture {
+  position: absolute;
+  pointer-events: none;
+}
+
+.menu-hero__light {
+  inset: -22% -28%;
+  z-index: 1;
+  opacity: 0.7;
+  background:
+    linear-gradient(112deg, transparent 0%, transparent 39%, rgba(255, 240, 194, 0.05) 46%, rgba(202, 163, 92, 0.18) 51%, rgba(255, 248, 236, 0.08) 56%, transparent 65%),
+    radial-gradient(ellipse at 76% 30%, rgba(202, 163, 92, 0.2), transparent 36%);
+  mix-blend-mode: screen;
+  transform: translateX(-18%) skewX(-10deg);
+  animation: heroLightSweep 10500ms ease-in-out infinite alternate;
+}
+
+.menu-hero__texture {
+  inset: 0;
+  z-index: 2;
+  opacity: 0.16;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 248, 236, 0.05) 0 1px, transparent 1px 7px),
+    linear-gradient(110deg, transparent 0%, rgba(255, 248, 236, 0.08) 48%, transparent 76%);
+  mix-blend-mode: soft-light;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 15%, #000 76%, transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0%, #000 15%, #000 76%, transparent 100%);
+}
+
+.menu-hero__content {
+  position: relative;
+  z-index: 4;
+  width: min(430px, 100%);
+  padding-bottom: 0;
+}
+
+.menu-hero__content::before {
+  position: absolute;
+  top: -16px;
+  left: -18px;
+  width: 1px;
+  height: clamp(92px, 18vh, 158px);
+  background: linear-gradient(180deg, transparent, rgba(232, 194, 123, 0.9), transparent);
+  box-shadow: 0 0 28px rgba(202, 163, 92, 0.28);
+  content: "";
+}
+
+.menu-hero__kicker {
+  margin: 0 0 8px;
+  color: #e8c27b;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.menu-hero h1 {
+  margin: 0;
+  color: #fff8ec;
+  font-size: clamp(56px, 6vw, 78px);
+  line-height: 0.9;
+  text-shadow: 0 16px 42px rgba(0, 0, 0, 0.42);
+}
+
+.menu-hero__copy {
+  max-width: 390px;
+  margin: 17px 0 0;
+  color: rgba(255, 248, 236, 0.82);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.55;
+}
+
+.menu-hero__menu-link {
+  width: fit-content;
+  min-height: 42px;
+  margin-top: 24px;
+  padding: 0 12px 0 17px;
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid rgba(255, 248, 236, 0.28);
+  border-radius: 999px;
+  color: #fff8ec;
+  background: rgba(17, 18, 15, 0.44);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(14px);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1;
+  text-decoration: none;
+  transition: border-color 180ms ease, background-color 180ms ease, color 180ms ease, transform 160ms ease;
+}
+
+.menu-hero__menu-link:hover,
+.menu-hero__menu-link:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 62%, rgba(255, 248, 236, 0.28));
+  color: #fff;
+  background: rgba(17, 18, 15, 0.58);
+  transform: translateY(-1px);
+}
+
+.menu-hero__menu-link:active {
+  transform: scale(0.98);
+}
+
+.menu-hero__menu-link-icon {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  font-size: 15px;
+  font-weight: 900;
+}
+.menu-hero__kicker,
+.menu-hero h1,
+.menu-hero__copy,
+.menu-hero__menu-link {
+  animation: heroTextIn 720ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.menu-hero h1 {
+  animation-delay: 80ms;
+}
+
+.menu-hero__copy {
+  animation-delay: 150ms;
+}
+
+.menu-hero__menu-link {
+  animation-delay: 230ms;
+}
+

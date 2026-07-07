@@ -42,6 +42,31 @@ from .models import (
 from .translations import localized_dish_string
 
 
+CSS_IMPORT_RE = re.compile(r'@import\s+url\(["\']?([^"\')]+)["\']?\);')
+
+
+def read_css_with_imports(path):
+    path = Path(path)
+    seen = set()
+
+    def read_one(css_path):
+        css_path = css_path.resolve()
+        if css_path in seen:
+            return ""
+        seen.add(css_path)
+
+        chunks = []
+        for line in css_path.read_text(encoding="utf-8").splitlines(keepends=True):
+            match = CSS_IMPORT_RE.match(line.strip())
+            if match:
+                chunks.append(read_one(css_path.parent / match.group(1)))
+            else:
+                chunks.append(line)
+        return "".join(chunks)
+
+    return read_one(path)
+
+
 class MenuRenderingTests(TestCase):
     def setUp(self):
         category = Category.objects.create(name="Меню")
@@ -141,15 +166,25 @@ class MenuRenderingTests(TestCase):
     def test_seasonal_carousel_indicator_is_runtime_driven(self):
         showcase_js_path = finders.find("js/menu-showcase.js")
         css_path = finders.find("css/menu.css")
-        showcase_css_path = finders.find("css/menu-showcase.css")
+        showcase_hero_css_path = finders.find("css/menu-showcase-hero.css")
+        showcase_seasonal_css_path = finders.find("css/menu-showcase-seasonal.css")
+        showcase_controls_css_path = finders.find("css/menu-showcase-controls.css")
+        legacy_showcase_css_path = finders.find("css/menu-showcase.css")
 
         self.assertIsNotNone(showcase_js_path)
         self.assertIsNotNone(css_path)
-        self.assertIsNotNone(showcase_css_path)
+        self.assertIsNotNone(showcase_hero_css_path)
+        self.assertIsNotNone(showcase_seasonal_css_path)
+        self.assertIsNotNone(showcase_controls_css_path)
+        self.assertIsNotNone(legacy_showcase_css_path)
 
         showcase_js_source = Path(showcase_js_path).read_text(encoding="utf-8")
-        css_source = Path(css_path).read_text(encoding="utf-8")
-        showcase_css_source = Path(showcase_css_path).read_text(encoding="utf-8")
+        manifest_source = Path(css_path).read_text(encoding="utf-8")
+        css_source = read_css_with_imports(css_path)
+        showcase_hero_css_source = Path(showcase_hero_css_path).read_text(encoding="utf-8")
+        showcase_seasonal_css_source = Path(showcase_seasonal_css_path).read_text(encoding="utf-8")
+        showcase_controls_css_source = Path(showcase_controls_css_path).read_text(encoding="utf-8")
+        legacy_showcase_css_source = Path(legacy_showcase_css_path).read_text(encoding="utf-8")
 
         self.assertIn("setupSeasonalShowcase", showcase_js_source)
         self.assertIn("seasonal-menu--single", showcase_js_source)
@@ -161,19 +196,33 @@ class MenuRenderingTests(TestCase):
         self.assertIn("window.setInterval", showcase_js_source)
         self.assertIn("autoplayPaused", showcase_js_source)
         self.assertIn(".seasonal-menu__dot.is-active", css_source)
-        self.assertIn("--content-width: 1180px", showcase_css_source)
-        self.assertIn("--menu-showcase-width", showcase_css_source)
-        self.assertIn(".seasonal-menu--single .seasonal-menu__track", showcase_css_source)
-        self.assertIn(".seasonal-menu--pair .seasonal-menu__track", showcase_css_source)
-        self.assertIn(".seasonal-menu--stack .seasonal-card.is-active", showcase_css_source)
-        self.assertIn("scroll-snap-type: x proximity", showcase_css_source)
-        self.assertIn("padding: 30px 0", showcase_css_source)
-        self.assertIn("height: 258px", showcase_css_source)
-        self.assertIn("translate3d(calc(-50% - 300px), 3px, 0) scale(0.9)", showcase_css_source)
-        self.assertIn(".main-content.page-width", showcase_css_source)
-        self.assertIn("width: var(--menu-showcase-width)", showcase_css_source)
-        self.assertNotIn(".menu-controls.is-sticky-search-enhanced", showcase_css_source)
-        self.assertIn("bottom: calc(100% - 1px)", css_source)
+        self.assertIn("Menu showcase hero/layout layer", css_source)
+        self.assertIn("Menu showcase seasonal layer", css_source)
+        self.assertIn("Menu showcase controls layer", css_source)
+        self.assertIn('@import url("menu-showcase-hero.css");', manifest_source)
+        self.assertIn('@import url("menu-showcase-seasonal.css");', manifest_source)
+        self.assertIn('@import url("menu-showcase-controls.css");', manifest_source)
+        self.assertNotIn('@import url("menu-showcase.css");', manifest_source)
+        self.assertIn("--content-width: 1180px", css_source)
+        self.assertIn("--menu-showcase-width", css_source)
+        self.assertIn(".seasonal-menu--single .seasonal-menu__track", css_source)
+        self.assertIn(".seasonal-menu--pair .seasonal-menu__track", css_source)
+        self.assertIn(".seasonal-menu--stack .seasonal-card.is-active", css_source)
+        self.assertIn("scroll-snap-type: x proximity", css_source)
+        self.assertIn("padding: 30px 0", css_source)
+        self.assertIn("height: 258px", css_source)
+        self.assertIn("translate3d(calc(-50% - 300px), 3px, 0) scale(0.9)", css_source)
+        self.assertIn(".main-content.page-width", css_source)
+        self.assertIn("width: var(--menu-showcase-width)", css_source)
+        self.assertIn(".menu-hero", showcase_hero_css_source)
+        self.assertIn(".seasonal-menu--stack .seasonal-card.is-active", showcase_seasonal_css_source)
+        self.assertIn(".category-strip", showcase_controls_css_source)
+        self.assertNotIn(".seasonal-card", showcase_hero_css_source)
+        self.assertNotIn(".menu-controls", showcase_seasonal_css_source)
+        self.assertNotIn(".menu-controls.is-sticky-search-enhanced", showcase_controls_css_source)
+        self.assertNotIn(".seasonal-card", legacy_showcase_css_source)
+        self.assertNotIn(".menu-controls", legacy_showcase_css_source)
+        self.assertIn("bottom: 100%", css_source)
         self.assertIn("opacity 150ms ease", css_source)
         self.assertIn("transform 180ms ease", css_source)
         self.assertIn("top: calc(var(--header-height) + var(--menu-search-height)", css_source)
@@ -314,7 +363,7 @@ class MenuRenderingTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-ordering-enabled="0"')
         self.assertContains(response, "static/css/menu.css")
-        self.assertContains(response, "static/css/menu-showcase.css")
+        self.assertNotContains(response, "static/css/menu-showcase.css")
         self.assertNotContains(response, "static/css/base.css")
         self.assertContains(response, "static/js/menu-sticky.js")
         self.assertContains(response, "static/js/menu-showcase.js")
@@ -354,7 +403,7 @@ class MenuRenderingTests(TestCase):
 
         loader_source = Path(loader_path).read_text(encoding="utf-8")
         sticky_source = Path(sticky_path).read_text(encoding="utf-8")
-        css_source = Path(css_path).read_text(encoding="utf-8")
+        css_source = read_css_with_imports(css_path)
         response = self.client.get(reverse("menu:dish_list"))
         html = response.content.decode("utf-8")
 
@@ -385,6 +434,10 @@ class MenuRenderingTests(TestCase):
         self.assertIn("--menu-compact-width", sticky_source)
         self.assertIn("--menu-compact-search-height", sticky_source)
         self.assertIn("--menu-compact-full-height", sticky_source)
+        self.assertNotIn("is-mobile-stable-menu", sticky_source)
+        self.assertNotIn("is-mobile-directional-menu", sticky_source)
+        self.assertNotIn("is-mobile-menu-floating", sticky_source)
+        self.assertNotIn("--menu-mobile-", sticky_source)
         self.assertIn('on(window, "scroll"', sticky_source)
         self.assertNotIn('window.addEventListener("wheel"', sticky_source)
         self.assertNotIn('window.addEventListener("touchstart"', sticky_source)
@@ -409,6 +462,15 @@ class MenuRenderingTests(TestCase):
         self.assertIn(".menu-controls-placeholder:not([hidden])", css_source)
         self.assertIn("var(--menu-compact-full-height", css_source)
         self.assertIn("max-height: var(--menu-compact-search-height", css_source)
+        self.assertNotIn("is-mobile-stable-menu", css_source)
+        self.assertNotIn("is-mobile-directional-menu", css_source)
+        self.assertNotIn("is-mobile-menu-floating", css_source)
+        self.assertNotIn("--menu-mobile-", css_source)
+        self.assertNotIn(".cart-sheet", css_source)
+        self.assertNotIn("#cart-toggle", css_source)
+        self.assertNotIn(".compact-card", css_source)
+        self.assertNotIn("danger-mark", css_source)
+        self.assertNotIn(".nav-button", css_source)
         self.assertNotIn(".menu-controls.is-search-collapsed", css_source)
         self.assertNotIn("menu-floating-search", css_source)
         self.assertNotIn("display: none", css_source[css_source.find(".menu-controls"):css_source.find(".search-section")])
@@ -424,7 +486,7 @@ class MenuRenderingTests(TestCase):
         self.assertIsNotNone(css_path)
 
         runtime_source = Path(runtime_path).read_text(encoding="utf-8")
-        css_source = Path(css_path).read_text(encoding="utf-8")
+        css_source = read_css_with_imports(css_path)
 
         self.assertIn("lockScroll: !(window.matchMedia", runtime_source)
         self.assertIn("(min-width: 768px)", runtime_source)

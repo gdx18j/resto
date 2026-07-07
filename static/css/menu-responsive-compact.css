@@ -1,0 +1,336 @@
+/*
+ * Early responsive overrides for seasonal stories, mobile hero, and mobile controls.
+ * Extracted from static/css/menu.css. Keep cascade order in menu.css.
+ */
+
+@media (min-width: 620px) and (max-width: 959px) {
+  .seasonal-card {
+    width: calc(100% - 96px);
+    grid-template-columns: minmax(0, 1fr) minmax(170px, 38%);
+  }
+
+  .seasonal-card.is-prev,
+  .seasonal-card.is-next {
+    width: calc(100% - 300px);
+  }
+
+  .seasonal-card.is-prev {
+    transform: translate3d(calc(-50% - 210px), 0, 0) scale(0.9);
+  }
+
+  .seasonal-card.is-next {
+    transform: translate3d(calc(-50% + 210px), 0, 0) scale(0.9);
+  }
+
+  .seasonal-card.is-before-prev {
+    transform: translate3d(calc(-50% - 280px), 0, 0) scale(0.84);
+  }
+
+  .seasonal-card.is-after-next {
+    transform: translate3d(calc(-50% + 280px), 0, 0) scale(0.84);
+  }
+
+  .seasonal-menu__arrow--prev {
+    left: 42px;
+  }
+
+  .seasonal-menu__arrow--next {
+    right: 42px;
+  }
+}
+
+@media (max-width: 619px) {
+  html,
+  body {
+    overflow-anchor: none;
+  }
+
+  .site-header {
+    backdrop-filter: none;
+  }
+
+  .seasonal-menu {
+    width: 100%;
+    margin: 0;
+    padding-top: 0;
+    z-index: 6;
+  }
+
+  .seasonal-menu--desktop {
+    display: none;
+  }
+
+  .seasonal-menu--mobile {
+    display: block;
+  }
+
+  .seasonal-menu__heading {
+    display: none;
+  }
+
+  .seasonal-menu__track {
+    height: auto;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 100%;
+    grid-template-columns: none;
+    gap: 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    scrollbar-width: none;
+    touch-action: pan-x pan-y;
+  }
+
+  .seasonal-menu__track::-webkit-scrollbar {
+    display: none;
+  }
+
+  .seasonal-menu__dots {
+    margin-top: 12px;
+    display: flex;
+    gap: 7px;
+  }
+
+  .seasonal-menu__arrow {
+    display: none;
+  }
+
+  .seasonal-card,
+  .seasonal-card.is-active,
+  .seasonal-card.is-prev,
+  .seasonal-card.is-next,
+  .seasonal-card.is-before-prev,
+  .seasonal-card.is-after-next {
+    position: relative;
+    top: auto;
+    left: auto;
+    width: auto;
+    height: auto;
+    min-height: 178px;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    grid-template-columns: minmax(0, 1fr) minmax(132px, 48%);
+    gap: 13px;
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+    filter: none;
+    padding: 16px 8px 16px 17px;
+    border-radius: 18px;
+    box-shadow: 0 18px 38px rgba(0, 0, 0, 0.3);
+  }
+
+  .seasonal-card__copy {
+    gap: 9px;
+  }
+
+  .seasonal-card__kicker {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+  }
+
+  .seasonal-card h2 {
+    font-size: clamp(26px, 7.8vw, 36px);
+    line-height: 1.02;
+  }
+
+  .seasonal-card__text {
+    display: -webkit-box;
+    overflow: hidden;
+    max-width: none;
+    font-size: 11px;
+    line-height: 1.55;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .seasonal-card__link {
+    min-height: 30px;
+    font-size: 11px;
+  }
+
+  .seasonal-card__media {
+    min-height: 0;
+    border-radius: 16px;
+    align-self: stretch;
+  }
+
+  .seasonal-card__badge {
+    top: 10px;
+    right: 10px;
+    width: 34px;
+    height: 34px;
+    font-size: 26px;
+  }
+
+  .menu-controls,
+  .menu-hero + .menu-controls {
+    --menu-search-gap: 8px;
+    position: sticky;
+    top: calc(var(--header-height) - 1px);
+    z-index: 42;
+    width: 100%;
+    margin: 0 0 16px;
+    padding: 8px 10px 10px;
+    border-radius: 16px;
+    background: var(--surface-raised);
+    box-shadow: none;
+    overflow: visible;
+    transform: translate3d(0, 0, 0);
+    transition: none;
+    animation: none;
+  }
+
+  .menu-search-panel {
+    position: relative;
+    margin: 0 0 var(--menu-search-gap);
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    opacity: 1;
+    visibility: visible;
+    transform: translate3d(0, 0, 0);
+    transition: none;
+    will-change: auto;
+  }
+
+  .category-controls {
+    position: relative;
+    transform: translate3d(0, 0, 0);
+    transition: none;
+    will-change: auto;
+  }
+
+  .category-row {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .category-strip {
+    margin-inline: -6px;
+    padding-inline: 18px 22px;
+    scroll-padding-inline: 18px;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 22px), transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 22px), transparent 100%);
+  }
+
+  .menu-controls.is-sticky-search-enhanced,
+  .menu-controls.is-sticky-search-enhanced.is-search-visible,
+  .menu-controls.is-sticky-search-enhanced.is-search-hidden {
+    top: auto;
+    border-radius: 16px;
+  }
+
+  .menu-controls.is-sticky-search-enhanced .menu-search-panel {
+    position: relative;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .preference-note,
+  .menu-section,
+  .dish-grid {
+    overflow-anchor: none;
+  }
+
+  .search-section,
+  .category-row {
+    transform: translate3d(0, 0, 0);
+  }
+
+  .category-chip:hover,
+  .category-chip.is-active {
+    transform: none;
+  }
+  .menu-hero {
+    min-height: calc(100svh - 12px);
+    margin-top: calc(-1 * (var(--header-height) + 18px));
+    margin-bottom: 0;
+    padding: calc(var(--header-height) + 104px) 18px 24px;
+    background:
+      linear-gradient(180deg, rgba(17, 18, 15, 0.24) 0%, rgba(17, 18, 15, 0.18) 42%, #11120f 100%),
+      linear-gradient(90deg, rgba(17, 18, 15, 0.9) 0%, rgba(17, 18, 15, 0.38) 58%, rgba(17, 18, 15, 0.64) 100%),
+      url("../img/caesar-mobile-hero.jpg") center center / cover no-repeat;
+    animation: none;
+    transform: none;
+  }
+
+  .menu-hero:has(.seasonal-menu) {
+    grid-template-rows: minmax(0, 1fr) auto;
+    row-gap: 28px;
+  }
+
+  .menu-hero::before {
+    height: min(30vh, 240px);
+    background: linear-gradient(180deg, transparent 0%, rgba(17, 18, 15, 0.72) 58%, #11120f 100%);
+  }
+
+  .menu-hero::after {
+    background:
+      radial-gradient(circle at 76% 18%, rgba(232, 194, 123, 0.14), transparent 32%),
+      linear-gradient(180deg, rgba(255, 248, 236, 0.03), transparent 38%);
+    opacity: 1;
+  }
+
+  .menu-hero__light {
+    display: none;
+  }
+
+  .menu-hero__texture {
+    display: none;
+  }
+
+  .menu-hero__content {
+    width: min(390px, 100%);
+    padding-bottom: 0;
+  }
+
+  .menu-hero__content::before {
+    top: -10px;
+    left: 0;
+    height: 58px;
+    opacity: 0.72;
+  }
+
+  .menu-hero__kicker {
+    font-size: 10px;
+  }
+
+  .menu-hero h1 {
+    font-size: clamp(40px, 15vw, 62px);
+    line-height: 0.9;
+  }
+
+  .menu-hero__copy {
+    max-width: 310px;
+    margin-top: 14px;
+    font-size: 13px;
+  }
+
+  .menu-hero__menu-link {
+    min-height: 42px;
+    margin-top: 22px;
+    padding-left: 15px;
+    font-size: 12px;
+  }
+
+  .menu-hero + .menu-controls {
+    margin: 0 0 14px;
+    animation: none;
+    transform: none;
+  }
+
+  .menu-controls + .preference-note,
+  .menu-controls + .menu-section {
+    margin-top: 16px;
+  }
+}
+

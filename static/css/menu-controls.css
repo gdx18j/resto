@@ -1,0 +1,291 @@
+/*
+ * Search panel, category strip, compact placeholder, and controls base states.
+ * Extracted from static/css/menu.css. Keep cascade order in menu.css.
+ */
+
+.menu-hero + .menu-controls {
+  margin-top: -34px;
+  animation: none;
+  animation-delay: 0ms;
+}
+
+.menu-controls {
+  --menu-search-gap: 0px;
+  --menu-search-height: 72px;
+  scroll-margin-top: calc(var(--header-height) + 16px);
+  position: sticky;
+  top: calc(var(--header-height) - 1px);
+  z-index: 42;
+  margin-bottom: 14px;
+  padding: 10px 12px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 15%, var(--line));
+  border-radius: 20px;
+  background: var(--surface-raised);
+  box-shadow: none;
+  overflow: hidden;
+  overflow-anchor: none;
+  transition: top 160ms ease, border-radius 160ms ease, background-color 260ms ease, border-color 260ms ease;
+  animation: riseIn 520ms ease both;
+  animation-delay: 80ms;
+}
+
+.menu-search-panel {
+  margin-bottom: var(--menu-search-gap);
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  transition: opacity 150ms ease, transform 180ms ease, visibility 180ms ease;
+  will-change: opacity, transform;
+}
+
+.category-controls {
+  transform: translate3d(0, 0, 0);
+}
+
+.menu-controls.is-sticky-search-enhanced {
+  overflow: visible;
+  isolation: isolate;
+}
+
+.menu-controls.is-sticky-search-enhanced.is-search-visible {
+  top: calc(var(--header-height) + var(--menu-search-height) + var(--menu-search-gap) - 1px);
+  border-color: transparent;
+  border-radius: 0 0 20px 20px;
+  background: transparent;
+}
+
+.menu-controls.is-sticky-search-enhanced.is-search-visible::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  left: 0;
+  right: 0;
+  top: calc(-1 * (var(--menu-search-height) + var(--menu-search-gap)));
+  bottom: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 15%, var(--line));
+  border-radius: 20px;
+  background: var(--surface-raised);
+  pointer-events: none;
+}
+
+.menu-controls.is-sticky-search-enhanced.is-search-hidden {
+  border-radius: 20px;
+}
+
+.menu-controls.is-sticky-search-enhanced .menu-search-panel,
+.menu-controls.is-sticky-search-enhanced .category-controls {
+  position: relative;
+  z-index: 1;
+}
+
+.menu-controls.is-sticky-search-enhanced .menu-search-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 20px 20px 0 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.menu-controls.is-sticky-search-enhanced.is-search-hidden .menu-search-panel {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(0, -8px, 0);
+}
+
+.search-section {
+  display: grid;
+  opacity: 1;
+  overflow: visible;
+}
+
+.search-box {
+  min-height: 50px;
+  padding: 0 15px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--line));
+  border-radius: 14px;
+  color: var(--muted);
+  background: var(--surface);
+  overflow: hidden;
+  transition: min-height 220ms ease, padding 220ms ease, border-color 180ms ease, background-color 260ms ease;
+}
+
+.search-box:focus-within {
+  border-color: var(--accent);
+}
+
+.search-box svg {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+}
+
+.search-box input {
+  width: 100%;
+  min-width: 0;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+  font-size: 15px;
+}
+
+.search-box input::placeholder {
+  color: var(--muted);
+}
+
+.search-box input::-webkit-search-cancel-button,
+.search-box input::-webkit-search-decoration,
+.search-box input::-webkit-search-results-button,
+.search-box input::-webkit-search-results-decoration {
+  display: none;
+  -webkit-appearance: none;
+}
+
+.search-box input::-ms-clear,
+.search-box input::-ms-reveal {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.search-clear-button {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--text-soft);
+  background: var(--surface-soft);
+  cursor: pointer;
+  transition: color 160ms ease, border-color 160ms ease, background-color 160ms ease;
+}
+
+.search-clear-button[hidden] {
+  display: none !important;
+}
+
+.search-clear-button:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.search-clear-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.menu-search-count {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  border-radius: 999px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.menu-search-count:empty {
+  display: none;
+}
+
+.dish-card[data-match-type="ingredients"] {
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--line));
+}
+
+.category-row {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.category-strip {
+  min-width: 0;
+  margin: 0;
+  padding: 4px 0;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  scroll-padding-inline: 12px;
+}
+
+.category-strip::before,
+.category-strip::after {
+  flex: 0 0 6px;
+  content: "";
+}
+
+.category-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.category-chip {
+  min-height: 38px;
+  padding: 0 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-soft);
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: color 180ms ease, border-color 180ms ease, background-color 260ms ease, transform 180ms ease;
+}
+
+.category-chip:first-child {
+  margin-left: 0;
+}
+
+.category-chip:hover,
+.category-chip.is-active {
+  color: var(--accent-contrast);
+  border-color: var(--accent);
+  background: var(--accent);
+  transform: translateY(-1px);
+}
+
+.category-chip[hidden],
+.menu-section[hidden],
+.dish-card[hidden],
+.menu-search-empty[hidden] {
+  display: none !important;
+}
+
+.menu-controls-placeholder[hidden] {
+  display: none !important;
+}
+
+.menu-controls-placeholder {
+  height: var(--menu-compact-full-height, 0px);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  pointer-events: none;
+}
+

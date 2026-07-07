@@ -1,0 +1,316 @@
+/*
+ * Base seasonal story carousel/card styles shared with menu-showcase-seasonal.css.
+ * Extracted from static/css/menu.css. Keep cascade order in menu.css.
+ */
+
+.seasonal-menu {
+  position: relative;
+  z-index: 5;
+  width: var(--menu-showcase-width, min(calc(100% - 56px), var(--content-width)));
+  margin: 0 auto 14px;
+  padding: 14px 0 0;
+  color: #241f18;
+}
+
+.seasonal-menu--mobile {
+  display: none;
+}
+
+.seasonal-menu--desktop {
+  display: block;
+}
+
+.seasonal-menu__heading {
+  margin: 0 0 10px;
+  color: var(--accent);
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.seasonal-menu__track {
+  position: relative;
+  height: 226px;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.seasonal-menu__track:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  outline-offset: 4px;
+}
+
+.seasonal-menu__dots {
+  min-height: 18px;
+  margin: 12px auto 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.seasonal-menu__dots[hidden] {
+  display: none !important;
+}
+
+.seasonal-menu__dot {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(202, 163, 92, 0.34);
+  cursor: pointer;
+  transform: scale(0.82);
+  transition:
+    width 220ms ease,
+    background-color 220ms ease,
+    opacity 220ms ease,
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.seasonal-menu__dot:hover,
+.seasonal-menu__dot:focus-visible {
+  background: rgba(202, 163, 92, 0.66);
+  transform: scale(1);
+}
+
+.seasonal-menu__dot.is-active {
+  width: 18px;
+  background: var(--accent);
+  opacity: 1;
+  transform: scale(1);
+}
+
+.seasonal-card {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: min(560px, calc(100% - 240px));
+  height: 214px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 40%);
+  gap: 16px;
+  overflow: hidden;
+  padding: 17px 14px 14px 20px;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--line));
+  border-radius: 18px;
+  color: #271f16;
+  background:
+    radial-gradient(circle at 78% 12%, rgba(202, 163, 92, 0.08), transparent 34%),
+    var(--surface-raised);
+  box-shadow: 0 18px 42px rgba(73, 61, 44, 0.1);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(-50%, 0, 0) scale(0.94);
+  transition:
+    transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease,
+    box-shadow 220ms ease,
+    filter 220ms ease;
+  will-change: transform, opacity;
+}
+
+.seasonal-card.is-active,
+.seasonal-card.is-prev,
+.seasonal-card.is-next {
+  opacity: 1;
+}
+
+.seasonal-card.is-active {
+  z-index: 3;
+  pointer-events: auto;
+  transform: translate3d(-50%, 0, 0) scale(1);
+  box-shadow: 0 22px 52px rgba(73, 61, 44, 0.14);
+}
+
+.seasonal-card.is-prev,
+.seasonal-card.is-next {
+  z-index: 2;
+  width: min(380px, calc(100% - 500px));
+  grid-template-columns: minmax(0, 1fr) minmax(128px, 38%);
+  opacity: 0.86;
+  filter: saturate(0.92);
+  pointer-events: auto;
+}
+
+.seasonal-card.is-prev {
+  transform: translate3d(calc(-50% - 330px), 0, 0) scale(0.9);
+}
+
+.seasonal-card.is-next {
+  transform: translate3d(calc(-50% + 330px), 0, 0) scale(0.9);
+}
+
+.seasonal-card.is-before-prev,
+.seasonal-card.is-after-next {
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.seasonal-card.is-before-prev {
+  transform: translate3d(calc(-50% - 430px), 0, 0) scale(0.84);
+}
+
+.seasonal-card.is-after-next {
+  transform: translate3d(calc(-50% + 430px), 0, 0) scale(0.84);
+}
+
+.seasonal-card__copy {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+}
+
+.seasonal-card__kicker {
+  margin: 0;
+  color: #ad7e32;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.seasonal-card h2 {
+  margin: 0;
+  color: #261d14;
+  font-size: clamp(22px, 2vw, 28px);
+  line-height: 1.04;
+}
+
+.seasonal-card__text {
+  margin: 0;
+  max-width: 300px;
+  color: #6d6255;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.5;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.seasonal-card.is-prev .seasonal-card__text,
+.seasonal-card.is-next .seasonal-card__text {
+  -webkit-line-clamp: 2;
+  max-width: 190px;
+}
+
+.seasonal-card__link {
+  width: fit-content;
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #ad7e32;
+  font-size: 10px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.seasonal-card__link span[aria-hidden="true"] {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(173, 126, 50, 0.12);
+}
+
+.seasonal-card__media {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  align-self: stretch;
+  border-radius: 12px;
+  background: #ded2c0;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.42);
+}
+
+.seasonal-card__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.seasonal-card__badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(173, 126, 50, 0.24);
+  border-radius: 50%;
+  color: #ad7e32;
+  background: rgba(255, 253, 249, 0.92);
+  box-shadow: 0 10px 26px rgba(73, 61, 44, 0.14);
+  font: 400 28px/1 "Forum", Georgia, serif;
+}
+
+.seasonal-card--no-image .seasonal-card__media {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.52), transparent 48%),
+    linear-gradient(135deg, rgba(173, 126, 50, 0.08), rgba(127, 141, 98, 0.06)),
+    #ded2c0;
+}
+
+.seasonal-card__placeholder {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(173, 126, 50, 0.34);
+  border-radius: 50%;
+  color: #ad7e32;
+  background: rgba(255, 255, 255, 0.44);
+  font: 400 42px/1 "Forum", Georgia, serif;
+}
+
+.seasonal-menu__arrow {
+  position: absolute;
+  top: 50%;
+  z-index: 4;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(173, 126, 50, 0.24);
+  border-radius: 50%;
+  color: #ad7e32;
+  background: rgba(255, 253, 249, 0.96);
+  box-shadow: 0 12px 28px rgba(73, 61, 44, 0.12);
+  font: 400 22px/1 "Inter", sans-serif;
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: transform 160ms ease, background-color 180ms ease, border-color 180ms ease;
+}
+
+.seasonal-menu__arrow:hover,
+.seasonal-menu__arrow:focus-visible {
+  transform: translateY(-50%) scale(1.03);
+  border-color: rgba(173, 126, 50, 0.38);
+  background: rgba(255, 253, 249, 1);
+}
+
+.seasonal-menu__arrow--prev {
+  left: 150px;
+}
+
+.seasonal-menu__arrow--next {
+  right: 150px;
+}
+
+

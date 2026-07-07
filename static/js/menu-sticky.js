@@ -37,9 +37,6 @@
     controls.classList.remove(
       "is-sticky-search-enhanced",
       "is-compact-sticky",
-      "is-mobile-directional-menu",
-      "is-mobile-menu-floating",
-      "is-mobile-stable-menu",
       "is-search-hidden",
       "is-search-visible"
     );
@@ -48,11 +45,6 @@
     controls.style.removeProperty("--menu-compact-width");
     controls.style.removeProperty("--menu-compact-search-height");
     controls.style.removeProperty("--menu-compact-full-height");
-    controls.style.removeProperty("--menu-mobile-search-offset");
-    controls.style.removeProperty("--menu-mobile-hidden-height");
-    controls.style.removeProperty("--menu-mobile-visible-height");
-    controls.style.removeProperty("--menu-mobile-placeholder-height");
-    controls.style.removeProperty("--menu-mobile-search-panel-height");
     removeCompactPlaceholder();
     Array.prototype.forEach.call(searchInputs, function (input) {
       input.removeAttribute("tabindex");

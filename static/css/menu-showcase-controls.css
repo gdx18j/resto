@@ -1,0 +1,40 @@
+/*
+ * Menu showcase controls layer.
+ *
+ * Imported late by menu.css. Contains only search/category refinements that
+ * depend on the showcase width and sit below the hero/seasonal story.
+ */
+
+@media (min-width: 620px) {
+  .menu-hero + .menu-controls {
+    margin-top: 0;
+  }
+
+  .menu-controls {
+    width: var(--menu-showcase-width);
+    max-width: var(--menu-showcase-width);
+    margin: 0 auto 20px;
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .category-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .category-strip {
+    margin-inline: -4px;
+    padding: 4px 22px 4px 4px;
+    gap: 9px;
+    scroll-snap-type: x proximity;
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+  }
+
+  .category-chip {
+    min-height: 36px;
+    padding-inline: 15px;
+    scroll-snap-align: start;
+    font-size: 12px;
+  }
+}

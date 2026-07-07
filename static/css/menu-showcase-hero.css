@@ -1,0 +1,75 @@
+/*
+ * Menu showcase hero/layout layer.
+ *
+ * Imported late by menu.css. Contains only wide showcase page geometry and
+ * hero refinements; seasonal cards and sticky controls live in their own
+ * showcase component files.
+ */
+
+@media (min-width: 620px) {
+  .app-shell:has(.menu-hero) {
+    --content-width: 1180px;
+    --menu-showcase-width: min(1040px, calc(100vw - 128px));
+  }
+
+  .main-content.page-width {
+    width: var(--menu-showcase-width);
+  }
+
+  .menu-hero {
+    min-height: clamp(380px, 34vw, 430px);
+    margin: calc(-1 * (var(--header-height) + 18px)) 0 -1px calc(50% - 50vw);
+    padding:
+      calc(var(--header-height) + clamp(34px, 4vw, 56px))
+      max(64px, calc((100vw - var(--content-width)) / 2 + 24px))
+      clamp(38px, 4.2vw, 58px);
+    align-items: center;
+    background:
+      linear-gradient(90deg, rgba(17, 18, 15, 0.94) 0%, rgba(17, 18, 15, 0.74) 42%, rgba(17, 18, 15, 0.16) 100%),
+      radial-gradient(circle at 72% 22%, rgba(202, 163, 92, 0.16), transparent 32%),
+      linear-gradient(180deg, rgba(17, 18, 15, 0.02) 0%, rgba(17, 18, 15, 0.08) 60%, #11120f 100%),
+      url("../img/caesar-hero.jpg") center top / cover no-repeat;
+  }
+
+  .menu-hero:has(.seasonal-menu),
+  .menu-hero--with-seasonal {
+    min-height: clamp(380px, 34vw, 430px);
+  }
+
+  .menu-hero::before {
+    bottom: -2px;
+    height: min(34vh, 300px);
+  }
+
+  .menu-hero__content {
+    width: min(430px, 100%);
+  }
+
+  .menu-hero h1 {
+    font-size: clamp(58px, 6vw, 86px);
+    line-height: 0.9;
+  }
+
+  .menu-hero__copy {
+    max-width: 390px;
+    font-size: 14px;
+  }
+}
+
+@media (min-width: 620px) and (max-width: 1120px) {
+  .app-shell:has(.menu-hero) {
+    --menu-showcase-width: min(920px, calc(100vw - 40px));
+  }
+}
+
+@media (max-width: 619px) {
+  .app-shell:has(.menu-hero) {
+    --content-width: 1180px;
+  }
+}
+
+@media (min-width: 620px) and (max-width: 767px) {
+  .app-shell:has(.menu-hero) {
+    --menu-showcase-width: min(720px, calc(100vw - 40px));
+  }
+}

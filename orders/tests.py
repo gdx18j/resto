@@ -1,5 +1,6 @@
 import io
 import json
+import re
 from pathlib import Path
 from datetime import timedelta
 from decimal import Decimal
@@ -20,6 +21,32 @@ from django.utils import timezone
 from menu.models import Category, Dish, DishIngredient, Ingredient
 from orders import services as order_services
 from orders.admin import OrderAdmin, TableAdmin
+
+
+CSS_IMPORT_RE = re.compile(r'@import\s+url\(["\']?([^"\')]+)["\']?\);')
+
+
+def read_css_with_imports(path):
+    path = Path(path)
+    seen = set()
+
+    def read_one(css_path):
+        css_path = css_path.resolve()
+        if css_path in seen:
+            return ""
+        seen.add(css_path)
+
+        chunks = []
+        for line in css_path.read_text(encoding="utf-8").splitlines(keepends=True):
+            match = CSS_IMPORT_RE.match(line.strip())
+            if match:
+                chunks.append(read_one(css_path.parent / match.group(1)))
+            else:
+                chunks.append(line)
+        return "".join(chunks)
+
+    return read_one(path)
+
 from orders.models import (
     Order,
     OrderItemModifier,
@@ -2319,7 +2346,7 @@ class CartStaticContractTests(TestCase):
         self.assertIsNotNone(base_css_path)
 
         cart_css = Path(cart_css_path).read_text(encoding="utf-8")
-        menu_css = Path(menu_css_path).read_text(encoding="utf-8")
+        menu_css = read_css_with_imports(menu_css_path)
         base_css = Path(base_css_path).read_text(encoding="utf-8")
 
         self.assertIn("Desktop cart is an overlay", cart_css)
