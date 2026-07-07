@@ -217,6 +217,7 @@
     var downDistance = 0;
     var minDelta = 8;
     var hideDistance = 34;
+    var releaseDistance = 24;
     var topLock = 88;
 
     placeholder.className = "menu-controls-placeholder";
@@ -226,6 +227,8 @@
       placeholder.remove();
     });
 
+    var flowBottomMargin = cssPx(controls, "margin-bottom", 0);
+
     function headerTop() {
       return rootPx("--header-height", 68) - 1;
     }
@@ -233,7 +236,6 @@
     function measure() {
       var controlsStyle = window.getComputedStyle(controls);
       var searchStyle = window.getComputedStyle(searchPanel);
-      var bottomMargin = cssPx(controls, "margin-bottom", 0);
       var paddingY = cssPx(controls, "padding-top", 0) + cssPx(controls, "padding-bottom", 0);
       var searchOffset = Math.max(
         0,
@@ -249,10 +251,13 @@
         return;
       }
 
+      if (!floating) {
+        flowBottomMargin = cssPx(controls, "margin-bottom", flowBottomMargin);
+      }
       controls.style.setProperty("--menu-mobile-search-offset", searchOffset + "px");
       controls.style.setProperty("--menu-mobile-hidden-height", hiddenHeight + "px");
       controls.style.setProperty("--menu-mobile-visible-height", visibleHeight + "px");
-      controls.style.setProperty("--menu-mobile-placeholder-height", Math.round(visibleHeight + bottomMargin) + "px");
+      controls.style.setProperty("--menu-mobile-placeholder-height", Math.round(visibleHeight + flowBottomMargin) + "px");
       placeholder.style.height = "var(--menu-mobile-placeholder-height)";
     }
 
@@ -307,7 +312,7 @@
       }
 
       if (floating) {
-        if (anchorTop() > headerTop() + 1) {
+        if (anchorTop() > headerTop() + releaseDistance) {
           setFloating(false);
         }
       } else if (anchorTop() <= headerTop()) {

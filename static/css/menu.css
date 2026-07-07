@@ -1583,6 +1583,8 @@ label[for="theme-toggle"] {
   }
 
   .menu-controls + .preference-note,
+  .menu-controls-placeholder + .preference-note,
+  .menu-controls-placeholder:not([hidden]) ~ .preference-note,
   .menu-controls + .menu-section {
     margin-top: 16px;
   }
@@ -2976,30 +2978,6 @@ label[for="theme-toggle"] {
 
   .search-section {
     max-width: 100%;
-  }
-
-  .menu-controls.is-sticky-search-enhanced,
-  .menu-controls.is-sticky-search-enhanced.is-search-visible,
-  .menu-controls.is-sticky-search-enhanced.is-search-hidden {
-    top: calc(var(--header-height) - 1px);
-    overflow: hidden;
-    border-radius: 14px;
-  }
-
-  .menu-controls.is-sticky-search-enhanced .menu-search-panel {
-    position: relative;
-    left: auto;
-    right: auto;
-    bottom: auto;
-    margin: 0 0 10px;
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-  }
-
-  .menu-controls.is-sticky-search-enhanced.is-search-hidden .menu-search-panel {
-    display: none;
   }
 
   .category-strip {

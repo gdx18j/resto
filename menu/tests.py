@@ -167,6 +167,22 @@ class MenuRenderingTests(TestCase):
         self.assertIn(".seasonal-menu--pair .seasonal-menu__track", showcase_css_source)
         self.assertIn(".seasonal-menu--stack .seasonal-card.is-active", showcase_css_source)
         self.assertIn("scroll-snap-type: x proximity", showcase_css_source)
+        self.assertIn("height: 214px", showcase_css_source)
+        self.assertIn("translate3d(calc(-50% - 300px), 3px, 0) scale(0.9)", showcase_css_source)
+        self.assertIn(".main-content.page-width", showcase_css_source)
+        self.assertIn("width: var(--menu-showcase-width)", showcase_css_source)
+        self.assertNotIn(".menu-controls.is-sticky-search-enhanced", showcase_css_source)
+        self.assertIn("bottom: calc(100% - 1px)", css_source)
+        self.assertIn("opacity 150ms ease", css_source)
+        self.assertIn("transform 180ms ease", css_source)
+        self.assertIn("top: calc(var(--header-height) + var(--menu-search-height)", css_source)
+        hidden_search_rule = css_source[
+            css_source.find(".menu-controls.is-sticky-search-enhanced.is-search-hidden .menu-search-panel"):
+            css_source.find(".search-section")
+        ]
+        self.assertIn("visibility: hidden", hidden_search_rule)
+        self.assertIn("transform: translate3d(0, -8px, 0)", hidden_search_rule)
+        self.assertNotIn("display: none", hidden_search_rule)
         self.assertNotIn(".seasonal-menu::after", css_source)
 
     def test_seasonal_feature_validates_restaurant_and_period(self):
@@ -368,6 +384,8 @@ class MenuRenderingTests(TestCase):
         self.assertIn("--menu-mobile-search-offset", sticky_source)
         self.assertIn("--menu-mobile-hidden-height", sticky_source)
         self.assertIn("--menu-mobile-visible-height", sticky_source)
+        self.assertIn("flowBottomMargin", sticky_source)
+        self.assertIn("releaseDistance = 24", sticky_source)
         self.assertIn('on(window, "scroll"', sticky_source)
         self.assertNotIn('window.addEventListener("wheel"', sticky_source)
         self.assertNotIn('window.addEventListener("touchstart"', sticky_source)
@@ -390,6 +408,8 @@ class MenuRenderingTests(TestCase):
         self.assertIn("position: fixed", css_source)
         self.assertIn("height: var(--menu-mobile-hidden-height)", css_source)
         self.assertIn("transform: translate3d(0, calc(-1 * var(--menu-mobile-search-offset)), 0)", css_source)
+        self.assertIn(".menu-controls-placeholder + .preference-note", css_source)
+        self.assertIn(".menu-controls-placeholder:not([hidden]) ~ .preference-note", css_source)
         self.assertIn("contain: layout paint", css_source)
         self.assertNotIn(".menu-controls.is-search-collapsed", css_source)
         self.assertNotIn("menu-floating-search", css_source)

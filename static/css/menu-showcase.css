@@ -11,6 +11,10 @@
     --menu-showcase-width: min(1040px, calc(100vw - 128px));
   }
 
+  .main-content.page-width {
+    width: var(--menu-showcase-width);
+  }
+
   .menu-hero {
     min-height: clamp(380px, 34vw, 430px);
     margin: calc(-1 * (var(--header-height) + 18px)) 0 0 calc(50% - 50vw);
@@ -55,8 +59,8 @@
 
   .seasonal-menu--desktop {
     width: var(--menu-showcase-width);
-    margin: 0 auto 18px;
-    padding-top: 18px;
+    margin: 0 auto 22px;
+    padding-top: 14px;
   }
 
   .seasonal-menu__heading {
@@ -91,7 +95,7 @@
   }
 
   .seasonal-menu--stack .seasonal-menu__track {
-    height: 222px;
+    height: 214px;
   }
 
   .seasonal-menu--single .seasonal-card,
@@ -161,11 +165,11 @@
   }
 
   .seasonal-menu--stack .seasonal-card.is-prev {
-    transform: translate3d(calc(-50% - 300px), 10px, 0) scale(0.9);
+    transform: translate3d(calc(-50% - 300px), 3px, 0) scale(0.9);
   }
 
   .seasonal-menu--stack .seasonal-card.is-next {
-    transform: translate3d(calc(-50% + 300px), 10px, 0) scale(0.9);
+    transform: translate3d(calc(-50% + 300px), 3px, 0) scale(0.9);
   }
 
   .seasonal-menu--stack .seasonal-card.is-before-prev,
@@ -175,11 +179,11 @@
   }
 
   .seasonal-menu--stack .seasonal-card.is-before-prev {
-    transform: translate3d(calc(-50% - 410px), 16px, 0) scale(0.84);
+    transform: translate3d(calc(-50% - 410px), 8px, 0) scale(0.84);
   }
 
   .seasonal-menu--stack .seasonal-card.is-after-next {
-    transform: translate3d(calc(-50% + 410px), 16px, 0) scale(0.84);
+    transform: translate3d(calc(-50% + 410px), 8px, 0) scale(0.84);
   }
 
   .seasonal-menu--single .seasonal-menu__dots,
@@ -207,30 +211,6 @@
     margin: 0 auto 20px;
     padding: 12px;
     border-radius: 14px;
-  }
-
-  .menu-controls.is-sticky-search-enhanced,
-  .menu-controls.is-sticky-search-enhanced.is-search-visible,
-  .menu-controls.is-sticky-search-enhanced.is-search-hidden {
-    top: calc(var(--header-height) - 1px);
-    overflow: hidden;
-    border-radius: 14px;
-  }
-
-  .menu-controls.is-sticky-search-enhanced .menu-search-panel {
-    position: relative;
-    left: auto;
-    right: auto;
-    bottom: auto;
-    margin: 0 0 10px;
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-  }
-
-  .menu-controls.is-sticky-search-enhanced.is-search-hidden .menu-search-panel {
-    display: none;
   }
 
   .category-row {
@@ -264,11 +244,11 @@
   }
 
   .seasonal-menu--stack .seasonal-card.is-prev {
-    transform: translate3d(calc(-50% - 230px), 10px, 0) scale(0.9);
+    transform: translate3d(calc(-50% - 230px), 3px, 0) scale(0.9);
   }
 
   .seasonal-menu--stack .seasonal-card.is-next {
-    transform: translate3d(calc(-50% + 230px), 10px, 0) scale(0.9);
+    transform: translate3d(calc(-50% + 230px), 3px, 0) scale(0.9);
   }
 }
 
