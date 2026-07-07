@@ -1017,28 +1017,50 @@ label[for="theme-toggle"] {
 
 .menu-controls.is-sticky-search-enhanced {
   overflow: visible;
+  isolation: isolate;
 }
 
 .menu-controls.is-sticky-search-enhanced.is-search-visible {
   top: calc(var(--header-height) + var(--menu-search-height) + var(--menu-search-gap) - 1px);
+  border-color: transparent;
   border-radius: 0 0 20px 20px;
+  background: transparent;
+}
+
+.menu-controls.is-sticky-search-enhanced.is-search-visible::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  left: 0;
+  right: 0;
+  top: calc(-1 * (var(--menu-search-height) + var(--menu-search-gap)));
+  bottom: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 15%, var(--line));
+  border-radius: 20px;
+  background: var(--surface-raised);
+  pointer-events: none;
 }
 
 .menu-controls.is-sticky-search-enhanced.is-search-hidden {
   border-radius: 20px;
 }
 
+.menu-controls.is-sticky-search-enhanced .menu-search-panel,
+.menu-controls.is-sticky-search-enhanced .category-controls {
+  position: relative;
+  z-index: 1;
+}
+
 .menu-controls.is-sticky-search-enhanced .menu-search-panel {
   position: absolute;
-  left: -1px;
-  right: -1px;
-  bottom: calc(100% - 1px);
+  left: 0;
+  right: 0;
+  bottom: 100%;
   margin: 0;
   padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 15%, var(--line));
-  border-bottom: 0;
+  border: 0;
   border-radius: 20px 20px 0 0;
-  background: var(--surface-raised);
+  background: transparent;
   box-shadow: none;
 }
 
@@ -1426,22 +1448,8 @@ label[for="theme-toggle"] {
     isolation: isolate;
   }
 
-  .menu-controls.is-mobile-menu-floating {
-    position: sticky;
-    top: calc(var(--header-height) - 1px);
-    z-index: 42;
-    width: 100%;
-    height: auto;
-    margin: 0 0 16px;
-    border-radius: 16px;
-    transform: translate3d(0, 0, 0);
-    transition: none;
-    will-change: auto;
-  }
-
-  .menu-controls.is-mobile-menu-floating.is-search-hidden {
-    height: auto;
-    border-radius: 16px;
+  .menu-controls.is-mobile-directional-menu {
+    overflow: visible;
   }
 
   .menu-search-panel {
@@ -1459,8 +1467,22 @@ label[for="theme-toggle"] {
     will-change: auto;
   }
 
+  .category-row {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .category-strip {
+    margin-inline: -6px;
+    padding-inline: 18px 22px;
+    scroll-padding-inline: 18px;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 22px), transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 22px), transparent 100%);
+  }
+
   .menu-controls.is-mobile-stable-menu .menu-search-panel,
-  .menu-controls.is-mobile-stable-menu.is-search-hidden .menu-search-panel {
+  .menu-controls.is-mobile-stable-menu.is-search-hidden .menu-search-panel,
+  .menu-controls.is-mobile-directional-menu .menu-search-panel {
     visibility: visible;
     opacity: 1;
     pointer-events: auto;
@@ -1468,19 +1490,35 @@ label[for="theme-toggle"] {
   }
 
   .menu-controls.is-mobile-stable-menu .category-controls,
-  .menu-controls.is-mobile-stable-menu.is-search-hidden .category-controls {
+  .menu-controls.is-mobile-stable-menu.is-search-hidden .category-controls,
+  .menu-controls.is-mobile-directional-menu .category-controls,
+  .menu-controls.is-mobile-directional-menu.is-search-hidden .category-controls {
     transform: translate3d(0, 0, 0);
   }
 
+  .menu-controls.is-mobile-directional-menu .menu-search-panel {
+    overflow: hidden;
+    max-height: var(--menu-mobile-search-panel-height, 96px);
+    margin-bottom: var(--menu-search-gap);
+    transition:
+      max-height 170ms ease,
+      margin-bottom 170ms ease,
+      opacity 130ms ease,
+      visibility 0s linear 0s;
+  }
+
   .menu-controls.is-mobile-directional-menu.is-search-hidden .menu-search-panel {
+    max-height: 0;
+    margin-bottom: 0;
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transform: translate3d(0, calc(-1 * var(--menu-mobile-search-offset)), 0);
-  }
-
-  .menu-controls.is-mobile-directional-menu.is-search-hidden .category-controls {
-    transform: translate3d(0, calc(-1 * var(--menu-mobile-search-offset)), 0);
+    transform: translate3d(0, 0, 0);
+    transition:
+      max-height 170ms ease,
+      margin-bottom 170ms ease,
+      opacity 120ms ease,
+      visibility 0s linear 140ms;
   }
 
   .menu-controls.is-sticky-search-enhanced,
