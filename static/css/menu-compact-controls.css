@@ -1,0 +1,97 @@
+/*
+ * Compact responsive search/category controls layer.
+ * Extracted from menu-responsive-compact.css. Keep import order in menu.css.
+ */
+
+@media (max-width: 619px) {
+  .menu-controls,
+  .menu-hero + .menu-controls {
+    --menu-search-gap: 8px;
+    position: sticky;
+    top: calc(var(--header-height) - 1px);
+    z-index: 42;
+    width: 100%;
+    margin: 0 0 16px;
+    padding: 8px 10px 10px;
+    border-radius: 16px;
+    background: var(--surface-raised);
+    box-shadow: none;
+    overflow: visible;
+    transform: translate3d(0, 0, 0);
+    transition: none;
+    animation: none;
+  }
+
+  .menu-search-panel {
+    position: relative;
+    margin: 0 0 var(--menu-search-gap);
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    opacity: 1;
+    visibility: visible;
+    transform: translate3d(0, 0, 0);
+    transition: none;
+    will-change: auto;
+  }
+
+  .category-controls {
+    position: relative;
+    transform: translate3d(0, 0, 0);
+    transition: none;
+    will-change: auto;
+  }
+
+  .category-row {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .category-strip {
+    margin-inline: -6px;
+    padding-inline: 18px 22px;
+    scroll-padding-inline: 18px;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 22px), transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 22px), transparent 100%);
+  }
+
+  .menu-controls.is-sticky-search-enhanced,
+  .menu-controls.is-sticky-search-enhanced.is-search-visible,
+  .menu-controls.is-sticky-search-enhanced.is-search-hidden {
+    top: auto;
+    border-radius: 16px;
+  }
+
+  .menu-controls.is-sticky-search-enhanced .menu-search-panel {
+    position: relative;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .search-section,
+  .category-row {
+    transform: translate3d(0, 0, 0);
+  }
+
+  .category-chip:hover,
+  .category-chip.is-active {
+    transform: none;
+  }
+
+  .menu-hero + .menu-controls {
+    margin: 0 0 14px;
+    animation: none;
+    transform: none;
+  }
+
+  .menu-controls + .preference-note,
+  .menu-controls + .menu-section {
+    margin-top: 16px;
+  }
+}

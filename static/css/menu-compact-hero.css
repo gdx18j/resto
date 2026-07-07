@@ -1,0 +1,87 @@
+/*
+ * Compact responsive hero/header layer.
+ * Extracted from menu-responsive-compact.css. Keep import order in menu.css.
+ */
+
+@media (max-width: 619px) {
+  html,
+  body {
+    overflow-anchor: none;
+  }
+
+  .site-header {
+    backdrop-filter: none;
+  }
+
+  .menu-hero {
+    min-height: calc(100svh - 12px);
+    margin-top: calc(-1 * (var(--header-height) + 18px));
+    margin-bottom: 0;
+    padding: calc(var(--header-height) + 104px) 18px 24px;
+    background:
+      linear-gradient(180deg, rgba(17, 18, 15, 0.24) 0%, rgba(17, 18, 15, 0.18) 42%, #11120f 100%),
+      linear-gradient(90deg, rgba(17, 18, 15, 0.9) 0%, rgba(17, 18, 15, 0.38) 58%, rgba(17, 18, 15, 0.64) 100%),
+      url("../img/caesar-mobile-hero.jpg") center center / cover no-repeat;
+    animation: none;
+    transform: none;
+  }
+
+  .menu-hero:has(.seasonal-menu) {
+    grid-template-rows: minmax(0, 1fr) auto;
+    row-gap: 28px;
+  }
+
+  .menu-hero::before {
+    height: min(30vh, 240px);
+    background: linear-gradient(180deg, transparent 0%, rgba(17, 18, 15, 0.72) 58%, #11120f 100%);
+  }
+
+  .menu-hero::after {
+    background:
+      radial-gradient(circle at 76% 18%, rgba(232, 194, 123, 0.14), transparent 32%),
+      linear-gradient(180deg, rgba(255, 248, 236, 0.03), transparent 38%);
+    opacity: 1;
+  }
+
+  .menu-hero__light {
+    display: none;
+  }
+
+  .menu-hero__texture {
+    display: none;
+  }
+
+  .menu-hero__content {
+    width: min(390px, 100%);
+    padding-bottom: 0;
+  }
+
+  .menu-hero__content::before {
+    top: -10px;
+    left: 0;
+    height: 58px;
+    opacity: 0.72;
+  }
+
+  .menu-hero__kicker {
+    font-size: 10px;
+  }
+
+  .menu-hero h1 {
+    font-size: clamp(40px, 15vw, 62px);
+    line-height: 0.9;
+  }
+
+  .menu-hero__copy {
+    max-width: 310px;
+    margin-top: 14px;
+    font-size: 13px;
+  }
+
+  .menu-hero__menu-link {
+    min-height: 42px;
+    margin-top: 22px;
+    padding-left: 15px;
+    font-size: 12px;
+  }
+}

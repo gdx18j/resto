@@ -13,7 +13,10 @@
 @import url("menu-hero.css");
 @import url("menu-seasonal.css");
 @import url("menu-controls.css");
-@import url("menu-responsive-compact.css");
+@import url("menu-compact-seasonal.css");
+@import url("menu-compact-controls.css");
+@import url("menu-compact-hero.css");
+@import url("menu-compact-layout.css");
 @import url("menu-dishes.css");
 @import url("menu-dish-detail.css");
 @import url("menu-overlays.css");
