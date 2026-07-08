@@ -16,7 +16,7 @@
         </p>
         <h1>Caesar &amp; Company</h1>
         <p class="menu-hero__copy">
-          {% if ordering_enabled %}
+          {% if ordering_enabled or cart_restaurant %}
             <span class="lang lang--ru">Выберите блюда, проверьте состав и добавьте заказ в корзину.</span>
             <span class="lang lang--en">Choose dishes, check details, and add your order to the cart.</span>
             <span class="lang lang--tr">Yemekleri seçin, detayları kontrol edin ve siparişinizi sepete ekleyin.</span>
@@ -363,7 +363,7 @@
                 </div>
 
                 <div class="dish-footer">
-                  {% if ordering_enabled %}
+                  {% if ordering_enabled or cart_restaurant %}
                     <div
                       class="dish-cart-control"
                       data-id="dish-{{ dish.id }}"
@@ -374,14 +374,17 @@
                       data-price="{{ dish.price }}"
                       data-dish-cart-control
                     >
+                      <span class="dish-cart-control__price" aria-label="{% if ui_language == 'en' %}Price: {{ dish.price }} rubles{% elif ui_language == 'tr' %}Fiyat: {{ dish.price }} ruble{% else %}Цена: {{ dish.price }} рублей{% endif %}">
+                        <strong>{{ dish.price }} ₽</strong>
+                      </span>
+
                       <button
                         class="dish-price-button"
                         type="button"
                         data-add-btn
                         aria-label="{% if ui_language == 'en' %}Add to cart: {{ dish.name_translations.en }}{% elif ui_language == 'tr' %}Sepete ekle: {{ dish.name_translations.tr }}{% else %}Добавить в корзину: {{ dish.name_translations.ru }}{% endif %}"
                       >
-                        <svg class="dish-price-button__icon" aria-hidden="true"><use href="#i-cart"/></svg>
-                        <strong>{{ dish.price }} ₽</strong>
+                        <span class="dish-price-button__plus" aria-hidden="true">+</span>
                       </button>
 
                       <div class="dish-qty-stepper" data-dish-qty-stepper hidden>

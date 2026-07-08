@@ -17,10 +17,10 @@
 @import url("menu-compact-controls.css");
 @import url("menu-compact-hero.css");
 @import url("menu-compact-layout.css");
-@import url("menu-dishes.css");
-@import url("menu-dish-detail.css");
+@import url("menu-dishes.css?v=20260708-pairings-v2");
+@import url("menu-dish-detail.css?v=20260708-pairings-v2");
 @import url("menu-overlays.css");
-@import url("menu-responsive-layout.css");
+@import url("menu-responsive-layout.css?v=20260708-pairings-v2");
 @import url("menu-order-success.css");
 @import url("menu-a11y-compact-sticky.css");
 @import url("menu-showcase-hero.css");

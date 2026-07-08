@@ -11,15 +11,15 @@
   <script src="{% static 'js/ui-preferences.js' %}"></script>
 
   {% if menu_page %}
-    <link rel="stylesheet" href="{% static 'css/menu.css' %}">
+    <link rel="stylesheet" href="{% static 'css/menu.css' %}?v=20260708-pairings-v2">
   {% else %}
     <link rel="stylesheet" href="{% static 'css/base.css' %}">
   {% endif %}
   {% if not hide_ai_widget and cart_restaurant %}
-    <link rel="stylesheet" href="{% static 'css/ai-assistant.css' %}">
+    <link rel="stylesheet" href="{% static 'css/ai-assistant.css' %}?v=20260708-pairings-v2">
   {% endif %}
-  {% if ordering_enabled %}
-    <link rel="stylesheet" href="{% static 'css/cart.css' %}">
+  {% if ordering_enabled or menu_page and cart_restaurant %}
+    <link rel="stylesheet" href="{% static 'css/cart.css' %}?v=20260708-pairings-v2">
   {% endif %}
   {% block extra_head %}{% endblock %}
 </head>
@@ -59,14 +59,14 @@
 
   <div
     class="app-shell"
-    data-ordering-enabled="{% if ordering_enabled %}1{% else %}0{% endif %}"
-    data-cart-quote-url="{% if ordering_enabled %}{% url 'orders:quote' %}{% endif %}"
-    data-cart-create-url="{% if ordering_enabled %}{% url 'orders:create' %}{% endif %}"
+    data-ordering-enabled="{% if ordering_enabled or menu_page and cart_restaurant %}1{% else %}0{% endif %}"
+    data-cart-quote-url="{% if ordering_enabled or menu_page and cart_restaurant %}{% url 'orders:quote' %}{% endif %}"
+    data-cart-create-url="{% if ordering_enabled or menu_page and cart_restaurant %}{% url 'orders:create' %}{% endif %}"
     data-cart-restaurant-slug="{% if cart_restaurant %}{{ cart_restaurant.slug }}{% endif %}"
     data-cart-table-context="{{ cart_table_context|default:'' }}"
     data-cart-table-number="{{ current_table_number|default:'' }}"
-    data-cart-order-source="{{ cart_order_source|default:'' }}"
-    data-cart-storage-scope="{{ cart_storage_scope|default:'' }}"
+    data-cart-order-source="{% if cart_order_source %}{{ cart_order_source }}{% elif menu_page and cart_restaurant %}counter{% endif %}"
+    data-cart-storage-scope="{% if cart_storage_scope %}{{ cart_storage_scope }}{% elif menu_page and cart_restaurant %}{{ cart_restaurant.slug }}{% endif %}"
     data-table-context-activation-url="{{ table_context_activation_url|default:'' }}"
     data-table-context-clean-url="{{ table_context_clean_url|default:'' }}"
     data-table-context-ttl-seconds="{{ table_context_ttl_seconds|default:43200 }}"
@@ -352,8 +352,8 @@
     <script src="{% static 'js/menu-sticky.js' %}" defer></script>
     <script src="{% static 'js/menu-showcase.js' %}" defer></script>
     <script
-      src="{% static 'js/menu-ui-loader.js' %}"
-      data-menu-ui-script-url="{% static 'js/menu-ui.js' %}"
+      src="{% static 'js/menu-ui-loader.js' %}?v=20260708-pairings-v2"
+      data-menu-ui-script-url="{% static 'js/menu-ui.js' %}?v=20260708-pairings-v2"
       defer
     ></script>
   {% endif %}
@@ -364,8 +364,8 @@
       defer
     ></script>
   {% endif %}
-  {% if ordering_enabled %}
-    <script src="{% static 'js/cart.js' %}" defer></script>
+  {% if ordering_enabled or menu_page and cart_restaurant %}
+    <script src="{% static 'js/cart.js' %}?v=20260708-pairings-v2" defer></script>
   {% endif %}
   {% block extra_scripts %}{% endblock %}
 </body>

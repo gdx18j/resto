@@ -326,45 +326,126 @@
 .dish-cart-control {
   position: relative;
   z-index: 2;
-  width: 112px;
-  min-width: 112px;
-  min-height: 36px;
-  display: inline-grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
   align-items: center;
-  justify-items: stretch;
+  gap: 8px;
 }
 
 .dish-cart-control > [hidden] {
   display: none !important;
 }
 
-.dish-cart-control .dish-price-button {
-  width: 100%;
+.dish-cart-control__price {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text);
+}
+
+.dish-cart-control__price strong {
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.dish-cart-control .dish-price-button,
+.dish-cart-control .dish-qty-stepper {
+  justify-self: end;
 }
 
 .dish-cart-control--detail {
   width: 100%;
   min-height: 46px;
   margin-top: 2px;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 10px;
 }
 
-.dish-cart-control--detail .dish-detail__add,
-.dish-cart-control--detail .dish-qty-stepper {
-  width: 100%;
+.dish-cart-control--detail .dish-cart-control__price strong {
+  font-size: 20px;
 }
+
+.dish-cart-control--detail .dish-detail__add {
+  justify-self: end;
+}
+
+.dish-cart-control--detail .dish-qty-stepper {
+  width: 150px;
+}
+
 .dish-price-button {
-  min-height: 36px;
-  padding: 0 12px 0 7px;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 0;
   border: 0;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
   color: var(--accent-contrast);
   background: var(--accent);
   cursor: pointer;
-  transition: background-color 180ms ease, transform 160ms ease, box-shadow 180ms ease;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 20%, transparent);
+  --dish-plus-size: 16px;
+  --dish-plus-thickness: 2px;
+  transition: background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.dish-price-button__plus {
+  position: relative;
+  display: block;
+  width: var(--dish-plus-size);
+  height: var(--dish-plus-size);
+  font-size: 0;
+  line-height: 0;
+  pointer-events: none;
+}
+
+.dish-price-button__plus::before,
+.dish-price-button__plus::after,
+.dish-qty-stepper__btn[data-dish-qty-action="inc"]::before,
+.dish-qty-stepper__btn[data-dish-qty-action="inc"]::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--dish-plus-size);
+  height: var(--dish-plus-thickness);
+  border-radius: 999px;
+  background: currentColor;
+  transform: translate(-50%, -50%);
+}
+
+.dish-price-button__plus::after,
+.dish-qty-stepper__btn[data-dish-qty-action="inc"]::after {
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.dish-price-button__icon {
+  display: none;
+}
+
+.dish-price-button:hover,
+.dish-price-button:focus-visible {
+  background: var(--accent-hover);
+  box-shadow: 0 10px 20px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.dish-price-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, white);
+  outline-offset: 2px;
+}
+
+.dish-price-button:active {
+  background: color-mix(in srgb, var(--accent-hover) 86%, var(--accent));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .dish-price-label {
@@ -390,98 +471,111 @@
   min-height: 46px;
 }
 
-.dish-price-button__icon {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
-  color: currentColor;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  fill: none;
-}
-
-.dish-price-button strong {
-  min-height: 36px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  white-space: nowrap;
-}
-
-.dish-price-button:hover {
-  background: var(--accent-hover);
-  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 24%, transparent);
-  transform: translateY(-1px);
-}
-
-.dish-price-button:active {
-  transform: scale(0.97);
-}
-
 .dish-qty-stepper {
-  min-height: 36px;
+  width: 120px;
+  height: 40px;
+  min-height: 40px;
+  box-sizing: border-box;
   display: inline-grid;
-  grid-template-columns: 36px minmax(28px, 1fr) 36px;
+  grid-template-columns: 40px 40px 40px;
   align-items: center;
   overflow: hidden;
-  border: 1px solid var(--accent);
+  border: 0;
   border-radius: 999px;
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 68%),
+    color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, var(--line)),
+    0 10px 22px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .dish-qty-stepper__btn {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
+  box-sizing: border-box;
   border: 0;
+  border-radius: 50%;
+  position: relative;
   display: grid;
   place-items: center;
-  color: inherit;
+  color: color-mix(in srgb, var(--accent) 82%, var(--text));
   background: transparent;
   cursor: pointer;
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 900;
   line-height: 1;
-  transition: background-color 160ms ease, color 160ms ease;
+  touch-action: manipulation;
+  transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
 }
 
-.dish-qty-stepper__btn:hover {
+.dish-qty-stepper__btn[data-dish-qty-action="inc"] {
   color: var(--accent-contrast);
   background: var(--accent);
+  --dish-plus-size: 16px;
+  --dish-plus-thickness: 2px;
+  font-size: 0;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.dish-qty-stepper__btn:hover,
+.dish-qty-stepper__btn:focus-visible {
+  color: var(--accent-contrast);
+  background: var(--accent-hover);
+}
+
+.dish-qty-stepper__btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, white);
+  outline-offset: -3px;
+}
+
+.dish-qty-stepper__btn:active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.dish-qty-stepper__btn[data-dish-qty-action="inc"]:active {
+  background: color-mix(in srgb, var(--accent-hover) 86%, var(--accent));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .dish-qty-stepper__count {
-  min-width: 28px;
-  padding-inline: 6px;
+  min-width: 40px;
+  padding-inline: 4px;
   text-align: center;
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 900;
+  line-height: 1;
 }
 
 .dish-qty-stepper--detail {
+  width: 150px;
+  height: 46px;
   min-height: 46px;
-  grid-template-columns: 46px minmax(48px, 1fr) 46px;
-  border-radius: 12px;
+  grid-template-columns: 46px 58px 46px;
+  border-radius: 999px;
 }
 
 .dish-qty-stepper--detail .dish-qty-stepper__btn {
   width: 46px;
   height: 46px;
-  font-size: 20px;
+  font-size: 22px;
+}
+
+.dish-qty-stepper--detail .dish-qty-stepper__btn[data-dish-qty-action="inc"] {
+  --dish-plus-size: 18px;
+  font-size: 0;
 }
 
 .dish-qty-stepper--detail .dish-qty-stepper__count {
+  min-width: 58px;
   font-size: 15px;
 }
+
 .dish-time {
   color: var(--muted);
   font-size: 10.5px;
   font-weight: 700;
   white-space: nowrap;
 }
-

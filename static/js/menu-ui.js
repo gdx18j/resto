@@ -385,6 +385,11 @@
         en: "Add",
         tr: "Ekle",
       },
+      pairings: {
+        ru: "Идеально сочетается",
+        en: "Pairs well with",
+        tr: "Yanına yakışır",
+      },
     };
 
     return langSpans(labels[key]);
@@ -423,11 +428,12 @@
       ' data-name-tr="', escapeAttr(dish.names && dish.names.tr), '"',
       ' data-price="', escapeAttr(dish.price), '"',
       ' data-dish-cart-control>',
-      '<button class="dish-detail__add" type="button" data-add-btn',
-      ' aria-label="', escapeAttr(t("addToCart") + localizedDishName(dish)), '">',
-      detailLabel("add"),
-      '<svg class="dish-price-button__icon" aria-hidden="true"><use href="#i-cart"/></svg>',
+      '<span class="dish-cart-control__price dish-cart-control__price--detail">',
       '<strong>', escapeHtml(dish.price), ' ₽</strong>',
+      '</span>',
+      '<button class="dish-detail__add dish-price-button" type="button" data-add-btn',
+      ' aria-label="', escapeAttr(t("addToCart") + localizedDishName(dish)), '">',
+      '<span class="dish-price-button__plus" aria-hidden="true">+</span>',
       '</button>',
       '<div class="dish-qty-stepper dish-qty-stepper--detail" data-dish-qty-stepper hidden>',
       '<button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="dec"',
@@ -437,6 +443,110 @@
       ' aria-label="', escapeAttr(t("increaseItem") + localizedDishName(dish)), '">+</button>',
       '</div>',
       '</div>',
+    ].join("");
+  }
+
+  function pairingCardsForDish(dish) {
+    var currentId = dish && dish.cart_id ? String(dish.cart_id) : "";
+    var currentCard = currentId ? document.getElementById(currentId) : lastDishCard;
+    var sameGridCards = [];
+    var result = [];
+    var seen = {};
+
+    function addCard(card) {
+      if (!card || !card.id || card.id === currentId || seen[card.id]) {
+        return;
+      }
+
+      if (card.dataset.menuRemoved === "1") {
+        return;
+      }
+
+      seen[card.id] = true;
+      result.push(card);
+    }
+
+    if (currentCard) {
+      var grid = currentCard.closest(".dish-grid");
+      if (grid) {
+        sameGridCards = Array.prototype.slice.call(grid.querySelectorAll("[data-dish-card]"));
+      }
+    }
+
+    if (sameGridCards.length) {
+      var index = sameGridCards.indexOf(currentCard);
+      sameGridCards.slice(index + 1).forEach(addCard);
+      sameGridCards.slice(0, Math.max(index, 0)).forEach(addCard);
+    }
+
+    dishCards.forEach(addCard);
+    return result.slice(0, 2);
+  }
+
+  function pairingCardHtml(card) {
+    var control = card ? card.querySelector("[data-dish-cart-control]") : null;
+    var entry = menuSearchEntry(card);
+    var image = card ? card.querySelector(".dish-image-button img") : null;
+    var names = entry && entry.names ? entry.names : {
+      ru: localizedCardName(card),
+      en: localizedCardName(card),
+      tr: localizedCardName(card),
+    };
+    var name = names[currentLanguage()] || names.ru || localizedCardName(card);
+    var price = control ? control.dataset.price || "" : "";
+    var placeholder = (name || "?").trim().charAt(0) || "?";
+    var mediaHtml = image
+      ? '<img src="' + escapeAttr(image.getAttribute("src") || "") + '" alt="" loading="lazy" decoding="async">'
+      : '<span>' + escapeHtml(placeholder) + '</span>';
+
+    if (!control || !price) {
+      return "";
+    }
+
+    return [
+      '<article class="dish-detail__pairing-card">',
+      '<span class="dish-detail__pairing-media" aria-hidden="true">', mediaHtml, '</span>',
+      '<span class="dish-detail__pairing-copy">',
+      '<strong>', langSpans(names), '</strong>',
+      '<small>', escapeHtml(price), ' ₽</small>',
+      '</span>',
+      '<span class="dish-detail__pairing-control"',
+      ' data-id="', escapeAttr(card.id), '"',
+      ' data-name="', escapeAttr(control.dataset.name || name), '"',
+      ' data-name-ru="', escapeAttr(control.dataset.nameRu || names.ru || name), '"',
+      ' data-name-en="', escapeAttr(control.dataset.nameEn || names.en || name), '"',
+      ' data-name-tr="', escapeAttr(control.dataset.nameTr || names.tr || name), '"',
+      ' data-price="', escapeAttr(price), '"',
+      ' data-dish-cart-control>',
+      '<button class="dish-price-button dish-detail__pairing-add" type="button" data-add-btn',
+      ' aria-label="', escapeAttr(t("addToCart") + name), '">',
+      '<span class="dish-price-button__plus" aria-hidden="true">+</span>',
+      '</button>',
+      '<span class="dish-qty-stepper dish-qty-stepper--pairing" data-dish-qty-stepper hidden>',
+      '<button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="dec"',
+      ' aria-label="', escapeAttr(t("decreaseItem") + name), '">−</button>',
+      '<span class="dish-qty-stepper__count" data-dish-qty-count aria-live="polite">0</span>',
+      '<button class="dish-qty-stepper__btn" type="button" data-dish-qty-action="inc"',
+      ' aria-label="', escapeAttr(t("increaseItem") + name), '">+</button>',
+      '</span>',
+      '</span>',
+      '</article>',
+    ].join("");
+  }
+
+  function buildDishPairingsHtml(dish) {
+    var cards = pairingCardsForDish(dish);
+    var items = cards.map(pairingCardHtml).filter(Boolean);
+
+    if (!items.length) {
+      return "";
+    }
+
+    return [
+      '<section class="dish-detail__section dish-detail__pairings">',
+      '<h3>', detailLabel("pairings"), '</h3>',
+      '<div class="dish-detail__pairing-grid">', items.join(""), '</div>',
+      '</section>',
     ].join("");
   }
 
@@ -606,6 +716,7 @@
         ].join("")
         : "",
       ingredientsHtml,
+      buildDishPairingsHtml(dish),
       allergensHtml,
       buildDishPurchaseHtml(dish),
       "</div>",

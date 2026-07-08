@@ -394,11 +394,13 @@ class MenuRenderingTests(TestCase):
         self.assertNotIn(" onchange=", html)
         self.assertIn('class="skip-link"', html)
 
-    def test_regular_menu_is_catalog_only(self):
+    def test_regular_menu_uses_counter_cart_controls(self):
         response = self.client.get(reverse("menu:dish_list"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'data-ordering-enabled="0"')
+        self.assertContains(response, 'data-ordering-enabled="1"')
+        self.assertContains(response, 'data-cart-order-source="counter"')
+        self.assertContains(response, 'data-cart-storage-scope="caesar-company"')
         self.assertContains(response, "static/css/menu.css")
         self.assertNotContains(response, "static/css/menu-showcase.css")
         self.assertNotContains(response, "static/css/base.css")
@@ -410,12 +412,13 @@ class MenuRenderingTests(TestCase):
         self.assertContains(response, "static/js/font-loader.js")
         self.assertNotContains(response, '<link href="https://fonts.googleapis.com')
         self.assertContains(response, "static/js/table-context.js")
-        self.assertContains(response, 'class="dish-price-label"')
-        self.assertNotContains(response, "data-add-btn")
-        self.assertNotContains(response, "static/js/cart.js")
-        self.assertNotContains(response, "static/css/cart.css")
-        self.assertContains(response, "Чтобы заказать на стол")
-
+        self.assertContains(response, 'class="dish-cart-control__price"')
+        self.assertContains(response, 'class="dish-price-button"')
+        self.assertContains(response, 'class="dish-price-button__plus"')
+        self.assertContains(response, "data-add-btn")
+        self.assertContains(response, "static/js/cart.js")
+        self.assertContains(response, "static/css/cart.css")
+        self.assertContains(response, "добавьте заказ в корзину")
     def test_menu_ui_runtime_loader_is_small_local_static_asset(self):
         loader_path = finders.find("js/menu-ui-loader.js")
         runtime_path = finders.find("js/menu-ui.js")

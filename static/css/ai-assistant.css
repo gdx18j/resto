@@ -308,6 +308,10 @@ body.ai-assistant-lock {
 .ai-assistant .ai-assistant__dish-price-button {
   padding: 0;
   border: 1px solid var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   color: var(--accent-contrast);
   background: var(--accent);
   box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 20%, transparent);
@@ -323,6 +327,7 @@ body.ai-assistant-lock {
   width: 16px;
   height: 16px;
   flex-basis: 16px;
+  display: block;
 }
 
 .ai-assistant .ai-assistant__dish-qty-stepper {
