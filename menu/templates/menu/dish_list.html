@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% load menu_image_tags %}
 
 {% block title %}{% if ui_language == "en" %}Menu{% elif ui_language == "tr" %}Menü{% else %}Меню{% endif %} | Caesar &amp; Company{% endblock %}
 {% block meta_description %}Цифровое меню ресторана Caesar & Company.{% endblock %}
@@ -281,20 +280,24 @@
               ></button>
 
               <div class="dish-image-button" aria-hidden="true">
-                <img
-                  src="{% if dish.image %}{{ dish.image.url }}{% else %}{{ dish.category.name|dish_fallback_image }}{% endif %}"
-                  alt=""
-                  width="640"
-                  height="480"
-                  decoding="async"
-                  {% if forloop.parentloop.first and forloop.first %}
-                    loading="eager"
-                    fetchpriority="high"
-                  {% else %}
-                    loading="lazy"
-                    fetchpriority="low"
-                  {% endif %}
-                >
+                {% if dish.image %}
+                  <img
+                    src="{{ dish.image.url }}"
+                    alt=""
+                    width="640"
+                    height="480"
+                    decoding="async"
+                    {% if forloop.parentloop.first and forloop.first %}
+                      loading="eager"
+                      fetchpriority="high"
+                    {% else %}
+                      loading="lazy"
+                      fetchpriority="low"
+                    {% endif %}
+                  >
+                {% else %}
+                  <span class="dish-placeholder">{{ dish.name|first }}</span>
+                {% endif %}
               </div>
 
               <div class="dish-body">
