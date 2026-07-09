@@ -267,7 +267,7 @@
         <div class="dish-grid">
           {% for dish in section.dishes %}
             <article
-              class="dish-card{% if not dish.image %} dish-card--no-image{% endif %}{% if dish.has_allergy_conflict %} dish-card--allergy-match{% endif %}"
+              class="dish-card{% if not dish.image_url %} dish-card--no-image{% endif %}{% if dish.has_allergy_conflict %} dish-card--allergy-match{% endif %}"
               id="dish-{{ dish.id }}"
               data-dish-card
               data-detail-url="{% url 'menu:dish_detail' restaurant_slug=restaurant.slug dish_id=dish.id %}"
@@ -280,9 +280,9 @@
               ></button>
 
               <div class="dish-image-button" aria-hidden="true">
-                {% if dish.image %}
+                {% if dish.image_url %}
                   <img
-                    src="{{ dish.image.url }}"
+                    src="{{ dish.image_url }}"
                     alt=""
                     width="640"
                     height="480"

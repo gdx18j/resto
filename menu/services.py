@@ -1,5 +1,6 @@
 from accounts.models import UserAllergy
 
+from .dish_images import static_dish_image_url
 from .models import DishAllergen
 from .translations import (
     LANGUAGES,
@@ -19,12 +20,12 @@ def _decimal_display(value):
 
 def _dish_image_url(dish):
     if not dish.image:
-        return ""
+        return static_dish_image_url(dish)
 
     try:
         return dish.image.url
     except ValueError:
-        return ""
+        return static_dish_image_url(dish)
 
 
 def build_dish_detail_payload(dishes):
@@ -392,6 +393,7 @@ def add_allergy_conflicts_to_dishes(
         user_allergen_ids = set(user_allergen_ids)
 
     for dish in dishes:
+        dish.image_url = _dish_image_url(dish)
         allergen_groups = _dish_allergen_groups(dish)
         dish_ingredients = list(dish.dish_ingredients.all())
         ingredients = [

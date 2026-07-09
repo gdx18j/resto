@@ -127,7 +127,11 @@ def _prepare_seasonal_features(restaurant, dishes):
             "cta",
             SEASONAL_DEFAULT_CTA,
         )
-        feature.image_url = _image_url(feature.image) or _image_url(dish.image)
+        feature.image_url = (
+            _image_url(feature.image)
+            or getattr(dish, "image_url", "")
+            or _image_url(dish.image)
+        )
         feature.placeholder = (dish.name or "C")[:1]
         features.append(feature)
 

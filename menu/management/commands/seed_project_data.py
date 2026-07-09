@@ -14,6 +14,7 @@ from menu.models import (
     CategoryTranslation,
     Dish,
     DishTranslation,
+    SeasonalDishFeature,
 )
 from menu.translation_seed import (
     ALLERGEN_TRANSLATIONS,
@@ -25,6 +26,38 @@ from orders.models import Restaurant, Table
 
 DEFAULT_RESTAURANT_SLUG = "caesar-company"
 DEFAULT_TABLE_NUMBERS = "1,2,3,4,5,6,7,8"
+DEFAULT_SEASONAL_FEATURES = [
+    {
+        "dish_name": "Hypatia",
+        "sort_order": 0,
+        "label_ru": "Сезонный десерт",
+        "label_en": "Seasonal dessert",
+        "label_tr": "Mevsim tatlısı",
+        "description_ru": "Нежный десерт с кофе американо для спокойной паузы.",
+        "description_en": "A delicate dessert paired with americano for an easy pause.",
+        "description_tr": "Americano ile eşleşen hafif bir tatlı molası.",
+    },
+    {
+        "dish_name": "Pompei Magnus",
+        "sort_order": 1,
+        "label_ru": "Сезонный выбор",
+        "label_en": "Seasonal pick",
+        "label_tr": "Mevsim seçimi",
+        "description_ru": "Сытный сэндвич с домашним лимонадом в фирменном стиле Caesar.",
+        "description_en": "A hearty sandwich with house lemonade in Caesar style.",
+        "description_tr": "Caesar tarzında doyurucu sandviç ve ev yapımı limonata.",
+    },
+    {
+        "dish_name": "Iced Matcha Mango Latte",
+        "sort_order": 2,
+        "label_ru": "Матча сезона",
+        "label_en": "Seasonal matcha",
+        "label_tr": "Mevsim matcha",
+        "description_ru": "Холодная матча с манго: яркий вкус для теплого дня.",
+        "description_en": "Iced mango matcha with a bright, sunny finish.",
+        "description_tr": "Mango dokunuşlu soğuk matcha, ferah ve canlı.",
+    },
+]
 
 
 class Command(BaseCommand):
@@ -199,6 +232,40 @@ class Command(BaseCommand):
             )
         )
 
+    def _seed_seasonal_features(self, restaurant):
+        updated = 0
+
+        for feature in DEFAULT_SEASONAL_FEATURES:
+            dish = Dish.objects.filter(
+                restaurant=restaurant,
+                code=build_stable_code(feature["dish_name"], prefix="dish"),
+            ).first()
+
+            if not dish:
+                continue
+
+            SeasonalDishFeature.objects.update_or_create(
+                restaurant=restaurant,
+                dish=dish,
+                defaults={
+                    "label_ru": feature["label_ru"],
+                    "label_en": feature["label_en"],
+                    "label_tr": feature["label_tr"],
+                    "description_ru": feature["description_ru"],
+                    "description_en": feature["description_en"],
+                    "description_tr": feature["description_tr"],
+                    "sort_order": feature["sort_order"],
+                    "is_active": True,
+                    "starts_at": None,
+                    "ends_at": None,
+                },
+            )
+            updated += 1
+
+        self.stdout.write(
+            self.style.SUCCESS(f"Seeded seasonal features: updated={updated}")
+        )
+
     @transaction.atomic
     def handle(self, *args, **options):
         self._assert_migrations_applied()
@@ -238,5 +305,8 @@ class Command(BaseCommand):
 
         if not options["skip_translations"]:
             self._seed_translations(restaurant)
+
+        if not options["skip_menu"]:
+            self._seed_seasonal_features(restaurant)
 
         self.stdout.write(self.style.SUCCESS("Project seed data is ready."))
