@@ -226,7 +226,7 @@
     var hideThreshold = 46;
     var showThreshold = 30;
     var toggleCooldownMs = 170;
-    var releaseHysteresis = 12;
+    var releaseHysteresis = 72;
 
     function headerTop() {
       return rootPx("--header-height", 68) - 1;
@@ -388,11 +388,10 @@
       }
       accumulatedDelta += delta;
 
-      if (direction > 0 && accumulatedDelta >= hideThreshold) {
-        setSearchVisible(false);
-      } else if (direction < 0 && Math.abs(accumulatedDelta) >= showThreshold) {
-        setSearchVisible(true);
-      }
+      // Keep the compact search panel visible while scrolling. Collapsing it on
+      // every direction change makes the sticky control resize under the finger,
+      // which reads as a jittery search bar on mobile browsers.
+      setSearchVisible(true);
 
       lastY = y;
     }
